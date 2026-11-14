@@ -186,9 +186,12 @@ export function SearchChat() {
     const s = summarizeResults(reports, spec, { considered, dropped: events.filter((e) => e.type === "drop").length });
     const quick = reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"];
     push(bot([...s.paragraphs, s.followUp], quick));
-    const next = { ...chat, phase: "results" as const };
+    const next = { ...chat, ...(replay ? { spec } : {}), phase: "results" as const };
     setChat(next);
     if (!replay) void persist({ messages: [{ role: "bot", kind: "text", payload: { paragraphs: [...s.paragraphs, s.followUp], quick } }], state: next, lastRunId: runId });
+    // A replay has no conversation; open one behind the scenes so follow-ups (compare, email, edits) reach the server.
+    else if (!conv.current) opening.current = postJSON<ChatResponse>("/api/chat", { open: true, spec })
+      .then(async (r) => { conv.current = r.conversationId; await persist({ state: next, lastRunId: runId }); }).catch(() => {});
     setResultsReady(true);
   }, [finished, spec, reports, events, runKey, runId, replay, chat]);
 
