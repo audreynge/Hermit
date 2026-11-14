@@ -131,6 +131,25 @@ export type Shell = {
   roomCount?: number;
   panoCount?: number;
   nearbyTenants?: string[];
+  parcel?: Parcel;
+};
+
+// Land/tax-record facts for buyers. Only fields a CoStar record actually carries; `sources` maps each to its CoStar field path.
+export type Parcel = {
+  apns?: string[];
+  lotAcres?: number;
+  lotSqft?: number;
+  landUse?: string;
+  subdivision?: string;
+  taxAmount?: number;
+  taxYear?: number;
+  assessedTotal?: number;
+  assessedLand?: number;
+  assessedImproved?: number;
+  assessmentYear?: number;
+  lastSaleDate?: string;
+  lastSalePrice?: number;
+  sources: Partial<Record<Exclude<keyof Parcel, "sources">, string>>;
 };
 
 export type RuleStatus = "pass" | "fail" | "warn" | "unknown";
