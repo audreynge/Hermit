@@ -16,7 +16,7 @@ const QUERY = `query($id: ID!) { model(id: $id) {
   panoLocations { id label position { x y z } }
   assets { floorplans { url format flags } }
   rooms { id label tags classifications { label confidence } dimensions { areaFloor height units } floor { id } panoLocations { id label }
-    boundary { edges { id type openings { type } vertices { position { x y } } } } }
+    boundary { edges { id type openings { type width relativeCenter } vertices { position { x y } } } } }
   objectAnnotations { label confidence room { id } }
 } }`;
 

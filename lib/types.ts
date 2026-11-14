@@ -16,6 +16,9 @@ export const RoomReq = z.object({
 });
 export type RoomReq = z.infer<typeof RoomReq>;
 
+// Plausible wheelchair widths (pediatric to bariatric); anything else is a typo or a misread number.
+export const isChairWidth = (w: unknown): w is number => typeof w === "number" && w >= 16 && w <= 40;
+
 export const Needs = z.object({
   kitchen: z.boolean().optional(),
   threePhase: z.boolean().optional(),
@@ -24,6 +27,7 @@ export const Needs = z.object({
   groundFloor: z.boolean().optional(),
   stepFree: z.boolean().optional(),
   wheelchair: z.boolean().optional(),
+  chairWidthIn: z.number().min(16).max(40).optional(), // the user's own chair, widest point
   outdoorArea: z.boolean().optional(),
   driveInBays: z.number().int().nonnegative().optional(),
   esfr: z.boolean().optional(),
@@ -80,11 +84,28 @@ export type RoomGraph = {
   floorplan?: string; // cached asset key
   totalAreaSqft: number;
   rooms: Room[];
-  edges: { a: string; b: string; kind: "door" | "possible" }[];
+  edges: ({ a: string; b: string; kind: "door" | "possible" } & DoorMeasure)[];
+  entries?: ({ roomId: string } & DoorMeasure)[]; // outside doors: a door on an edge no other room shares
   objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;
 };
+
+// The widest real opening on a wall: width in inches, open = a cased opening with no door leaf, at = its centre.
+export type DoorMeasure = { widthIn?: number; open?: true; at?: { x: number; y: number } };
+
+export type AccessRoom = {
+  roomId: string;
+  label: string;
+  status: "reachable" | "blocked" | "unknown";
+  reason: string | null;
+  turnCircleIn?: number; // bathrooms: largest clear circle, walls only
+  stopDoor?: { from: string; clearIn: number }; // blocked: the widest door in that still stops the chair; from "outside" = the front door
+  otherFloor?: true; // blocked because it is on a floor the chair can't get to
+};
+export type AccessEntry = { status: "fits" | "blocked" | "unknown"; clearIn?: number; roomId?: string; at?: { x: number; y: number } };
+export type AccessScenario = { entry: AccessEntry; rooms: AccessRoom[] };
+export type Access = { chairIn: [number, number]; asScanned: AccessRoom[]; hinges: AccessRoom[]; entry: AccessEntry; hingesEntry: AccessEntry };
 
 export type Listing = {
   listingId: number;
@@ -220,6 +241,7 @@ export type ShellReport = {
   inside?: { sid: string; sweepId?: string };
   above?: { lat: number; lon: number; provider: string; overlays: Overlay[] };
   floorplan?: RoomGraph;
+  access?: Access; // wheelchair route for the user's chair, when they need one and the scan has door widths
   draftMessage: string;
   badge: "scan-verified" | "record-only";
   sources: Evidence[];

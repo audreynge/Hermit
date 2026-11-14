@@ -1,7 +1,7 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, Mail, MapPin } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, Mail, MapPin, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { areaOf, highlights } from "@/lib/chat/present";
+import { accessLine, areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
 const cityOf = (address: string) => address.split(", ").slice(-2).join(", ");
@@ -66,6 +66,7 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEm
   const area = areaOf(report);
   const head = headline(report, area);
   const { listed, evidence } = status(report);
+  const access = accessLine(report, spec);
   return (
     <article className="space" data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
       <div className="space-photo">
@@ -85,7 +86,10 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEm
         </h3>
         <p className="space-facts num">{facts(report, area, head?.priced ? head.text : undefined).join(" · ")}</p>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
-        <ul>{highlights(report, spec).map((h) => <li key={h}><Check aria-hidden="true" /> {h}</li>)}</ul>
+        <ul>{highlights(report, spec).map((h) => {
+          const concern = h === access?.text && !access.ok; // a door problem must not wear a checkmark
+          return <li key={h}>{concern ? <TriangleAlert aria-hidden="true" style={{ color: "var(--warn)" }} /> : <Check aria-hidden="true" />} {concern && <span className="sr-only">Concern: </span>}{h}</li>;
+        })}</ul>
         <div className="space-actions">
           <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> Email manager</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>

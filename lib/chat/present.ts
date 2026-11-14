@@ -29,8 +29,28 @@ const USED_AS: Record<string, string> = {
   fitness: "fitness space", manufacturing: "light industrial space", home: "home",
 };
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// One line on how a wheelchair gets on, from the door checks in lib/reason/rules.ts.
+export function accessLine(r: ShellReport, spec: RequirementSpec): { text: string; ok: boolean } | null {
+  if (!spec.needs.wheelchair) return null;
+  const of = (rule: string, status: string) => r.rules.filter((x) => x.rule === rule && x.status === status);
+  const rooms = (hits: ShellReport["rules"]) => hits.map((h) => h.detail.split(":")[0].toLowerCase()).join(", ");
+  const narrow = of("door_width", "fail"), hinges = of("door_hinges", "warn");
+  if (of("front_door", "fail").length) return { text: "Front door too narrow for the chair", ok: false };
+  if (narrow.length) return { text: `${plural(narrow.length, "door")} too narrow for the chair (${rooms(narrow)})`, ok: false };
+  const upstairs = of("other_floor", "fail");
+  if (upstairs.length) return { text: `${rooms(upstairs).replace(/^./, (c) => c.toUpperCase())} on another floor: needs a stair lift`, ok: false };
+  if (hinges.length) return { text: `Chair fits with offset hinges on ${plural(hinges.length, "door")} (${rooms(hinges)})`, ok: false };
+  if (of("wheelchair_route", "pass").length) return { text: "Wheelchair reaches every main room", ok: true };
+  if (of("door_width", "unknown").length || of("front_door", "unknown").length) return { text: "Door widths not measured yet: ask the landlord", ok: false };
+  return null;
+}
+
 export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   const out: string[] = [];
+  const access = accessLine(r, spec);
+  if (access) out.push(access.text); // for a wheelchair user this decides the space, so it leads
   if (r.similarity) out.push(`Floor plan ${r.similarity.score}% like your drawing`);
   const area = areaOf(r);
   if (area && spec.sizeSqft) {

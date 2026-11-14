@@ -47,6 +47,7 @@ test.describe("design edits in chat", () => {
     await sheet(page).getByRole("button", { name: "Save layout" }).click();
     await sheet(page).getByRole("button", { name: /Use this layout/ }).click();
     await expect(conversation(page)).toContainText("Here's my layout");
+    await expect(conversation(page)).toContainText("Got your layout"); // the chat ignores a send while it is still answering
     await say(page, "add another exam room");
     const preview = conversation(page).getByRole("img", { name: /Your layout:/ }).last();
     await expect(preview).toHaveAttribute("aria-label", /Exam Room 3/);
