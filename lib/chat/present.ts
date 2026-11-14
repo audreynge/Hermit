@@ -22,7 +22,7 @@ function roomsPhrase(spec: Pick<RequirementSpec, "rooms">): string {
 const READY: Record<string, string> = {
   medical: "Clinic-ready layout (minimal build-out)", salon: "Salon-ready layout (minimal build-out)", office: "Office-ready layout (minimal build-out)",
   retail: "Storefront-ready (minimal build-out)", restaurant: "Already built out as a restaurant", warehouse: "Already built for warehouse use",
-  fitness: "Already built as a fitness space", manufacturing: "Already built for light industrial use",
+  fitness: "Already built as a fitness space", manufacturing: "Already built for light industrial use", home: "Already laid out as a home",
 };
 
 export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
@@ -84,7 +84,7 @@ export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, 
       `Got it! I searched ${fmt(stats.considered)} spaces in ${city}${size} would work well for ${an(spec.useType)}${rooms ? ` with ${rooms}` : ""}.`,
       `I found ${n} ${kind} match${n === 1 ? "" : "es"}, with ${shortName(top)} being the best fit (${top.matchScore}%)${list ? `: ${list}` : ""}.`,
     ],
-    followUp: "Would you like me to compare the layouts, adjust anything like size, location, or budget, or draft an email to the property manager?",
+    followUp: `Would you like me to compare the layouts, adjust anything like size, location, or budget, or draft an email to the ${spec.mode === "home" ? "listing agent" : "property manager"}?`,
   };
 }
 
@@ -139,7 +139,7 @@ export function traceSummary(events: TraceEvent[]): string[] {
 
 export function draftEmail(r: ShellReport) {
   const to = r.listing?.contact?.email ?? "";
-  const subject = `Inquiry about ${shortName(r)} at ${r.address}`;
+  const subject = r.address.startsWith(shortName(r)) ? `Inquiry about ${r.address}` : `Inquiry about ${shortName(r)} at ${r.address}`;
   const body = r.draftMessage;
   return { to, subject, body, mailto: `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` };
 }
