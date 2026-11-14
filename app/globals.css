@@ -58,7 +58,7 @@ button { font: inherit; color: inherit; }
 /* Header */
 header.top { position: relative; z-index: 2; display: flex; align-items: center; gap: var(--s6); padding: 14px 40px; background: rgb(255 250 246 / 0.75); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font-weight: 800; font-size: 34px; letter-spacing: -0.02em; padding-right: var(--s6); border-right: 1px solid var(--line); }
-.brand img { width: 112px; height: auto; margin: -16px 0 -18px -8px; }
+.brand img { width: 80px; height: auto; margin: -10px 0 -12px -4px; }
 nav.primary { display: flex; gap: var(--s3); }
 .ai-status { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
 a.ai-status { text-decoration: none; }
@@ -180,7 +180,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .msg.user { flex-direction: row-reverse; }
 .avatar { flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: var(--coral-wash); }
 .avatar.bot { background: #fff; border: 1px solid var(--line); overflow: hidden; }
-.avatar.bot img { width: 62px; margin-left: 6px; margin-top: 6px; }
+.avatar.bot img { width: 42px; height: auto; display: block; }
 .avatar.user svg { color: var(--coral); width: 30px; height: 30px; fill: var(--coral); }
 .bubbles { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 520px; }
 .bubble { padding: 18px 22px; border-radius: 22px; background: var(--coral-wash-2); font-size: 18px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -418,7 +418,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 @media (max-width: 760px) {
   header.top { flex-wrap: wrap; gap: 8px; padding: 10px 16px; }
   .brand { font-size: 26px; border-right: 0; padding-right: 0; }
-  .brand img { width: 64px; }
+  .brand img { width: 52px; }
   nav.primary { width: 100%; justify-content: space-between; gap: 2px; }
   nav.primary a { padding: 8px 10px; font-size: 15px; gap: 6px; }
   nav.primary svg { width: 18px; height: 18px; }
