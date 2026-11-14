@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accessLine, compareRows, displayName, draftEmail, highlights, summarizeResults, thinkingSteps, traceSummary } from "./present";
+import { accessLine, compareRows, displayName, draftEmail, highlights, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "./present";
 import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
 
 const spec: RequirementSpec = {
@@ -180,5 +180,16 @@ describe("compareRows", () => {
   it("leads card highlights with layout similarity when the user drew a plan", () => {
     const r = { reasons: [], fit: { assignment: [] }, rules: [], similarity: { score: 81, scale: 1, breakdown: { program: 80, adjacency: null, size: 90, shape: 70 }, pairs: [] } } as unknown as ShellReport;
     expect(highlights(r, { needs: {} } as RequirementSpec)[0]).toBe("Floor plan 81% like your drawing");
+  });
+});
+
+describe("searchCounts", () => {
+  const tool = (summary: string): TraceEvent => ({ type: "tool", id: "1", tool: "search_shells", args: {}, resultId: "r", summary, ms: 1 });
+  it("reads the stage path with thousands separators and numbers inside labels", () => {
+    expect(searchCounts([tool("2,659 scans indexed → 2,074 in Houston → 433 commercial spaces (not apartment amenities) → 350 2,000–3,000 sf (or size unknown) → 345 built for salon or a close use; 345 kept")]))
+      .toEqual({ indexed: 2659, considered: 345, kept: 345 });
+  });
+  it("still reads older recorded runs", () => {
+    expect(searchCounts([tool("2659 indexed → 2291 rejected by hard filters → 368 kept")])).toEqual({ indexed: 2659, considered: 368, kept: 368 });
   });
 });
