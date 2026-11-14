@@ -251,7 +251,8 @@ export function SearchChat() {
     const last = id ? fitouts[id]?.at(-1) : undefined;
     if (!id || !last) return push(bot(["There's no proposed change to keep yet."]));
     setFitouts((all) => ({ ...all, [id]: [...all[id].slice(0, -1), { ...last, kept: true }] }));
-    push(bot(["Kept. The open questions from these changes are now in the email draft for this space."]));
+    const asks = last.report.unknowns.some((u) => u.topic === "proposed change" && last.report.draftMessage.includes(u.question));
+    push(bot([asks ? "Kept. The open questions from these changes are now in the email draft for this space." : "Kept. These changes raise no new questions for the landlord, so the email draft is unchanged."]));
   };
 
   const openNew = useCallback((draft: Draft, userText?: string) => (opening.current = (async () => {
