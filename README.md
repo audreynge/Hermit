@@ -31,11 +31,16 @@ npm run db:import      # loads the JSON bundle into SQLite (also happens automat
 - **Results.** Each match has a % fit and three reasons, plus **View property** (Matterport 3D tour with jump-to-room, aerial, fit overlay), a full report, Save, and **Email manager** (an editable draft you copy or open in your mail app; never sent for you). Follow-ups: "compare the layouts", "make it bigger", "what permits do I need?".
 - **Regulations.** Every search also researches city, county, state and federal rules for the use. With the key, a Claude sub-agent searches official sites only, and each finding must cite a URL that search actually returned. Without it, Hermit shows cited screening rules. Results are cached 30 days. LA reports also cross-check CoStar zoning against the SCAG parcel layer.
 - **Storage.** SQLite at `data/processed/hermit.db` (or `data/sample/hermit.db`) holds properties, room graphs, runs, conversations, saved spaces, designs and the regulation cache. It is filled from the JSON bundle on first start; `npm run db:import` refreshes it. Conversations live at `/?c=<id>`: reload or share the link (others can read it and start their own copy). Saved spaces are per browser.
+- **Chat edits.** In chat you can edit the drawn layout (add, remove, resize, relabel rooms, add objects) or a real scanned space on the Fit tab (use as, merge, split, add a fixture). Claude only picks typed ops; code validates, applies and rescores them, and changed rooms show dashed with before/after fit, cost and weeks plus Keep and Undo. Layouts can be saved by name in the layout sheet. Without a key a small offline parser handles simple edits.
 - `/saved` lists bookmarked spaces. `/?replay=demo` replays a recorded run offline. `/search` and `/layout` redirect into the chat.
 
 ## Planner
 
 When `ANTHROPIC_API_KEY` is set, Claude (`claude-opus-5-5`) runs each chat turn (structured output: reply, spec update, ready, quick replies, action) and plans the search tool calls. Without a key, a deterministic conversation and planner run the same tools (search → screen 20 → evaluate 8 → drop / escalate / rerank → report) and the trace shows `deterministic`.
+
+**Design edits without a key (`lib/design/offline.ts`).** Chat edits to layouts and scanned spaces ("add an exam room", "turn bedroom 2 into an office") normally go through Claude. `lib/design/offline.ts` is a regex stand-in that only exists because there is no API key yet. It understands a handful of phrasings (add/remove, convert, add a fixture, merge, split) and asks the user to rephrase anything else. Once `ANTHROPIC_API_KEY` is set, decide one of these:
+- **Keep it as the fallback (recommended).** `chatTurn` in `lib/chat/claude.ts` already uses it whenever the model call fails, times out or returns unusable output, and every edit still goes through the same validation. Nothing to change.
+- **Remove it.** Delete `lib/design/offline.ts`. In `offline()` in `lib/chat/claude.ts`, drop the `offlineEdit` branch and reply with a short "edits need the assistant; try again or use Layout Studio" message. Then update the tests that rely on it: the offline parts of [C5] and [C7] and the `resolveRef` test in `lib/design/edit.test.ts`, plus `e2e/design-edits.spec.ts`. The e2e suite runs without a key, so it either needs a key in CI or a mocked `/api/chat`.
 
 ## Tests
 

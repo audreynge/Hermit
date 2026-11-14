@@ -133,6 +133,7 @@ All tool responses include `resultId`, `source`, `confidence`, and applicable re
 | `fixtures`, `verify_size` | precomputed detections/listing discrepancy | optional |
 | `inspect_view` | question-specific Haiku judgment on **cached** crops | inference, ≤4 |
 | `draft_message`, `submit_reports` | inquiry text; terminal reports | local/final |
+| `apply_fitout` (`/api/fitout`, chat edits) | typed ops (`use_as`/`merge`/`split`/`add_fixture`) → rescored report + before/after difference; changed rooms marked `proposed` | local compute |
 
 **Concurrency/budgets:** target ≤25 **model-visible** tool calls per run, ≤8 candidate room graphs, ≤4 `inspect_view` calls, <45 seconds live. A literal `20 site_context + 8 × (room_graph + fit + check_rules)` exceeds 25 calls; **therefore implement batch endpoints/composite evaluation** that return compact per-candidate summaries. Run independent local lookups and I/O concurrently with a bounded limiter (not unbounded `Promise.all`), cache by normalized argument hash, and send only IDs + concise summaries to the model. Do not claim actual multithreaded CPU parallelism from Promise concurrency. The SDK's manual agent loop can execute independent tool uses in the same iteration; ordering dependencies stay sequential.
 

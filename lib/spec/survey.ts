@@ -1,4 +1,5 @@
 import type { City, Mode, RequirementSpec } from "../types";
+import { fromLayout, type Block } from "./parse";
 
 // A spec still being filled in by the survey and chat; city may be missing until asked.
 export type Draft = Omit<RequirementSpec, "city"> & { city?: City };
@@ -48,6 +49,7 @@ export type Survey = {
   accessibility: boolean;
   requirements: string[];
   moveIn?: string;
+  layoutId?: string;
 };
 
 export function parseBudget(text: string, transaction: "lease" | "buy"): { budgetMonthly?: number; budgetTotal?: number } {
@@ -82,4 +84,20 @@ export function surveyToSpec(s: Survey): Draft {
     priorities: {},
     input: "survey",
   };
+}
+
+/** Adds a saved layout's rooms to a survey draft. The survey's own size and use win; the layout fills what it left blank. */
+export function withLayout(d: Draft, blocks: Block[]): Draft {
+  const types = new Set(blocks.filter((b) => b.kind !== "object").map((b) => b.label));
+  const useType = d.useType || (types.has("exam room") || types.has("procedure room") ? "medical clinic" : types.has("kitchen") && !types.has("office") ? "restaurant" : "office");
+  const s = fromLayout(blocks, { mode: d.mode, city: d.city ?? "houston", useType });
+  return { ...d, useType, rooms: s.rooms, input: "layout", ...(d.sizeSqft || !s.rooms.length ? {} : { sizeSqft: s.sizeSqft }) };
+}
+
+export function layoutSummary(name: string, d: Draft, blocks: Block[]): string {
+  const one: Record<string, string> = { reception: "a reception area", storage: "storage", kitchen: "a kitchen", office: "an office" };
+  const parts = d.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.fixtures.join(" and ")}s` : ""}`);
+  const area = Math.round(blocks.filter((b) => b.kind !== "object").reduce((s, b) => s + b.w * b.h, 0));
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space";
+  return `Use my layout \u201c${name}\u201d: ${list}${blocks.some((b) => b.label === "hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft).`;
 }

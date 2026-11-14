@@ -7,7 +7,7 @@ import { an } from "../text";
 export type Slot = "use" | "city" | "size" | "rooms" | "musts";
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations"; fallback?: "deterministic" };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations"; fallback?: "deterministic"; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
 
 const MAX_QUESTIONS = 5;
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|none of these|find (it|them|spaces|shells))\b/i;

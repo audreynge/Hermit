@@ -15,7 +15,11 @@ import { DesignThumb } from "./DesignThumb";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Aerial } from "./Aerial";
 import { EmailDraft } from "./EmailDraft";
-import { FitView } from "./FitView";
+import { FitView, type Proposal } from "./FitView";
+import { LayoutPreview } from "./LayoutPreview";
+import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
+import { loadLayouts, putLayout } from "@/lib/client/layouts";
+import { KEYS, load, save } from "@/lib/client/store";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
 import { PropertyViewer } from "./PropertyViewer";
@@ -28,15 +32,31 @@ type Msg =
   | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: boolean }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
-  | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] };
+  | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] }
+  | { id: string; role: "bot"; kind: "layout"; blocks: Block[] };
+
+type Fitout = Proposal & { ops: FitoutOp[] };
+type Design =
+  | { kind: "layout"; blocks: Block[]; applied: number; rejected: unknown[] }
+  | { kind: "fitout"; shellId: string; ops: FitoutOp[]; report: ShellReport; diff: FitoutDiff; rejected: unknown[] };
+const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open (the layout|in layout studio)$/i };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string; design?: Design } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
-type ChatResponse = { conversationId: string; turn: Turn };
+type ChatResponse = { conversationId: string; turn: Turn; design?: Design };
 
-function fromStored(r: StoredRow): Msg | null {
+// A chat layout edit is stored on its bot reply; replay it as the reply plus the edited layout.
+function fromStored(r: StoredRow): Msg[] {
+  const m = fromStoredOne(r);
+  const d = r.payload.design;
+  return [...(m ? [m] : []), ...(d?.kind === "layout" && d.applied ? [{ id: uid(), role: "bot" as const, kind: "layout" as const, blocks: d.blocks }] : [])];
+}
+const lastLayout = (rows: StoredRow[]) =>
+  rows.map((r) => (r.payload.design?.kind === "layout" && r.payload.design.applied ? r.payload.design.blocks : r.role === "user" && r.kind === "design" && r.payload.kind === "layout" ? r.payload.blocks : null)).filter(Boolean).at(-1) ?? null;
+
+function fromStoredOne(r: StoredRow): Msg | null {
   if (r.role === "user" && r.kind === "design") return r.payload.kind === "layout"
     ? { id: uid(), role: "user", text: r.payload.summary ?? "Here's my layout.", design: { kind: "layout", blocks: r.payload.blocks ?? [] } }
     : { id: uid(), role: "user", text: `Uploaded ${r.payload.name ?? "a floor plan"}`, design: { kind: "upload", name: r.payload.name ?? "floor plan" } };
@@ -90,6 +110,19 @@ export function SearchChat() {
   const [owner, setOwner] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  // Design edits: the drawn layout chat edits apply to, its undo history, and proposed changes per scanned space.
+  const [layout, setLayout] = useState<Block[] | null>(null);
+  const [layoutId, setLayoutId] = useState<string | null>(null);
+  const [layoutPast, setLayoutPast] = useState<Block[][]>([]);
+  const [fitouts, setFitouts] = useState<Record<string, Fitout[]>>({});
+  const [lastEdit, setLastEdit] = useState<"layout" | "fitout" | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Chat edits write back to the open layout (and its saved copy), so the drawing sheet and the next search see them.
+  const storeLayout = useCallback((blocks: Block[]) => {
+    save(KEYS.layout, blocks);
+    const saved = layoutId ? loadLayouts().find((l) => l.id === layoutId) : undefined;
+    if (saved) putLayout({ ...saved, items: blocks });
+  }, [layoutId]);
   const fileInput = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -159,8 +192,31 @@ export function SearchChat() {
     setResultsReady(true);
   }, [finished, spec, reports, events, runKey, runId, replay, chat]);
 
-  const respond = useCallback(async (turn: Turn) => {
+  const respond = useCallback(async (turn: Turn, d?: Design) => {
     setChat(turn.state);
+    if (d?.kind === "layout") {
+      if (d.applied) {
+        if (layout) setLayoutPast((p) => [...p.slice(-49), layout]);
+        setLayout(d.blocks);
+        storeLayout(d.blocks);
+        setLastEdit("layout");
+      }
+      const stale = d.applied && reports.length ? ["These results are from before this change. Tap \u201cSearch with this\u201d to update them."] : [];
+      push(bot([turn.reply, ...stale], turn.quickReplies), ...(d.applied ? [{ id: uid(), role: "bot" as const, kind: "layout" as const, blocks: d.blocks }] : []));
+      return;
+    }
+    if (d?.kind === "fitout") {
+      setFitouts((all) => {
+        const stack = all[d.shellId] ?? [];
+        const last = stack.at(-1);
+        if (last && JSON.stringify(last.ops) === JSON.stringify(d.ops)) return all;
+        return { ...all, [d.shellId]: [...stack, { ops: d.ops, report: d.report, diff: d.diff, kept: false }] };
+      });
+      setLastEdit("fitout");
+      setTab("fit"); setEvidenceOpen(true);
+      push(bot([turn.reply], turn.quickReplies));
+      return;
+    }
     push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: !!turn.fallback } as Msg);
     if (turn.action === "compare" && reports.length) {
       push({ id: uid(), role: "bot", kind: "compare", reports });
@@ -174,7 +230,29 @@ export function SearchChat() {
       void persist({ messages: [{ role: "bot", kind: "regulations", payload: { findings: r.findings } }] });
     }
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
-  }, [reports, selected, runSearch]);
+  }, [reports, selected, runSearch, layout, storeLayout]);
+
+  const undo = (kind = lastEdit) => {
+    const id = reports[selected]?.shellId;
+    if (kind === "fitout" && id && fitouts[id]?.length) {
+      setFitouts((all) => ({ ...all, [id]: all[id].slice(0, -1) }));
+      push(bot([fitouts[id].length > 1 ? "Undone. Back to the previous proposal." : "Undone. This is the space as measured."]));
+      return;
+    }
+    const prev = layoutPast.at(-1);
+    if (!prev) return push(bot(["There's nothing to undo."]));
+    setLayoutPast((p) => p.slice(0, -1));
+    setLayout(prev);
+    storeLayout(prev);
+    push(bot(["Undone. Here's your layout again."]), { id: uid(), role: "bot", kind: "layout", blocks: prev });
+  };
+  const keep = () => {
+    const id = reports[selected]?.shellId;
+    const last = id ? fitouts[id]?.at(-1) : undefined;
+    if (!id || !last) return push(bot(["There's no proposed change to keep yet."]));
+    setFitouts((all) => ({ ...all, [id]: [...all[id].slice(0, -1), { ...last, kept: true }] }));
+    push(bot(["Kept. The open questions from these changes are now in the email draft for this space."]));
+  };
 
   const openNew = useCallback((draft: Draft, userText?: string) => (opening.current = (async () => {
     try {
@@ -200,7 +278,8 @@ export function SearchChat() {
     }
     if (conv.current) {
       fetch(`/api/conversations/${conv.current}`).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((c: ConvResponse) => {
-        setMessages(c.messages.map(fromStored).filter((m): m is Msg => !!m));
+        setMessages(c.messages.flatMap(fromStored));
+        setLayout(lastLayout(c.messages));
         setChat(c.state);
         setOwner(c.owner);
         if (c.run) {
@@ -239,6 +318,9 @@ export function SearchChat() {
 
   const applyDrawing = (blocks: Block[]) => {
     setDrawing(false);
+    if (layout) setLayoutPast((p) => [...p.slice(-49), layout]);
+    setLayout(blocks);
+    setLayoutId(load<string>(KEYS.layoutOpen));
     void sendDesign({ blocks }, { kind: "layout", blocks }, layoutSummary(blocks));
   };
 
@@ -252,20 +334,32 @@ export function SearchChat() {
   };
 
   const send = async (text: string) => {
-    if (/^draw a layout$/i.test(text.trim())) { setDrawing(true); return; }
+    if (/^draw a layout$/i.test(text.trim()) || COMMANDS.studio.test(text.trim())) { setDrawing(true); return; }
     const t = text.trim();
     if (!t || busy || running) return;
     setInput("");
     push({ id: uid(), role: "user", text: t });
+    const refocus = () => inputRef.current?.focus({ preventScroll: true });
+    if (COMMANDS.undo.test(t)) return void (undo(), refocus());
+    if (COMMANDS.keep.test(t)) return void (keep(), refocus());
+    if (COMMANDS.search.test(t)) {
+      refocus();
+      const s = chat.spec;
+      if (s.city && s.useType) return void runSearch(s as RequirementSpec);
+      return void push(bot(["Which city should I search: Houston or Los Angeles?"], ["Houston", "Los Angeles"]));
+    }
     setBusy(true);
+    const current = reports[selected];
+    const fitout = chat.phase === "results" && current ? { shellId: current.shellId, ops: fitouts[current.shellId]?.at(-1)?.ops ?? [] } : null;
     try {
       if (!conv.current && opening.current) await opening.current;
-      const r = await postJSON<ChatResponse>("/api/chat", { conversationId: conv.current, text: t });
-      await respond(r.turn);
+      const r = await postJSON<ChatResponse>("/api/chat", { conversationId: conv.current, text: t, layout, fitout });
+      await respond(r.turn, r.design);
     } catch {
       push(bot(["Something went wrong talking to the server. Try that again?"]));
     } finally {
       setBusy(false);
+      refocus();
     }
   };
 
@@ -304,7 +398,7 @@ export function SearchChat() {
           {showResults && current && evidenceOpen && (
             <div className="evidence" id="evidence-panel" role="region" aria-label={`${tab} view of ${current.name.split(" · ")[0]}`}>
               {tab === "fit" ? (
-                <div className="fit"><FitView report={current} /></div>
+                <div className="fit"><FitView report={current} proposal={fitouts[current.shellId]?.at(-1)} onKeep={() => keep()} onUndo={() => undo("fitout")} /></div>
               ) : (
                 <div className="media">
                   {tab === "above" && <Aerial report={current} />}
@@ -355,6 +449,7 @@ export function SearchChat() {
                     {m.kind === "thinking" && <Thinking steps={m.runKey === runKey ? steps.slice(0, shown) : steps} total={steps.length} done={m.runKey !== runKey || finished} />}
                     {m.kind === "compare" && <Compare reports={m.reports} />}
                     {m.kind === "regulations" && <div className="bubble"><RegulationList findings={m.findings} /></div>}
+                    {m.kind === "layout" && <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>}
                   </div>
                 </div>
               );
@@ -383,7 +478,7 @@ export function SearchChat() {
             </div>
             <Sparkles className="spark" aria-hidden="true" />
             <label htmlFor="ask" className="sr-only">Message Hermit</label>
-            <input id="ask" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" maxLength={2000} />
+            <input id="ask" ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" maxLength={2000} />
             <button className="send" type="submit" disabled={!input.trim() || busy || running} aria-label="Send"><Send aria-hidden="true" /></button>
           </form>}
         </section>
@@ -435,7 +530,7 @@ export function SearchChat() {
 
       {viewing && <PropertyViewer report={viewing} onClose={() => setViewing(null)} />}
       {drawing && <DesignSheet onDone={applyDrawing} onClose={() => setDrawing(false)} />}
-      {emailFor && <EmailDraft report={emailFor} onClose={() => setEmailFor(null)} />}
+      {emailFor && <EmailDraft report={fitouts[emailFor.shellId]?.at(-1)?.kept ? fitouts[emailFor.shellId].at(-1)!.report : emailFor} onClose={() => setEmailFor(null)} />}
       {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}
     </>
   );

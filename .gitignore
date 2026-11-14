@@ -13,3 +13,4 @@ data/sample/replay/run-*
 data/sample/hermit.db*
 .claude/
 .gemini/.env
+eval-results/

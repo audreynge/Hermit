@@ -67,6 +67,8 @@ export type Room = {
   polygon: { x: number; y: number }[]; // meters, Matterport floor plane
   floorId: string;
   sweeps?: { id: string; index: number }[];
+  proposed?: boolean; // changed by a user fit-out edit, not measured
+  parts?: { x: number; y: number }[][]; // proposed merge: the original measured polygons
 };
 export type RoomGraph = {
   sid: string;
@@ -75,7 +77,7 @@ export type RoomGraph = {
   totalAreaSqft: number;
   rooms: Room[];
   edges: { a: string; b: string; kind: "door" | "possible" }[];
-  objects: { label: string; roomId: string | null; confidence: number }[];
+  objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;
 };

@@ -16,7 +16,8 @@
     "db:import": "tsx pipeline/import-db.ts",
     "explore": "tsx scripts/explore.ts",
     "mcp": "tsx mcp/hermit-server.ts",
-    "mcp:check": "tsx mcp/smoke.ts"
+    "mcp:check": "tsx mcp/smoke.ts",
+    "eval:design": "tsx --env-file-if-exists=.env scripts/eval-design.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

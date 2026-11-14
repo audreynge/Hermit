@@ -22,4 +22,4 @@ export function drop(key: string, store: "session" | "local" = "session") {
   } catch {}
 }
 
-export const KEYS = { layout: "hermit:layout" };
+export const KEYS = { layout: "hermit:layout", layouts: "hermit:layouts", layoutOpen: "hermit:layout-open" };

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import type { FitoutDiff } from "@/lib/design/fitout";
 import type { RoomGraph, ShellReport } from "@/lib/types";
 import { M_TO_FT, PAIR_COLORS, Plan3D, rectPoly, roomHeight, type Solid } from "./Plan3D";
 
@@ -30,8 +31,11 @@ export function labelPoint(p: Pt[]): Pt & { r: number } {
   return best;
 }
 type View = "plan" | "3d" | "compare";
+const k$ = (n: number) => `$${Math.round(n / 1000)}k`;
+export type Proposal = { report: ShellReport; diff: FitoutDiff; kept: boolean };
 
-export function FitView({ report }: { report: ShellReport }) {
+export function FitView({ report: measured, proposal, onKeep, onUndo }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void }) {
+  const report = proposal?.report ?? measured;
   const sim = report.similarity?.layout?.length ? report.similarity : undefined;
   const [picked, setView] = useState<View>(sim ? "compare" : "plan");
   const view: View = picked === "compare" && !sim ? "plan" : picked; // the report can change under a kept view
@@ -43,7 +47,8 @@ export function FitView({ report }: { report: ShellReport }) {
       <div className="view-switch" role="group" aria-label="Fit view">
         {views.map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}
       </div>
-      {view === "plan" && <Plan2D report={report} g={g} />}
+      {proposal && <ProposalStrip p={proposal} onKeep={onKeep} onUndo={onUndo} />}
+      {view === "plan" && <Plan2D report={report} g={g} measuredRooms={measured.floorplan?.rooms.length} />}
       {view === "3d" && <Scan3D report={report} g={g} />}
       {view === "compare" && sim && <LayoutCompare name={report.name.split(" · ")[0]} g={g} sim={sim} />}
     </div>
@@ -104,19 +109,38 @@ export function LayoutCompare({ name, g, sim }: { name: string; g: RoomGraph; si
   );
 }
 
-function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
+function ProposalStrip({ p, onKeep, onUndo }: { p: Proposal; onKeep?: () => void; onUndo?: () => void }) {
+  const d = p.diff;
+  return (
+    <div className="row" role="group" aria-label="Proposed changes" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--sand-2)", marginBottom: 8 }}>
+      <span role="status" style={{ fontSize: "var(--t-sm)" }}>
+        <strong>Proposed{p.kept ? " (kept)" : ""}:</strong> fit {d.fit[0]} → {d.fit[1]} · known work {k$(d.cost[1][0])}–{k$(d.cost[1][1])} (was {k$(d.cost[0][0])}–{k$(d.cost[0][1])}) · {d.weeks[1][0]}–{d.weeks[1][1]} wks
+      </span>
+      <span className="row" style={{ gap: 6 }}>
+        {!p.kept && onKeep && <button type="button" className="btn small" onClick={onKeep}>Keep</button>}
+        {onUndo && <button type="button" className="btn small" onClick={onUndo}>Undo</button>}
+      </span>
+    </div>
+  );
+}
+
+function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGraph; measuredRooms?: number }) {
   const byRoom = new Map(report.fit.assignment.filter((a) => a.roomId).map((a) => [a.roomId!, tidy(a.req)]));
   const unmatched = report.fit.assignment.filter((a) => !a.roomId).map((a) => tidy(a.req));
   const floors = [...new Set(g.rooms.map((r) => r.floorId))];
   const floor = floors.sort((a, b) => area(g, b) - area(g, a))[0];
   const rooms = g.rooms.filter((r) => r.floorId === floor);
-  const withPoly = rooms.filter((r) => r.polygon.length >= 3);
+  // A proposed merge keeps the original measured polygons as parts; draw each one.
+  const shapes = (r: (typeof rooms)[number]) => (r.parts?.length ? r.parts : r.polygon.length >= 3 ? [r.polygon] : []);
+  const withPoly = rooms.filter((r) => shapes(r).length);
+  const proposed = rooms.filter((r) => r.proposed);
 
   const legend = (
     <ul className="plan-legend">
       <li><span className="sw match" aria-hidden="true" /> matched to your requirement</li>
       <li><span className="sw" aria-hidden="true" /> measured room, not needed</li>
       {unmatched.length > 0 && <li><span className="sw build" aria-hidden="true" /> to build: {unmatched.join(", ")}</li>}
+      {proposed.length > 0 && <li><span className="sw build" aria-hidden="true" /> * proposed change, not measured</li>}
     </ul>
   );
 
@@ -129,7 +153,7 @@ function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
             const req = byRoom.get(r.id);
             return (
               <div key={r.id} className={req ? "match" : undefined} style={{ flex: `${Math.max(0.08, r.areaSqft / total)} 1 0` }} title={`${r.label} ${Math.round(r.areaSqft)} sf`}>
-                <strong>{req ?? r.label}</strong><span className="num">{Math.round(r.areaSqft)} sf</span>
+                <strong>{req ?? r.label}{r.proposed ? "*" : ""}</strong><span className="num">{Math.round(r.areaSqft)} sf</span>
               </div>
             );
           })}
@@ -141,7 +165,7 @@ function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
     );
   }
 
-  const xs = withPoly.flatMap((r) => r.polygon.map((p) => p.x)), ys = withPoly.flatMap((r) => r.polygon.map((p) => p.y));
+  const xs = withPoly.flatMap((r) => shapes(r).flat().map((p) => p.x)), ys = withPoly.flatMap((r) => shapes(r).flat().map((p) => p.y));
   const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
   const k = Math.min((W - 2 * PAD) / (maxX - minX || 1), (MAX_H - 2 * PAD) / (maxY - minY || 1));
   const H = Math.round((maxY - minY) * k + 2 * PAD + 24);
@@ -156,17 +180,19 @@ function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
 
   return (
     <figure className="plan">
-      <div className="plan-scroll"><svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Floor plan of ${g.name}: ${byRoom.size} rooms matched, ${unmatched.length} to build`}>
+      <div className="plan-scroll"><svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Floor plan of ${g.name}: ${byRoom.size} rooms matched, ${unmatched.length} to build${proposed.length ? `; proposed changes to ${proposed.map((r) => r.label).join(", ")}` : ""}`}>
         <rect width={W} height={H} fill="#fff" />
         {withPoly.map((r) => {
           const req = byRoom.get(r.id);
-          const pts = r.polygon.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ");
-          const { x: cx, y: cy, r: room } = labelPoint(r.polygon.map((p) => ({ x: tx(p.x), y: ty(p.y) })));
-          const name = (req ?? r.label).toUpperCase();
+          const main = shapes(r)[0];
+          const { x: cx, y: cy, r: room } = labelPoint(main.map((p) => ({ x: tx(p.x), y: ty(p.y) })));
+          const name = `${(req ?? r.label).toUpperCase()}${r.proposed ? "*" : ""}`;
           const fits = room * 2 > name.length * 6.2 + 4 && room > 15;
           return (
             <g key={r.id}>
-              <polygon points={pts} fill={req ? MATCH : "#fff"} stroke={INK} strokeWidth={2.5} strokeLinejoin="miter" />
+              {shapes(r).map((poly, i) => (
+                <polygon key={i} points={poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ")} fill={req ? MATCH : "#fff"} stroke={INK} strokeWidth={2.5} strokeLinejoin="miter" strokeDasharray={r.proposed ? "7 4" : undefined} />
+              ))}
               {fits ? (
                 <text x={cx} y={cy - 2} textAnchor="middle" fontSize={9.5} letterSpacing={0.6} fill={req ? INK : MUTED} fontWeight={req ? 700 : 500}>
                   {name}
@@ -188,7 +214,7 @@ function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
         )}
       </svg></div>
       <figcaption>
-        Matterport scan {g.sid} · {g.rooms.length} measured rooms · {Math.round(g.totalAreaSqft).toLocaleString()} sf net{floors.length > 1 ? ` · largest of ${floors.length} floors shown` : ""}
+        {proposed.length > 0 && "* proposed change, not measured · "}Matterport scan {g.sid} · {measuredRooms ?? g.rooms.length} measured rooms · {Math.round(g.totalAreaSqft).toLocaleString()} sf net{floors.length > 1 ? ` · largest of ${floors.length} floors shown` : ""}
       </figcaption>
       {legend}
     </figure>

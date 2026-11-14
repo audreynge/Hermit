@@ -11,7 +11,7 @@ function sizeCost(area: number, min?: number, max?: number): number {
   return 0;
 }
 
-function fixturesIn(room: Room, g: RoomGraph): Set<string> {
+export function fixturesIn(room: Room, g: RoomGraph): Set<string> {
   const s = new Set(IMPLIED_FIXTURES[room.label] ?? []);
   for (const o of g.objects) if (o.roomId === room.id) s.add(o.label.toLowerCase());
   return s;
