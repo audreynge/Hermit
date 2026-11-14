@@ -113,7 +113,7 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       if (spec.rooms.length) add(`${e.id}-r`, "layout", "Matching your rooms to real floor plans");
       add(`${e.id}-c`, "dollar", "Estimating build-out costs");
     }
-    if (e.type === "drop") add(e.id, "x", `Ruled out ${e.shellId}: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
+    if (e.type === "drop") add(e.id, "x", `Ruled out a space: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
     if (e.type === "escalate") {
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];
       add(e.id, "eye", thing ? `Looking for ${an(thing)} in the scan` : "Double-checking a detail in the scan");
