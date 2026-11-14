@@ -16,6 +16,9 @@ export const RoomReq = z.object({
 });
 export type RoomReq = z.infer<typeof RoomReq>;
 
+// Plausible wheelchair widths (pediatric to bariatric); anything else is a typo or a misread number.
+export const isChairWidth = (w: unknown): w is number => typeof w === "number" && w >= 16 && w <= 40;
+
 export const Needs = z.object({
   kitchen: z.boolean().optional(),
   threePhase: z.boolean().optional(),
@@ -24,6 +27,7 @@ export const Needs = z.object({
   groundFloor: z.boolean().optional(),
   stepFree: z.boolean().optional(),
   wheelchair: z.boolean().optional(),
+  chairWidthIn: z.number().min(16).max(40).optional(), // the user's own chair, widest point
   outdoorArea: z.boolean().optional(),
   driveInBays: z.number().int().nonnegative().optional(),
   esfr: z.boolean().optional(),
@@ -76,11 +80,22 @@ export type RoomGraph = {
   classification?: string;
   totalAreaSqft: number;
   rooms: Room[];
-  edges: { a: string; b: string; kind: "door" | "possible" }[];
+  edges: { a: string; b: string; kind: "door" | "possible"; widthIn?: number; at?: { x: number; y: number } }[]; // widthIn/at: widest measured opening
+  entryRoomIds?: string[]; // rooms with a door on an edge no other room shares
   objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;
 };
+
+export type AccessRoom = {
+  roomId: string;
+  label: string;
+  status: "reachable" | "blocked" | "unknown";
+  reason: string | null;
+  turnCircleIn?: number; // bathrooms: largest clear circle, walls only
+  stopDoor?: { from: string; clearIn: number }; // blocked: the widest door in that still stops the chair
+};
+export type Access = { chairIn: [number, number]; asScanned: AccessRoom[]; hinges: AccessRoom[] };
 
 export type Listing = {
   listingId: number;
@@ -182,6 +197,7 @@ export type ShellReport = {
   inside?: { sid: string; sweepId?: string };
   above?: { lat: number; lon: number; provider: string; overlays: Overlay[] };
   floorplan?: RoomGraph;
+  access?: Access; // wheelchair route for the user's chair, when they need one and the scan has door widths
   draftMessage: string;
   badge: "scan-verified" | "record-only";
   sources: Evidence[];

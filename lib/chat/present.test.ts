@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareRows, displayName, draftEmail, highlights, summarizeResults, thinkingSteps, traceSummary } from "./present";
+import { accessLine, compareRows, displayName, draftEmail, highlights, summarizeResults, thinkingSteps, traceSummary } from "./present";
 import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
 
 const spec: RequirementSpec = {
@@ -33,6 +33,20 @@ describe("highlights", () => {
     const r = report({ rules: [{ rule: "parking", status: "pass", detail: "40 recorded stalls", citation: "x", evidence: [] }] });
     expect(highlights(r, noParking).join(" ")).not.toMatch(/parking/i);
     expect(highlights(r, noParking)[2]).toBe("Listed for lease now");
+  });
+
+  it("leads with wheelchair access when the user needs it", () => {
+    const wc = { ...spec, needs: { wheelchair: true } };
+    const hit = (rule: string, status: "pass" | "fail" | "warn" | "unknown", detail: string) => ({ rule, status, detail, citation: "", evidence: [] });
+    const with_ = (...rules: ReturnType<typeof hit>[]) => highlights(report({ rules }), wc);
+    expect(with_(hit("door_width", "fail", "Bathroom: ~24.0 in clear"))[0]).toBe("1 door too narrow for the chair (bathroom)");
+    expect(with_(hit("door_hinges", "warn", "Office: ~26.5 in clear"), hit("door_hinges", "warn", "Bedroom: x"))[0]).toBe("Chair fits with offset hinges on 2 doors (office, bedroom)");
+    expect(with_(hit("wheelchair_route", "pass", "ok"))[0]).toBe("Wheelchair reaches every main room");
+    expect(with_(hit("door_width", "unknown", "No measured door"))[0]).toMatch(/not measured/);
+    expect(with_(hit("door_width", "fail", "Bathroom: x"))).toHaveLength(3);
+    expect(highlights(report({ rules: [hit("door_width", "fail", "Bathroom: x")] }), spec)[0]).not.toMatch(/door/); // not asked for
+    expect(accessLine(report({ rules: [hit("wheelchair_route", "pass", "ok")] }), wc)?.ok).toBe(true);
+    expect(accessLine(report({ rules: [hit("door_hinges", "warn", "Office: x")] }), wc)?.ok).toBe(false); // shown with a warning icon, not a check
   });
 
   it("says when size is outside the range instead of pretending it fits", () => {

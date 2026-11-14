@@ -110,4 +110,27 @@ describe("checkRules", () => {
     const h = get(checkRules(spec({ mode: "home", useType: "home", beds: 3 }), shell({ mode: "home", beds: 2 })), "bedrooms");
     expect(h?.status).toBe("fail");
   });
+  it("turns the wheelchair route check into door, hinge and turning-space verdicts", () => {
+    const sq = (x: number, w: number, h: number) => [{ x, y: 0 }, { x: x + w, y: 0 }, { x: x + w, y: h }, { x, y: h }];
+    const room = (id: string, label: string, x: number, w: number) => ({ id, label, rawTags: [], areaSqft: w * 30, polygon: sq(x, w, 3), floorId: "f" });
+    const g = {
+      sid: "M1", totalAreaSqft: 800, entryRoomIds: ["l"],
+      rooms: [room("l", "living", 0, 5), room("b", "bedroom", 5, 4), room("ba", "bathroom", 9, 1.3), room("c", "storage", 10.3, 1)],
+      edges: [{ a: "l", b: "b", kind: "door", widthIn: 28.5 }, { a: "l", b: "ba", kind: "door", widthIn: 26 }, { a: "b", b: "c", kind: "door" }],
+    } as unknown as RoomGraph;
+    const hits = checkRules(spec({ needs: { wheelchair: true } }), shell(), g);
+    expect(get(hits, "door_hinges")?.detail).toMatch(/^Bedroom:.*Offset/);
+    expect(get(hits, "door_width")).toMatchObject({ status: "fail", detail: expect.stringMatching(/^Bathroom:.*24\.0 in clear/) });
+    expect(hits.some((h) => h.detail.includes("Storage"))).toBe(false); // storage is not an essential room
+    expect(get(hits, "turning_space")?.status).toBe("fail"); // 1.3 m wide bathroom < 60 in
+    expect(get(hits, "wheelchair_route")).toBeUndefined();
+    expect(get(checkRules(spec(), shell(), g), "door_width")).toBeUndefined(); // only when a wheelchair is needed
+    const noWidths = { ...g, edges: g.edges.map(({ widthIn, ...e }) => e) } as RoomGraph;
+    expect(get(checkRules(spec({ needs: { wheelchair: true } }), shell(), noWidths), "door_width")?.status).toBe("unknown");
+    // A 25 in chair fits the bedroom door as scanned (26.5 in clear); the bathroom (24 in) now only needs hinges.
+    const manual = checkRules(spec({ needs: { wheelchair: true, chairWidthIn: 25 } }), shell(), g);
+    expect(get(manual, "door_hinges")?.detail).toMatch(/^Bathroom:.*your 25 in chair/);
+    expect(get(manual, "door_width")).toBeUndefined();
+    expect(get(hits, "door_hinges")?.detail).toMatch(/your width wasn't given/);
+  });
 });

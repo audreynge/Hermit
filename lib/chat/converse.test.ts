@@ -22,6 +22,25 @@ describe("openChat", () => {
 });
 
 describe("converse while gathering", () => {
+  it("asks once for the chair width when wheelchair access is needed, and reads a tapped answer", () => {
+    const t1 = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true }));
+    expect(t1.reply).toMatch(/how wide is the wheelchair/i);
+    expect(t1.quickReplies).toContain("Manual (~25 in)");
+    const t2 = converse(t1.state, "Manual (~25 in)");
+    expect(t2.state.spec.needs).toMatchObject({ wheelchair: true, chairWidthIn: 25 });
+    expect(t2.ready).toBe(true);
+    expect(t2.reply).toMatch(/25 in chair/);
+  });
+
+  it("does not ask for the chair width when it is known or the user skips it", () => {
+    const known = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true, chairWidth: "26" }));
+    expect(known.reply).not.toMatch(/how wide/i);
+    const t1 = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true }));
+    const later = converse(t1.state, "I'll measure later");
+    expect(later.ready).toBe(true);
+    expect(later.state.spec.needs.chairWidthIn).toBeUndefined();
+  });
+
   it("understands a rich first message and only asks what is still missing", () => {
     const t0 = openChat(fromSurvey());
     const t1 = converse(t0.state, "I'm looking for a space for a small medical clinic in Houston. I need about 1,200-1,800 sq ft, with 3 exam rooms, a reception area, and some storage.");

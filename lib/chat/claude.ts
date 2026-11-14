@@ -4,7 +4,7 @@ import { z } from "zod";
 import { MODEL } from "../agent/model";
 import { outputText, type OpenAIClient } from "../llm/openai";
 import { geminiText, type GeminiClient } from "../llm/gemini";
-import { RoomReq } from "../types";
+import { isChairWidth, RoomReq } from "../types";
 import { EditOut, promptContext, unflatten, type EditContext } from "../design/edit";
 import { offlineEdit, offlineHelp } from "../design/offline";
 import { converse, describe, question, type ChatState, type Turn } from "./converse";
@@ -21,7 +21,7 @@ const ChatOut = z.object({
     useType: z.string().optional(), mode: z.enum(["home", "business", "enterprise"]).optional(), city: z.enum(["houston", "los_angeles"]).optional(),
     sizeMinSqft: n, sizeMaxSqft: n, budgetMonthly: n, budgetTotal: n, headcount: n, beds: n, baths: n,
     rooms: z.array(z.object({ label: z.string(), count: z.number(), minSqft: n, fixtures: z.array(z.string()).optional(), hard: z.boolean() })).optional(),
-    needs: z.object({ parking: b, wheelchair: b, groundFloor: b, heavyPower: b, esfr: b, driveInBays: n }).optional(),
+    needs: z.object({ parking: b, wheelchair: b, chairWidthIn: n, groundFloor: b, heavyPower: b, esfr: b, driveInBays: n }).optional(),
   }),
   edit: EditOut,
 });
@@ -30,6 +30,7 @@ const SYSTEM = `You are Hermit, a friendly assistant that helps small businesses
 Talk like a warm, concise human: one or two short sentences, then at most one question. Ask only for what is still missing to search well: what the space is for, the city, rough size, and the key rooms or equipment. Never ask more than three questions in total; if the user wants to search now, set ready true.
 In "update", put only what the user's latest message adds or changes, and leave out everything else. Never invent requirements.
 After results exist, set action "compare" when they want a comparison, "email" when they want to contact the property manager, and ready true when they change the search. Set action "regulations" whenever they ask about permits, licenses, zoning or other rules.
+If they need wheelchair access and haven't said how wide the chair is, ask once for its width in inches (a manual chair is about 25 in, a power chair about 27 in); put a stated or chosen width in needs.chairWidthIn.
 quickReplies: 2-4 short tap-to-answer suggestions for your question.
 
 DESIGN EDITS. The message may include a LAYOUT (the user's own drawn plan, block ids) and/or a SELECTED SPACE (a real scanned space, room ids). When the user asks to change one of them, fill "edit"; otherwise edit.target is "none" with no ops.
@@ -95,6 +96,8 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
     if (u.sizeMinSqft && u.sizeMaxSqft) spec.sizeSqft = [u.sizeMinSqft, u.sizeMaxSqft];
     for (const k of ["budgetMonthly", "budgetTotal", "headcount", "beds", "baths"] as const) if (u[k] != null) spec[k] = u[k]!;
     for (const [k, v] of Object.entries(u.needs ?? {})) if (v != null && v !== false) Object.assign(spec.needs, { [k]: v });
+    if (spec.needs.chairWidthIn != null && !isChairWidth(spec.needs.chairWidthIn)) delete spec.needs.chairWidthIn;
+    else if (spec.needs.chairWidthIn != null) spec.needs.wheelchair = true;
     for (const r of u.rooms ?? []) {
       const room = RoomReq.parse({ label: r.label, count: Math.max(1, Math.round(r.count)), hard: r.hard, ...(r.minSqft ? { minSqft: r.minSqft } : {}), ...(r.fixtures?.length ? { fixtures: r.fixtures } : {}) });
       const i = spec.rooms.findIndex((x) => x.label === room.label);

@@ -60,6 +60,8 @@ test.describe("chat onboarding", () => {
     await axe(page);
     await card.getByRole("button", { name: "Done" }).click();
     await expect(conversation(page)).toContainText("ADA Accessible, On-site Parking");
+    await expect(conversation(page)).toContainText("How wide is the wheelchair");
+    await quick(page, "Manual (~25 in)").click();
     await expect(conversation(page)).toContainText("Checking accessibility");
     await expect(conversation(page)).toContainText("Counting parking");
     await waitForResults(page);
@@ -418,6 +420,29 @@ test.describe("other uses", () => {
     await quick(page, "Heavy power + 2 drive-in doors").click();
     await expect(conversation(page)).toContainText("Checking electrical requirements");
     await waitForResults(page);
+  });
+
+  test("a wheelchair user gets asked for the chair width and sees which door stops it", async ({ page }) => {
+    await fresh(page);
+    await page.getByLabel("Message Hermit").fill("I want to buy a 3 bedroom house in Houston, I use a wheelchair");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("How wide is the wheelchair");
+    await page.getByLabel("Message Hermit").fill("25 inches");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("25 in chair");
+    await waitForResults(page);
+    const card = cards(page).filter({ hasText: "101 Sample Lane" });
+    await expect(card).toContainText("Chair fits with offset hinges on 1 door (bathroom)");
+    await expect(card.getByText("Concern:")).toBeAttached();
+    await card.getByRole("button", { name: "View property" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Fit" }).click();
+    await dialog.getByRole("button", { name: "Wheelchair access" }).click();
+    await expect(dialog.getByRole("button", { name: "Wheelchair access" })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByRole("img", { name: /Wheelchair route .* 25 in chair: 5 rooms reachable, 1 fit with offset hinges, 0 blocked/ })).toBeVisible();
+    await expect(dialog.getByText("door that stops the chair")).toBeVisible();
+    await page.screenshot({ path: "test-results/wheelchair-fit.png" });
+    await axe(page);
   });
 
   test("buying a home asks for bedrooms, then must-haves", async ({ page }) => {

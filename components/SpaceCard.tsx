@@ -1,7 +1,7 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, Grid2x2, Mail, MapPin, Sparkles } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, Grid2x2, Mail, MapPin, Sparkles, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { areaOf, highlights } from "@/lib/chat/present";
+import { accessLine, areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
 const cityOf = (address: string) => address.split(", ").slice(-2).join(", ");
@@ -36,6 +36,7 @@ export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, on
   onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void;
 }) {
   const area = areaOf(report);
+  const access = accessLine(report, spec);
   return (
     <article className="space" data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
       <Thumb report={report} />
@@ -46,7 +47,10 @@ export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, on
         <span className="fit-badge">{report.rank === 1 && <Sparkles aria-hidden="true" />}{report.matchScore}% Fit</span>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
         {area && <div className="meta"><Grid2x2 aria-hidden="true" /> <span className="num">{Math.round(area).toLocaleString()} sq ft</span> <span className={`badge-src ${report.badge === "scan-verified" ? "verified" : "record"}`}>{report.badge === "scan-verified" ? "measured" : "record only"}</span></div>}
-        <ul>{highlights(report, spec).map((h) => <li key={h}><Check aria-hidden="true" /> {h}</li>)}</ul>
+        <ul>{highlights(report, spec).map((h) => {
+          const concern = h === access?.text && !access.ok; // a door problem must not wear a checkmark
+          return <li key={h}>{concern ? <TriangleAlert aria-hidden="true" style={{ color: "var(--warn)" }} /> : <Check aria-hidden="true" />} {concern && <span className="sr-only">Concern: </span>}{h}</li>;
+        })}</ul>
         <div className="space-actions">
           <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> Email manager</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>

@@ -1,3 +1,4 @@
+import { chairFor, checkAccess } from "../reason/access";
 import type { Finding } from "../regs/research";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
@@ -23,6 +24,8 @@ const QUESTIONS: Record<string, string> = {
   zoning: "Are there deed restrictions or zoning conditions that would limit our use?",
   parking: "How many parking stalls are allocated to this space?",
   accessibility: "Is there a step-free entry and an accessible restroom on this floor?",
+  door_width: "What is the clear width of each door into the bedrooms and bathroom?",
+  turning_space: "Is there a 60 in clear turning circle in the bathroom once fixtures are in place?",
   hvac: "What cooling capacity (tons) serves the suite, and how old is the equipment?",
   availability: "Is the space currently available, and from what date?",
   onsite_parking: "How many on-site parking spaces come with the space?",
@@ -38,6 +41,18 @@ export function finalScore(fit: FitResult, rules: RuleHit[], searchScore: number
   const penalty = rules.reduce((s, r) => s + (r.status === "fail" ? 25 : r.status === "warn" ? 4 : r.status === "unknown" ? 1 : 0), 0);
   const base = hasGraph ? fit.score * 0.65 + searchScore * 0.35 : 45 + searchScore * 0.2;
   return Math.max(0, Math.round(base - penalty));
+}
+
+// A door the scan says is too narrow becomes a specific ask: confirm the width, allow the fix.
+function doorQuestions(rules: RuleHit[]) {
+  return rules
+    .filter((r) => (r.rule === "door_width" && r.status === "fail") || r.rule === "door_hinges")
+    .map((r) => {
+      const room = r.detail.split(":")[0].toLowerCase();
+      const clear = r.detail.match(/~([\d.]+) in clear/)?.[1];
+      const fix = r.rule === "door_hinges" ? "would you allow swing-clear (offset) hinges on it" : "would you allow it to be widened";
+      return { topic: "door", question: `The ${room} door looks ${clear ? `about ${clear} in clear` : "narrow"} in the 3D tour. Can you confirm its clear width, and ${fix}?` };
+    });
 }
 
 export function regulationHits(regs: Finding[]): RuleHit[] {
@@ -67,9 +82,13 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ...rules.flatMap((r) => r.evidence),
   ].filter((s, i, a) => a.findIndex((x) => x.ref === s.ref) === i);
 
-  const unknowns = rules
-    .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
-    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
+  const access = spec.needs.wheelchair && graph ? checkAccess(graph, chairFor(spec.needs)) : null;
+  const unknowns = [
+    ...doorQuestions(rules),
+    ...rules
+      .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
+      .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail })),
+  ];
   for (const f of regs) if (f.certainty === "applies") unknowns.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   for (const u of fit.unknowns) unknowns.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
   unknowns.push(...(e.extraUnknowns ?? []));
@@ -89,7 +108,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
 
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, 4).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for ${an(spec.useType)} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for ${an(spec.useType)} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -112,6 +131,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     inside: shell.sid ? { sid: shell.sid } : undefined,
     above: shell.lat != null && shell.lon != null ? { lat: shell.lat, lon: shell.lon, provider: "Esri World Imagery", overlays: [{ kind: "pin", lat: shell.lat, lon: shell.lon, label: shell.name }] } : undefined,
     floorplan: graph ?? undefined,
+    ...(access ? { access } : {}),
     draftMessage,
     badge: graph ? "scan-verified" : "record-only",
     sources,

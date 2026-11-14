@@ -39,6 +39,10 @@ export function estimateWork(spec: RequirementSpec, shell: Shell, fit: FitResult
     if (missing > 0) items.push(row("drive_in_door", missing, "code"));
   }
   if (failed("accessibility")) items.push(row("ramp", 1, "code", "Accessible route (ramp/lift); elevator may be required"));
+  const count = (rule: string, status: RuleHit["status"]) => rules.filter((r) => r.rule === rule && r.status === status).length;
+  if (count("door_hinges", "warn")) items.push(row("offset_hinges", count("door_hinges", "warn"), "code"));
+  if (count("door_width", "fail")) items.push(row("widen_door", count("door_width", "fail"), "code"));
+  if (failed("turning_space")) items.push(row("ada_restroom", 1, "code"));
 
   const tiAllowance = spec.tiPerSqft && shell.sqft ? spec.tiPerSqft * shell.sqft : undefined;
   if (!items.length) return { items, weeksToOpen: [1, 4] as [number, number], costRange: [0, 0] as [number, number], tiAllowance };
