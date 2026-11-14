@@ -6,6 +6,9 @@ import type { City, Listing, Mode, Room, RoomGraph, Shell } from "../lib/types";
 type Any = any;
 type Enums = Record<string, Record<string, string>>;
 
+// CoStar fills unresearched contacts with "Research In Progress"; that is not a person to email.
+export const isPlaceholderContact = (name?: string) => !name?.trim() || /research in progress/i.test(name);
+
 export function roomGraphFromModel(m: Any): RoomGraph {
   const edgeOwners = new Map<string, { rooms: string[]; door: boolean }>();
   const rooms: Room[] = [];
@@ -81,7 +84,7 @@ function listingFor(listings: Any[], suiteName?: string): { listing?: Listing; s
   const spaces: Any[] = listings.flatMap((l) => (l.forLeaseSummary?.spaces ?? []).map((s: Any) => ({ ...s, _l: l })));
   const space = suite ? spaces.find((s) => String(s.suite ?? "").toLowerCase() === suite.toLowerCase()) : undefined;
   const l = space?._l ?? active;
-  const c = l.listingContacts?.[0];
+  const c = l.listingContacts?.find((x: Any) => !isPlaceholderContact([x.firstName, x.lastName].join(" ")));
   return {
     space,
     listing: {
