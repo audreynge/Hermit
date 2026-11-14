@@ -32,7 +32,7 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   if (area && spec.sizeSqft) {
     const [lo, hi] = spec.sizeSqft;
     const rooms = roomsPhrase(spec);
-    out.push(area >= lo * 0.9 && area <= hi * 1.1
+    out.push(area >= lo && area <= hi * 1.1
       ? rooms ? `Right size for ${rooms}` : `Right size (${fmt(area)} sq ft)`
       : `${fmt(area)} sq ft (you asked for ${fmt(lo)}–${fmt(hi)})`);
   } else if (area) out.push(`${fmt(area)} sq ft`);

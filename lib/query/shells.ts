@@ -3,6 +3,7 @@ import type { RequirementSpec, Shell } from "../types";
 
 export type Candidate = { shell: Shell; score: number; reasons: string[] };
 
+export const MIN_SLACK = 0.85;
 const INDUSTRIAL = new Set(["warehouse", "manufacturing"]);
 const NEIGHBOR_USES: Record<string, string[]> = {
   medical: ["office"], salon: ["retail", "office"], office: ["medical"], retail: ["salon", "restaurant", "showroom"],
@@ -24,7 +25,8 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = 50)
   for (const s of shells) {
     if (s.city !== spec.city || !modeOk(spec, s)) { rejected++; continue; }
     if (s.constructionStatus && !["Existing", "UnderRenovation", "Unknown"].includes(s.constructionStatus)) { rejected++; continue; }
-    if (spec.sizeSqft && s.sqft && (s.sqft < spec.sizeSqft[0] * 0.5 || s.sqft > spec.sizeSqft[1] * 3)) { rejected++; continue; }
+    // The minimum is hard beyond 15% short (MIN_SLACK); within it the space stays, ranked lower and labelled honestly.
+    if (spec.sizeSqft && s.sqft && (s.sqft < spec.sizeSqft[0] * MIN_SLACK || s.sqft > spec.sizeSqft[1] * 3)) { rejected++; continue; }
     if (spec.beds != null && s.beds != null && s.beds < spec.beds) { rejected++; continue; }
     const price = s.listing?.price;
     if (spec.mode === "home" && price && ((spec.budgetTotal && price > spec.budgetTotal * 1.25) || (spec.budgetMonthly && price < 50000 && price > spec.budgetMonthly * 1.25))) { rejected++; continue; }
@@ -45,8 +47,8 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = 50)
         const [lo, hi] = spec.sizeSqft;
         const mid = (lo + hi) / 2;
         const inRange = s.sqft >= lo && s.sqft <= hi;
-        score += inRange ? 20 : Math.max(0, 20 - (Math.abs(s.sqft - mid) / mid) * 20);
-        reasons.push(`${s.sqft.toLocaleString()} sf (${s.sqftSource ?? "record"})${inRange ? " in range" : ""}`);
+        score += inRange ? 20 : Math.max(0, 20 - (Math.abs(s.sqft - mid) / mid) * 20) - (s.sqft < lo ? 10 : 0);
+        reasons.push(`${s.sqft.toLocaleString()} sf (${s.sqftSource ?? "record"})${inRange ? " in range" : s.sqft < lo ? ` below the ${lo.toLocaleString()} sf minimum` : ""}`);
       }
     }
     if (spec.mode === "home") {

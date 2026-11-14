@@ -38,6 +38,8 @@ describe("highlights", () => {
   it("says when size is outside the range instead of pretending it fits", () => {
     const h = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 3000 } }), spec);
     expect(h[0]).toMatch(/3,000 sq ft.*1,200.1,800/);
+    const below = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 1155 } }), spec);
+    expect(below[0]).toBe("1,155 sq ft (you asked for 1,200–1,800)");
   });
 });
 

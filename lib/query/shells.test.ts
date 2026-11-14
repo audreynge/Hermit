@@ -29,6 +29,8 @@ describe("searchShells", () => {
     expect(ids).not.toContain("home");
     expect(ids).not.toContain("proposed");
     expect(ids).not.toContain("tiny");
+    expect(searchShells(spec({ sizeSqft: [2000, 3000] }), [s("short", { sqft: 1650 })]).results).toHaveLength(0);
+    expect(searchShells(spec({ sizeSqft: [2000, 3000] }), [s("near", { sqft: 1800 })]).results[0].reasons.join(" ")).toMatch(/below the 2,000 sf minimum/);
   });
 
   it("ranks a scanned like-for-like space with an active listing first", () => {

@@ -1,6 +1,7 @@
 import type { FitResult, RequirementSpec, Room, RoomGraph } from "../types";
 import { minCostAssignment } from "./hungarian";
 import { IMPLIED_FIXTURES, labelCost } from "./labels";
+import { MIN_SLACK } from "../query/shells";
 
 const BUILD_COST = 70;
 const NOT_A_ROOM = new Set(["hallway", "outdoor"]);
@@ -63,7 +64,7 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
     const [lo, hi] = spec.sizeSqft;
     const a = g.totalAreaSqft;
     breakdown.size = Math.round(100 - sizeCost(a, lo, hi) * (100 / 60));
-    if (a < lo * 0.7) hardFails.push(`Measured area ${Math.round(a)} sf is far below the ${lo} sf minimum (scan ${g.sid})`);
+    if (a < lo * MIN_SLACK) hardFails.push(`Measured area ${Math.round(a)} sf is more than 15% below the ${lo} sf minimum (scan ${g.sid})`);
   }
 
   const weights = { rooms: spec.priorities.rooms ?? 2, size: spec.priorities.size ?? 2, adjacency: spec.priorities.adjacency ?? 1 };
