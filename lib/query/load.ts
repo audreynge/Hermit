@@ -3,7 +3,7 @@ import path from "node:path";
 import { db, dbFile, generation } from "../db";
 import { dataDir } from "../paths";
 import { importBundle } from "../../pipeline/import-db";
-import { isPlaceholderContact } from "../../pipeline/transform";
+import { isPlaceholderContact, tidyAddress } from "../../pipeline/transform";
 import type { City, Mode, RoomGraph, Shell } from "../types";
 
 export { dataDir };
@@ -24,6 +24,7 @@ function table() {
     const shells: Shell[] = rows.map((r) => {
       const s = JSON.parse(r.json) as Shell;
       if (s.listing?.contact && isPlaceholderContact(s.listing.contact.name)) delete s.listing.contact;
+      s.address = tidyAddress(s.address);
       return s;
     });
     cache = { key, shells, byId: new Map(shells.map((s) => [s.id, s])) };

@@ -72,9 +72,12 @@ const USE_TAGS: [RegExp, string][] = [
 ];
 const LISTING_STATUS: Record<number, Listing["status"]> = { 1: "active", 2: "contract", 4: "sold" };
 
+// A few CoStar records spell the city in lower case ("houston"); capitalise each word of the city.
+export const tidyAddress = (addr: string) => addr.replace(/, ([a-z][a-z .'-]*), ([A-Z]{2})$/, (_, c: string, st) => `, ${c.replace(/\b[a-z]/g, (x) => x.toUpperCase())}, ${st}`);
+
 function addressOf(a: Any): string {
   const street = [a?.streetNumber, a?.streetDirection, a?.streetName, a?.streetType].filter(Boolean).join(" ");
-  return [street, a?.city, a?.state].filter(Boolean).join(", ");
+  return tidyAddress([street, a?.city, a?.state].filter(Boolean).join(", "));
 }
 
 function listingFor(listings: Any[], suiteName?: string): { listing?: Listing; space?: Any } {
