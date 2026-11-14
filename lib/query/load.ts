@@ -4,11 +4,9 @@ import type { RoomGraph, Shell } from "../types";
 
 export const isSafeId = (id: string) => /^[A-Za-z0-9_-]{1,40}$/.test(id);
 
-export function dataDir(): string {
-  if (process.env.HERMIT_DATA_DIR) return process.env.HERMIT_DATA_DIR;
-  const processed = path.join(process.cwd(), "data", "processed");
-  return fs.existsSync(path.join(processed, "shells.json")) ? processed : path.join(process.cwd(), "data", "sample");
-}
+export { dataDir } from "../paths";
+import { dataDir } from "../paths";
+
 
 let cache: { dir: string; shells: Shell[]; byId: Map<string, Shell> } | null = null;
 
