@@ -172,6 +172,7 @@ export type ShellReport = {
 };
 
 export type TraceEvent =
+  | { type: "run"; id: string; runId: string; replay: boolean }
   | { type: "plan"; id: string; text: string }
   | { type: "tool"; id: string; tool: string; args: unknown; resultId: string; summary: string; ms: number }
   | { type: "drop"; id: string; shellId: string; reason: string; evidence: Evidence[] }

@@ -1,0 +1,247 @@
+[
+ {
+  "address": "1000 Sample Ave, Houston, TX",
+  "propertyType": "Office",
+  "subtype": "Office_Medical",
+  "useTags": [
+   "medical"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 30,
+  "zoning": null,
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEMED1",
+  "sid": "SAMPLEMED1",
+  "name": "Sample Medical Suite 210",
+  "mode": "business",
+  "city": "houston",
+  "lat": 29.7366,
+  "lon": -95.4613,
+  "sqft": 2400,
+  "sqftSource": "listing space",
+  "buildingClass": "A",
+  "listing": {
+   "listingId": 1,
+   "status": "active",
+   "askingRate": 28,
+   "availableSqft": 2400,
+   "contact": {
+    "name": "Sam Sample",
+    "company": "Sample Realty"
+   }
+  }
+ },
+ {
+  "address": "1000 Sample Ave, Houston, TX",
+  "propertyType": "Office",
+  "subtype": "Unknown",
+  "useTags": [
+   "office"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 30,
+  "zoning": null,
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEMED2",
+  "sid": "SAMPLEMED2",
+  "name": "Sample Office Suite 400",
+  "mode": "business",
+  "city": "houston",
+  "lat": 29.749,
+  "lon": -95.47,
+  "sqft": 2600,
+  "sqftSource": "scan name",
+  "listing": {
+   "listingId": 2,
+   "status": "active"
+  }
+ },
+ {
+  "address": "1000 Sample Ave, Houston, TX",
+  "propertyType": "Office",
+  "subtype": "Office_Medical",
+  "useTags": [
+   "medical"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 30,
+  "zoning": null,
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEMED3",
+  "sid": "SAMPLEMED3",
+  "name": "Sample Clinic Shell 105",
+  "mode": "business",
+  "city": "houston",
+  "lat": 29.72,
+  "lon": -95.4,
+  "sqft": 2200,
+  "buildingClass": "A",
+  "listing": {
+   "listingId": 3,
+   "status": "active"
+  }
+ },
+ {
+  "address": "1000 Sample Ave, Los Angeles, CA",
+  "propertyType": "Office",
+  "subtype": "Office_LoftOrCreativeSpace",
+  "useTags": [
+   "office"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 30,
+  "zoning": "LAC2",
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEOFF4",
+  "name": "Sample Creative Loft",
+  "mode": "business",
+  "city": "los_angeles",
+  "lat": 34.05,
+  "lon": -118.25,
+  "sqft": 3000,
+  "sqftSource": "building record"
+ },
+ {
+  "address": "900 Sample Ave, Los Angeles, CA",
+  "propertyType": "Industrial",
+  "subtype": "Industrial_Warehouse",
+  "useTags": [
+   "warehouse"
+  ],
+  "sprinkler": "esfr",
+  "heavyPower": true,
+  "driveInBays": 3,
+  "loadingDocks": 4,
+  "parkingSpaces": 30,
+  "zoning": "LAM2-1",
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 1,
+  "id": "SAMPLEWH1",
+  "sid": "SAMPLEWH1",
+  "name": "Sample Distribution Center",
+  "mode": "enterprise",
+  "city": "los_angeles",
+  "lat": 33.99,
+  "lon": -118.23,
+  "sqft": 22000,
+  "sqftSource": "building record",
+  "listing": {
+   "listingId": 4,
+   "status": "active"
+  }
+ },
+ {
+  "address": "900 Sample Ave, Los Angeles, CA",
+  "propertyType": "Industrial",
+  "subtype": "Industrial_Warehouse",
+  "useTags": [
+   "warehouse"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": false,
+  "driveInBays": 1,
+  "loadingDocks": null,
+  "parkingSpaces": 30,
+  "zoning": "LAM1",
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 1,
+  "id": "SAMPLEWH2",
+  "name": "Sample Flex Building",
+  "mode": "enterprise",
+  "city": "los_angeles",
+  "lat": 33.98,
+  "lon": -118.22,
+  "sqft": 19000,
+  "sqftSource": "building record"
+ },
+ {
+  "address": "1100 Sample Ave, Houston, TX",
+  "propertyType": "Residential",
+  "subtype": "Residential, Detached",
+  "useTags": [
+   "home"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 2,
+  "zoning": null,
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEHOME1",
+  "sid": "SAMPLEHOME1",
+  "name": "101 Sample Lane",
+  "mode": "home",
+  "city": "houston",
+  "lat": 29.8,
+  "lon": -95.3,
+  "sqft": 1800,
+  "sqftSource": "listing",
+  "beds": 3,
+  "baths": 2,
+  "homesListingId": 9001,
+  "listing": {
+   "listingId": 9001,
+   "status": "active",
+   "price": 399000
+  }
+ },
+ {
+  "address": "1100 Sample Ave, Houston, TX",
+  "propertyType": "Residential",
+  "subtype": "Residential, Detached",
+  "useTags": [
+   "home"
+  ],
+  "sprinkler": "wet",
+  "heavyPower": null,
+  "driveInBays": null,
+  "loadingDocks": null,
+  "parkingSpaces": 2,
+  "zoning": null,
+  "elevator": true,
+  "constructionStatus": "Existing",
+  "stories": 4,
+  "id": "SAMPLEHOME2",
+  "sid": "SAMPLEHOME2",
+  "name": "202 Sample Court",
+  "mode": "home",
+  "city": "houston",
+  "lat": 29.81,
+  "lon": -95.31,
+  "sqft": 2100,
+  "sqftSource": "listing",
+  "beds": 4,
+  "baths": 2.5,
+  "homesListingId": 9002,
+  "listing": {
+   "listingId": 9002,
+   "status": "active",
+   "price": 445000
+  }
+ }
+]
