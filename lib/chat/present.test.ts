@@ -120,7 +120,7 @@ describe("traceSummary", () => {
       { type: "tool", id: "2", tool: "evaluate_candidates", args: {}, resultId: "r", summary: "", ms: 1 },
       { type: "report", id: "3", reports: [report(), report()] },
     ];
-    expect(traceSummary(ev)).toEqual(["Searched 50 candidates", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
+    expect(traceSummary(ev)).toEqual(["Shortlisted 50 of 368 spaces", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
   });
 });
 
