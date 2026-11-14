@@ -3,7 +3,7 @@ import {
   Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
   Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatState, Turn } from "@/lib/chat/converse";
 import { compareRows, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "@/lib/chat/present";
@@ -24,7 +24,16 @@ type Msg =
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
-type Persist = { messages: Msg[]; chat: ChatState; spec: RequirementSpec | null; reports: ShellReport[]; events: TraceEvent[]; runId: string | null };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; reports?: ShellReport[] } };
+type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
+type ChatResponse = { conversationId: string; turn: Turn };
+
+function fromStored(r: StoredRow): Msg | null {
+  if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
+  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined };
+  if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
+  return null;
+}
 
 const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bolt: Zap, flame: Flame, car: Car, accessible: Accessibility, tag: Tag, ruler: Ruler, layout: LayoutGrid, dollar: DollarSign, x: CircleX, eye: Eye, sort: ArrowUpDown, doc: FileText };
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -39,6 +48,8 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
 
 export function SearchChat() {
   const params = useSearchParams();
+  const router = useRouter();
+  const conv = useRef<string | null>(params.get("c"));
   const replay = params.get("replay");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [chat, setChat] = useState<ChatState>({ spec: EMPTY_DRAFT, asked: [], phase: "gathering" });
@@ -64,6 +75,8 @@ export function SearchChat() {
 
   const bot = (paragraphs: string[], quick?: string[]): Msg => ({ id: uid(), role: "bot", kind: "text", paragraphs, quick });
   const push = (...m: Msg[]) => setMessages((x) => [...x, ...m]);
+  const persist = (body: { messages?: unknown[]; state?: ChatState; lastRunId?: string | null }) =>
+    conv.current ? fetch(`/api/conversations/${conv.current}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}) : Promise.resolve();
 
   const steps = useMemo(() => (spec ? thinkingSteps(events, spec) : []), [events, spec]);
 
@@ -117,48 +130,67 @@ export function SearchChat() {
     announced.current = runKey;
     const { considered } = searchCounts(events);
     const s = summarizeResults(reports, spec, { considered, dropped: events.filter((e) => e.type === "drop").length });
-    push(bot([...s.paragraphs, s.followUp], reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"]));
-    setChat((c) => ({ ...c, phase: "results" }));
+    const quick = reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"];
+    push(bot([...s.paragraphs, s.followUp], quick));
+    const next = { ...chat, phase: "results" as const };
+    setChat(next);
+    if (!replay) void persist({ messages: [{ role: "bot", kind: "text", payload: { paragraphs: [...s.paragraphs, s.followUp], quick } }], state: next, lastRunId: runId });
     setResultsReady(true);
-  }, [finished, spec, reports, events, runKey]);
+  }, [finished, spec, reports, events, runKey, runId, replay, chat]);
 
   const respond = useCallback(async (turn: Turn) => {
     setChat(turn.state);
     push(bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined));
-    if (turn.action === "compare" && reports.length) push({ id: uid(), role: "bot", kind: "compare", reports });
+    if (turn.action === "compare" && reports.length) {
+      push({ id: uid(), role: "bot", kind: "compare", reports });
+      void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
+    }
     if (turn.action === "email" && reports.length) setEmailFor(reports[selected] ?? reports[0]);
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
   }, [reports, selected, runSearch]);
 
+  const openNew = useCallback(async (draft: Draft, userText?: string) => {
+    try {
+      const r = await postJSON<ChatResponse>("/api/chat", { open: true, spec: draft, ...(userText ? { userText } : {}) });
+      conv.current = r.conversationId;
+      router.replace(`${window.location.pathname}?c=${r.conversationId}`, { scroll: false });
+      await respond(r.turn);
+    } catch {
+      push(bot(["I couldn't reach the Hermit server. Check that it's running and try again."]));
+    }
+  }, [respond, router]);
+
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    setSaved(load<Saved>(KEYS.saved, "local") ?? {});
-    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string }>(KEYS.pending);
-    const restored = load<Persist>(KEYS.chat);
+    fetch("/api/saved").then((r) => (r.ok ? r.json() : [])).then((rows: { report: ShellReport; spec: RequirementSpec; savedAt: string }[]) =>
+      setSaved(Object.fromEntries(rows.map((x) => [x.report.shellId, x])))).catch(() => {});
     if (replay) {
       push({ id: uid(), role: "user", text: "Show me the recorded demo search." });
       push(bot(["Here's a recorded run. It replays the exact steps without calling any outside service."]));
       void runSearch({ ...EMPTY_DRAFT, city: "houston", useType: "space" }, replay);
       return;
     }
-    if (!pending && restored?.messages?.length) {
-      setMessages(restored.messages.filter((m) => m.role === "user" || m.kind !== "thinking"));
-      setChat(restored.chat); setSpec(restored.spec); setReports(restored.reports); setEvents(restored.events); setRunId(restored.runId);
-      setShown(Number.MAX_SAFE_INTEGER);
-      setResultsReady(restored.reports.length > 0);
+    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string }>(KEYS.pending);
+    if (!pending && conv.current) {
+      fetch(`/api/conversations/${conv.current}`).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((c: ConvResponse) => {
+        setMessages(c.messages.map(fromStored).filter((m): m is Msg => !!m));
+        setChat(c.state);
+        if (c.run) {
+          const rep = c.run.events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }> | undefined;
+          setSpec(c.run.spec); setEvents(c.run.events); setReports(rep?.reports ?? []);
+          setShown(Number.MAX_SAFE_INTEGER); setResultsReady(!!rep?.reports.length);
+          const run = c.run.events.find((e) => e.type === "run") as Extract<TraceEvent, { type: "run" }> | undefined;
+          setRunId(run?.runId ?? null);
+        }
+      }).catch(() => { conv.current = null; push(bot(["I couldn't find that conversation. Let's start a new one."])); void openNew(EMPTY_DRAFT); });
       return;
     }
     save(KEYS.pending, null);
     const draft = pending?.source === "layout" && pending.spec ? pending.spec : pending?.source === "survey" ? surveyToSpec(load<Survey>(KEYS.survey) ?? { transaction: "lease", accessibility: false, requirements: [] }) : EMPTY_DRAFT;
     if (pending?.summary) push({ id: uid(), role: "user", text: pending.summary });
-    postJSON<Turn>("/api/chat", { open: true, spec: draft }).then(respond).catch(() => push(bot(["I couldn't reach the Hermit server. Check that it's running and try again."])));
-  }, [replay, respond, runSearch]);
-
-  useEffect(() => {
-    if (!started.current || replay || !messages.length) return;
-    save(KEYS.chat, { messages, chat, spec, reports, events, runId } satisfies Persist);
-  }, [messages, chat, spec, reports, events, runId, replay]);
+    void openNew(draft, pending?.summary);
+  }, [replay, openNew, runSearch]);
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }); }, [messages, shown]);
 
@@ -169,7 +201,8 @@ export function SearchChat() {
     push({ id: uid(), role: "user", text: t });
     setBusy(true);
     try {
-      await respond(await postJSON<Turn>("/api/chat", { state: chat, text: t }));
+      const r = await postJSON<ChatResponse>("/api/chat", { conversationId: conv.current, text: t });
+      await respond(r.turn);
     } catch {
       push(bot(["Something went wrong talking to the server. Try that again?"]));
     } finally {
@@ -183,7 +216,9 @@ export function SearchChat() {
     if (next[r.shellId]) delete next[r.shellId];
     else next[r.shellId] = { report: r, spec, savedAt: new Date().toISOString() };
     setSaved(next);
-    save(KEYS.saved, next, "local");
+    void (next[r.shellId]
+      ? fetch("/api/saved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ report: r, spec }) })
+      : fetch(`/api/saved?shellId=${encodeURIComponent(r.shellId)}`, { method: "DELETE" }));
   };
 
   const current = reports[selected];

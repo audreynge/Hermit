@@ -2,7 +2,7 @@
 import { Accessibility, CalendarDays, Car, ChevronDown, DoorOpen, Expand, Heart, Layers, ListChecks, MapPin, Sparkles, ArrowRight, Stethoscope, TramFront, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { drop, KEYS, load, save } from "@/lib/client/store";
+import { KEYS, load, save } from "@/lib/client/store";
 import { REQUIREMENTS, SIZE_OPTIONS, TIMING_OPTIONS, USE_OPTIONS, type Survey as SurveyT } from "@/lib/spec/survey";
 import type { City } from "@/lib/types";
 import { Stepper } from "./Stepper";
@@ -33,7 +33,6 @@ export function Survey() {
     e.preventDefault();
     save(KEYS.survey, s);
     save(KEYS.pending, { source: "survey" });
-    drop(KEYS.chat);
     router.push("/search");
   };
 

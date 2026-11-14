@@ -128,7 +128,6 @@ export function LayoutStudio() {
     const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.fixtures.join(" and ")}s` : ""}`);
     const summary = `Here's my layout: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space"}${types.has("hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft). Find the closest match.`;
     save(KEYS.pending, { source: "layout", spec: draft, summary });
-    save(KEYS.chat, null);
     router.push("/search");
   };
 

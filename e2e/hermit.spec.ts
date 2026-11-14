@@ -140,6 +140,26 @@ test.describe("results", () => {
     await expect(page.getByText("No saved spaces yet.")).toBeVisible();
   });
 
+  test("reloading keeps the conversation and results; saved spaces stay with this browser", async ({ page, browser }) => {
+    await expect(page).toHaveURL(/[?&]c=c_[a-f0-9]{24}/);
+    const name = await cards(page).first().locator("h3").innerText();
+    await cards(page).first().getByRole("button", { name: "Save" }).click();
+    await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
+    await page.reload();
+    await expect(conversation(page)).toContainText("How many exam rooms");
+    await expect(conversation(page)).toContainText(/Would you like me to compare/);
+    await expect(cards(page).first().locator("h3")).toHaveText(name);
+    await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
+
+    const other = await browser.newContext();
+    const p2 = await other.newPage();
+    await p2.goto(page.url());
+    await expect(p2.getByLabel("Conversation")).toContainText("How many exam rooms");
+    await p2.goto("/saved");
+    await expect(p2.getByText("No saved spaces yet.")).toBeVisible();
+    await other.close();
+  });
+
   test("Inside, Above and Fit open evidence for the selected space", async ({ page }) => {
     if ((await cards(page).count()) > 1) {
       await cards(page).nth(1).locator("h3 button").click();
@@ -270,7 +290,12 @@ test.describe("replay and failure states", () => {
     expect((await request.get("/api/shell/..%2Fshells")).status()).toBe(404);
     const open = await request.post("/api/chat", { data: { open: true, spec: { mode: "business", useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" } } });
     expect(open.status()).toBe(200);
-    expect((await open.json()).reply).toMatch(/what kind of space/i);
+    const opened = await open.json();
+    expect(opened.turn.reply).toMatch(/what kind of space/i);
+    expect(opened.conversationId).toMatch(/^c_[a-f0-9]{24}$/);
+    expect((await request.post("/api/chat", { data: { conversationId: "c_000000000000000000000000", text: "hi" } })).status()).toBe(404);
+    expect((await request.get("/api/conversations/..%2Fx")).status()).toBe(404);
+    expect((await request.post("/api/saved", { data: { report: {} } })).status()).toBe(400);
   });
 
   test("missing printable reports fail gracefully", async ({ page }) => {
