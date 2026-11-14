@@ -35,6 +35,10 @@ npm run demo           # records the dental-clinic demo replay
 
 When `ANTHROPIC_API_KEY` is set, Claude (`claude-opus-5-5`) runs each chat turn (structured output: reply, spec update, ready, quick replies, action) and plans the search tool calls. Without a key, a deterministic conversation and planner run the same tools (search → screen 20 → evaluate 8 → drop / escalate / rerank → report) and the trace shows `deterministic`.
 
+**Design edits without a key (`lib/design/offline.ts`).** Chat edits to layouts and scanned spaces ("add an exam room", "turn bedroom 2 into an office") normally go through Claude. `lib/design/offline.ts` is a regex stand-in that only exists because there is no API key yet. It understands a handful of phrasings (add/remove, convert, add a fixture, merge, split) and asks the user to rephrase anything else. Once `ANTHROPIC_API_KEY` is set, decide one of these:
+- **Keep it as the fallback (recommended).** `chatTurn` in `lib/chat/claude.ts` already uses it whenever the model call fails, times out or returns unusable output, and every edit still goes through the same validation. Nothing to change.
+- **Remove it.** Delete `lib/design/offline.ts`. In `offline()` in `lib/chat/claude.ts`, drop the `offlineEdit` branch and reply with a short "edits need the assistant; try again or use Layout Studio" message. Then update the tests that rely on it: the offline parts of [C5] and [C7] and the `resolveRef` test in `lib/design/edit.test.ts`, plus `e2e/design-edits.spec.ts`. The e2e suite runs without a key, so it either needs a key in CI or a mocked `/api/chat`.
+
 ## Tests
 
 ```bash

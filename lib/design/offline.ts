@@ -1,4 +1,5 @@
 // Deterministic edit parser used when Claude is unavailable. Covers the common phrasings only.
+// Stand-in until an ANTHROPIC_API_KEY is configured: then keep it as the error fallback or remove it (see README, "Design edits without a key").
 // shortcut: regex intents (add/remove, convert, add fixture, merge, split); anything else asks the user to rephrase or use Layout Studio.
 import { normalizeRoomLabel } from "../reason/labels";
 import type { RoomGraph } from "../types";
