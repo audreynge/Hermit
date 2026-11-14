@@ -1,6 +1,7 @@
 "use client";
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Block } from "@/lib/spec/parse";
 import { LayoutStudio } from "./LayoutStudio";
 
@@ -14,7 +15,8 @@ export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => 
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus(); };
   }, [onClose]);
-  return (
+  // Portal to <body> like Modal: inside <main> the site header paints over the sheet's backdrop.
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} className="card modal sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
         <header>
@@ -26,6 +28,7 @@ export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => 
         </header>
         <LayoutStudio onDone={onDone} doneLabel="Use this layout" />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

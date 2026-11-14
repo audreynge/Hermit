@@ -109,7 +109,8 @@ export function SearchChat() {
   const [resultsReady, setResultsReady] = useState(false);
   const [owner, setOwner] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  // Opened after mount (?design=draw): the sheet portals to <body>, which does not exist during server rendering.
+  const [drawing, setDrawing] = useState(false);
   // Design edits: the drawn layout chat edits apply to, its undo history, and proposed changes per scanned space.
   const [layout, setLayout] = useState<Block[] | null>(null);
   const [layoutId, setLayoutId] = useState<string | null>(null);
@@ -272,6 +273,7 @@ export function SearchChat() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    if (params.get("design") === "draw") setDrawing(true);
     fetch("/api/saved").then((r) => (r.ok ? r.json() : [])).then((rows: { report: ShellReport; spec: RequirementSpec; savedAt: string }[]) =>
       setSaved(Object.fromEntries(rows.map((x) => [x.report.shellId, x])))).catch(() => {});
     if (replay) {
