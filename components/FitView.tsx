@@ -37,7 +37,7 @@ type View = "plan" | "3d" | "compare" | "access";
 type AccessState = "reachable" | "hinges" | "blocked" | "unknown";
 const ACCESS: Record<AccessState, { fill: string; label: string; legend: string }> = {
   reachable: { fill: "#dcefe2", label: "reachable", legend: "chair reaches it" },
-  hinges: { fill: "url(#hinge-hatch)", label: "reachable with hinges", legend: "reachable once offset hinges go on" },
+  hinges: { fill: "url(#hinge-hatch)", label: "with hinges", legend: "reachable once offset hinges go on" },
   blocked: { fill: "#f6d3cc", label: "blocked", legend: "a door stops the chair" },
   unknown: { fill: "#ededed", label: "not measured", legend: "door width not measured" },
 };
@@ -234,7 +234,7 @@ function Plan2D({ report, g, measuredRooms, access }: { report: ShellReport; g: 
       {(Object.keys(ACCESS) as AccessState[]).map((s) => (
         <li key={s}><span className="sw" aria-hidden="true" style={{ background: s === "hinges" ? HATCH_CSS : ACCESS[s].fill }} /> {ACCESS[s].legend} ({count(s)})</li>
       ))}
-      {labels.length > 0 && <li><span className="sw" aria-hidden="true" style={{ background: "var(--fail)", borderRadius: 7 }} /> door too narrow for the chair; numbers are clear width in inches</li>}
+      {labels.length > 0 && <li><span className="sw" aria-hidden="true" style={{ background: labels.some((d) => d.tooNarrow) ? "var(--fail)" : INK, borderRadius: 7 }} /> doors, with clear width in inches{labels.some((d) => d.tooNarrow) ? "; red = too narrow for the chair" : ""}</li>}
     </ul>
   ) : (
     <ul className="plan-legend">
@@ -286,8 +286,8 @@ function Plan2D({ report, g, measuredRooms, access }: { report: ShellReport; g: 
         : `Floor plan of ${g.name}: ${byRoom.size} rooms matched, ${unmatched.length} to build${proposed.length ? `; proposed changes to ${proposed.map((r) => r.label).join(", ")}` : ""}`}>
         <defs>
           <pattern id="hinge-hatch" width={8} height={8} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width={8} height={8} fill="#fbf3df" />
-            <line x1={0} y1={0} x2={0} y2={8} stroke="#c9a24a" strokeWidth={3} />
+            <rect width={8} height={8} fill="#eef7f0" />
+            <line x1={0} y1={0} x2={0} y2={8} stroke="#9fcfae" strokeWidth={3} />
           </pattern>
         </defs>
         <rect width={W} height={H} fill="#fff" />

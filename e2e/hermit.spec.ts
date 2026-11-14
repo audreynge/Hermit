@@ -440,7 +440,7 @@ test.describe("other uses", () => {
     await dialog.getByRole("button", { name: "Wheelchair access" }).click();
     await expect(dialog.getByRole("button", { name: "Wheelchair access" })).toHaveAttribute("aria-pressed", "true");
     await expect(dialog.getByRole("img", { name: /Wheelchair route .* 25 in chair: 5 rooms reachable, 0 fit with offset hinges, 1 blocked/ })).toBeVisible();
-    await expect(dialog.getByText(/door too narrow for the chair/)).toBeVisible();
+    await expect(dialog.getByText(/red = too narrow for the chair/)).toBeVisible();
     await dialog.getByRole("button", { name: "With offset hinges" }).click();
     await expect(dialog.getByRole("img", { name: /Wheelchair route .* 5 rooms reachable, 1 fit with offset hinges, 0 blocked/ })).toBeVisible();
     await dialog.getByRole("button", { name: "As scanned" }).click();
