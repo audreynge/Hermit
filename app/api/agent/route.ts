@@ -51,7 +51,7 @@ export async function GET(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
-      controller.enqueue(enc.encode(sse({ type: "run", id: "run", runId: run.id, replay: true })));
+      controller.enqueue(enc.encode(sse({ type: "run", id: "run", runId: run.id, replay: true, spec: run.spec })));
       for (const e of run.events) {
         if (e.type === "run") continue;
         await new Promise((r) => setTimeout(r, e.type === "tool" ? 180 : 90));

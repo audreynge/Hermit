@@ -96,24 +96,37 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   return spec;
 }
 
-export type Block = { id: string; label: string; x: number; y: number; w: number; h: number };
+export type Block = { id: string; label: string; kind?: "room" | "object"; x: number; y: number; w: number; h: number };
 
 const touches = (a: Block, b: Block) =>
   a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
+const inside = (o: Block, r: Block) => {
+  const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+  return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+};
+const ROOM_ALIAS: Record<string, string> = { "waiting area": "reception", "procedure room": "procedure room" };
+const CIRCULATION = new Set(["hallway", "corridor"]);
+const OBJECT_FIXTURE: Record<string, string> = { sink: "sink", kitchenette: "sink", toilet: "toilet", shower: "shower" };
 
 // Blocks are in feet; drawn areas become minimums at 85% to allow for wall thickness and imprecise drawing.
 export function fromLayout(blocks: Block[], base: { mode: Mode; city: City; useType: string }): RequirementSpec {
+  const rooms = blocks.filter((b) => b.kind !== "object");
+  const objects = blocks.filter((b) => b.kind === "object");
+  const labelOf = (b: Block) => ROOM_ALIAS[b.label.toLowerCase()] ?? b.label.toLowerCase();
   const groups = new Map<string, Block[]>();
-  for (const b of blocks) groups.set(b.label, [...(groups.get(b.label) ?? []), b]);
-  const rooms: RoomReq[] = [...groups].map(([label, bs]) => {
+  for (const b of rooms) if (!CIRCULATION.has(labelOf(b))) groups.set(labelOf(b), [...(groups.get(labelOf(b)) ?? []), b]);
+
+  const reqs: RoomReq[] = [...groups].map(([label, bs]) => {
     const adj = new Set<string>();
-    for (const b of bs) for (const o of blocks) if (o.id !== b.id && touches(b, o)) adj.add(o.label);
+    for (const b of bs) for (const o of rooms) if (o.id !== b.id && touches(b, o) && !CIRCULATION.has(labelOf(o))) adj.add(labelOf(o));
+    const fixtures = [...new Set(objects.filter((o) => OBJECT_FIXTURE[o.label.toLowerCase()] && bs.some((b) => inside(o, b))).map((o) => OBJECT_FIXTURE[o.label.toLowerCase()]))];
     return {
       label, count: bs.length, hard: false,
       minSqft: Math.round(Math.min(...bs.map((b) => b.w * b.h)) * 0.85),
       ...(adj.size ? { adjacentTo: [...adj] } : {}),
+      ...(fixtures.length ? { fixtures } : {}),
     };
   });
-  const total = blocks.reduce((s, b) => s + b.w * b.h, 0);
-  return { ...base, rooms, needs: {}, priorities: {}, input: "layout", sizeSqft: [Math.round(total), Math.round(total * 2)] };
+  const total = rooms.reduce((s, b) => s + b.w * b.h, 0);
+  return { ...base, rooms: reqs, needs: {}, priorities: {}, input: "layout", sizeSqft: [Math.round(total), Math.round(total * 2)] };
 }

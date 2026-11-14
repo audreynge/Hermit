@@ -80,6 +80,22 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     else hits.push(hit("parking", shell.parkingSpaces >= required ? "pass" : "warn", `${shell.parkingSpaces} recorded stalls vs ~${required} screening need (${per1000}/1,000 sf).${laNote}`, cite, ev));
   }
 
+  if (n.parking) {
+    const ev = [costar(shell, "parking.totalSpaces")];
+    if (shell.parkingSpaces == null) hits.push(hit("onsite_parking", "unknown", "On-site parking count is not recorded.", src("costar_kit"), ev));
+    else hits.push(hit("onsite_parking", shell.parkingSpaces > 0 ? "pass" : "fail", `${shell.parkingSpaces} on-site stalls recorded.`, src("costar_kit"), ev));
+  }
+
+  if (n.groundFloor) {
+    const ev = [costar(shell, "numStoriesAboveGrade")];
+    if (shell.stories === 1) hits.push(hit("ground_floor", "pass", "Single-story building, so the space is at grade.", src("costar_kit"), ev));
+    else hits.push(hit("ground_floor", "unknown", shell.stories ? `${shell.stories}-story building; which floor this space is on isn't recorded.` : "Floor level isn't recorded.", src("costar_kit"), ev));
+  }
+
+  if (n.transit) {
+    hits.push(hit("transit", "unknown", "Transit access not checked yet: the bundle has no transit stop data for this site.", src("costar_kit")));
+  }
+
   if (n.stepFree || n.wheelchair) {
     const ev = [costar(shell, "numStoriesAboveGrade"), costar(shell, "structural.elevators")];
     if (shell.stories != null && shell.stories > 1 && shell.elevator === false)

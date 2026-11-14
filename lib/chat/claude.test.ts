@@ -1,0 +1,37 @@
+import { describe, expect, it } from "vitest";
+import { chatTurn } from "./claude";
+import { openChat } from "./converse";
+import { surveyToSpec } from "../spec/survey";
+
+const state = openChat(surveyToSpec({ transaction: "lease", accessibility: false, requirements: [], city: "houston" })).state;
+
+const fake = (parsed: unknown) => ({ messages: { parse: async () => ({ parsed_output: parsed }) } }) as never;
+
+describe("chatTurn", () => {
+  it("applies Claude's spec update and reply, validated against the schema", async () => {
+    const t = await chatTurn(state, "a nail salon, maybe 1200 sq ft", fake({
+      reply: "Lovely! How many stations?", ready: false, quickReplies: ["4", "6"], action: "none",
+      update: { useType: "nail salon", mode: "business", city: null, sizeMinSqft: 1000, sizeMaxSqft: 1400, budgetMonthly: null, budgetTotal: null, headcount: null, beds: null, baths: null, rooms: [], needs: { parking: null, wheelchair: null, groundFloor: null, heavyPower: null, esfr: null, driveInBays: null } },
+    }));
+    expect(t.reply).toBe("Lovely! How many stations?");
+    expect(t.state.spec).toMatchObject({ useType: "nail salon", city: "houston", sizeSqft: [1000, 1400] });
+    expect(t.ready).toBe(false);
+  });
+
+  it("refuses to start a search until a use type and city are known", async () => {
+    const t = await chatTurn({ ...state, spec: { ...state.spec, city: undefined } }, "go", fake({
+      reply: "Searching!", ready: true, quickReplies: [], action: "none",
+      update: { useType: "office", mode: null, city: null, sizeMinSqft: null, sizeMaxSqft: null, budgetMonthly: null, budgetTotal: null, headcount: null, beds: null, baths: null, rooms: [], needs: { parking: null, wheelchair: null, groundFloor: null, heavyPower: null, esfr: null, driveInBays: null } },
+    }));
+    expect(t.ready).toBe(false);
+    expect(t.reply).toMatch(/Houston or Los Angeles/);
+  });
+
+  it("falls back to the deterministic conversation when there is no client or Claude fails", async () => {
+    const a = await chatTurn(state, "a dental clinic", null);
+    expect(a.state.spec.useType).toMatch(/dental clinic/);
+    const broken = { messages: { parse: async () => { throw new Error("boom"); } } } as never;
+    const b = await chatTurn(state, "a dental clinic", broken);
+    expect(b.state.spec.useType).toMatch(/dental clinic/);
+  });
+});

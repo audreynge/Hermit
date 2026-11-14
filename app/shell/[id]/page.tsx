@@ -12,11 +12,10 @@ export default async function ShellPage({ params, searchParams }: { params: Prom
   const report = run?.events.flatMap((e) => (e.type === "report" ? e.reports : [])).find((r) => r.shellId === id);
   if (!run || !report) return <p>Report not found. It may have come from a run on another server. <Link href="/plan">Start a search</Link>.</p>;
   return (
-    <div className="stack" style={{ maxWidth: 900, margin: "0 auto" }}>
-      <p className="muted no-print"><Link href={`/results?replay=${run.id}`}>← Back to results</Link> · Search for a {run.spec.useType}, run {new Date(run.createdAt).toLocaleString()}</p>
-      <ReportPanel report={report} runId={run.id} printable />
-      <section className="card"><h2>Fit overlay</h2><FitView report={report} /></section>
-      <p className="muted">Hermit is a screening tool. It doesn&apos;t inspect, certify code compliance or guarantee availability.</p>
+    <div style={{ maxWidth: 940, margin: "0 auto", display: "grid", gap: 18 }}>
+      <p className="muted no-print"><Link href="/search">← Back to search</Link> · Search for a {run.spec.useType}, run {new Date(run.createdAt).toLocaleString()}</p>
+      <section className="card panel"><h1 style={{ fontSize: 34, marginBottom: 8 }}>{report.name.split(" · ")[0]}</h1><ReportPanel report={report} runId={run.id} printable /></section>
+      <section className="card panel"><h2 style={{ fontSize: 24 }}>Fit overlay</h2><FitView report={report} /></section>
     </div>
   );
 }

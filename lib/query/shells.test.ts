@@ -53,6 +53,14 @@ describe("searchShells", () => {
     expect(r.map((x) => x.shell.id)).toEqual(["h3"]);
   });
 
+  it("prefers listings that match lease vs buy", () => {
+    const lease = s("lease", { sid: "l", listing: { listingId: 1, status: "active", kind: "lease" } });
+    const sale = s("sale", { sid: "b", listing: { listingId: 2, status: "active", kind: "sale" } });
+    const r = searchShells(spec({ transaction: "buy" }), [lease, sale]).results;
+    expect(r[0].shell.id).toBe("sale");
+    expect(r[0].reasons).toContain("For sale");
+  });
+
   it("keeps a shell with unknown size but says so", () => {
     const r = searchShells(spec({ sizeSqft: [2000, 3000] }), [s("nosize", { sid: "q" })]).results;
     expect(r[0].reasons.join(" ")).toMatch(/size unknown/i);

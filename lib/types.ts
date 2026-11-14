@@ -27,6 +27,8 @@ export const Needs = z.object({
   outdoorArea: z.boolean().optional(),
   driveInBays: z.number().int().nonnegative().optional(),
   esfr: z.boolean().optional(),
+  parking: z.boolean().optional(),
+  transit: z.boolean().optional(),
 });
 
 export const RequirementSpec = z.object({
@@ -45,7 +47,9 @@ export const RequirementSpec = z.object({
   priorities: z.record(z.string(), z.union([z.literal(1), z.literal(2), z.literal(3)])).default({}),
   tiPerSqft: z.number().nonnegative().optional(),
   freeRentMonths: z.number().nonnegative().optional(),
-  input: z.enum(["voice", "text", "layout", "survey"]),
+  transaction: z.enum(["lease", "buy"]).optional(),
+  preferences: z.array(z.string()).optional(),
+  input: z.enum(["voice", "text", "layout", "survey", "chat"]),
   rawText: z.string().optional(),
 });
 export type RequirementSpec = z.infer<typeof RequirementSpec>;
@@ -75,6 +79,7 @@ export type RoomGraph = {
 
 export type Listing = {
   listingId: number;
+  kind?: "lease" | "sale";
   status: "active" | "off_market" | "sold" | "contract" | "other";
   askingRate?: number; // $/sf/yr for commercial leases
   price?: number; // homes: asking price or monthly rent
@@ -155,6 +160,9 @@ export type ShellReport = {
   address: string;
   verdict: string;
   summary: string;
+  matchScore: number;
+  sqft?: number;
+  useTags?: string[];
   reasons: string[];
   fit: FitResult;
   rules: RuleHit[];
@@ -173,7 +181,7 @@ export type ShellReport = {
 };
 
 export type TraceEvent =
-  | { type: "run"; id: string; runId: string; replay: boolean }
+  | { type: "run"; id: string; runId: string; replay: boolean; spec?: RequirementSpec }
   | { type: "plan"; id: string; text: string }
   | { type: "tool"; id: string; tool: string; args: unknown; resultId: string; summary: string; ms: number }
   | { type: "drop"; id: string; shellId: string; reason: string; evidence: Evidence[] }

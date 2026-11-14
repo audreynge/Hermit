@@ -86,6 +86,7 @@ function listingFor(listings: Any[], suiteName?: string): { listing?: Listing; s
     listing: {
       listingId: l.id,
       status: l.listingStatus === 1 ? "active" : "off_market",
+      kind: l.forSaleSummary || l.auctionForSaleSummary ? "sale" : "lease",
       askingRate: space?.askingRateHasValue ? space.rateLow || space.rateHigh : undefined,
       availableSqft: space?.squareFeetMax ?? l.forLeaseSummary?.totalAvailableSquareFeet ?? undefined,
       contact: c ? { name: [c.firstName, c.lastName].filter(Boolean).join(" "), company: c.locationName, email: c.emailAddress } : undefined,
@@ -179,6 +180,7 @@ export function shellFromResidential(r: Any): Shell {
     listing: {
       listingId: r.id,
       status: LISTING_STATUS[r.listingStatus] ?? "other",
+      kind: r.transactionType === 2 ? "lease" : "sale",
       price: r.currentPrice ?? undefined,
       url: p.url ? `https://www.homes.com/property/${p.url}` : undefined,
     },

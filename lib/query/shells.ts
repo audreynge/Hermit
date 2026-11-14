@@ -35,6 +35,8 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = 50)
     else if (s.useTags.some((t) => NEIGHBOR_USES[use]?.includes(t))) { score += 15; reasons.push(`Adjacent prior use (${s.useTags.join(", ")})`); }
     if (s.sid) { score += 15; reasons.push("Matterport scan available"); }
     if (s.listing?.status === "active") { score += 10; reasons.push("Active listing on record"); }
+    const want = spec.transaction === "buy" ? "sale" : spec.transaction === "lease" ? "lease" : null;
+    if (want && s.listing?.kind === want) { score += 8; reasons.push(want === "sale" ? "For sale" : "For lease"); }
     if (s.buildingClass === "A") score += 5;
     if (s.buildingClass === "B") score += 3;
     if (spec.sizeSqft) {

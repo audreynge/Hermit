@@ -17,7 +17,7 @@
     "costs": { "title": "Hermit cost table v2026-11: broad screening ranges, not bids", "url": "https://github.com/audreynge/hackprinceton-fall26/blob/main/rules/screening.json" }
   },
   "uses": {
-    "office": { "match": ["office", "creative", "loft", "coworking", "agency", "studio"], "zone": "commercial", "parkingPer1000": { "los_angeles": 2, "houston": 2.5 }, "sfPerTon": [300, 400], "permit": "tenant improvement" },
+    "office": { "match": ["office", "creative", "loft", "coworking", "agency", "design studio"], "zone": "commercial", "parkingPer1000": { "los_angeles": 2, "houston": 2.5 }, "sfPerTon": [300, 400], "permit": "tenant improvement" },
     "medical": { "match": ["medical", "dental", "dentist", "clinic", "doctor", "physical therapy", "chiropract", "veterinar", "exam"], "zone": "commercial", "parkingPer1000": { "los_angeles": 5, "houston": 4 }, "sfPerTon": [250, 300], "permit": "tenant improvement + health review" },
     "salon": { "match": ["salon", "barber", "spa", "nail", "beauty"], "zone": "commercial", "parkingPer1000": { "los_angeles": 4, "houston": 4 }, "sfPerTon": [250, 300], "permit": "tenant improvement + cosmetology board" },
     "retail": { "match": ["retail", "store", "shop", "boutique", "showroom", "gallery"], "zone": "commercial", "parkingPer1000": { "los_angeles": 4, "houston": 4 }, "sfPerTon": [250, 350], "permit": "tenant improvement" },
