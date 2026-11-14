@@ -2,7 +2,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -13,7 +13,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={ref} className="card modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div ref={ref} className={`card modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <header>
           <h2 id="modal-title">{title}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button>

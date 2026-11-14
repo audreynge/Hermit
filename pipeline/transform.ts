@@ -29,6 +29,7 @@ export function roomGraphFromModel(m: Any): RoomGraph {
       heightFt: r.dimensions?.height ? r.dimensions.height * (metric ? 3.28084 : 1) : undefined,
       polygon: ringFromEdges(segs),
       floorId: r.floor?.id ?? "",
+      sweeps: (r.panoLocations ?? []).filter((p: Any) => p?.id).map((p: Any) => ({ id: p.id, index: Number(p.label) })).filter((p: { index: number }) => Number.isFinite(p.index)),
     });
   }
   const keep = new Set(rooms.map((r) => r.id));

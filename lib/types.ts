@@ -64,6 +64,7 @@ export type Room = {
   heightFt?: number;
   polygon: { x: number; y: number }[]; // meters, Matterport floor plane
   floorId: string;
+  sweeps?: { id: string; index: number }[];
 };
 export type RoomGraph = {
   sid: string;

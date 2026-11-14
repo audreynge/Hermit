@@ -18,6 +18,7 @@ import { EmailDraft } from "./EmailDraft";
 import { FitView } from "./FitView";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
+import { PropertyViewer } from "./PropertyViewer";
 import { SpaceCard } from "./SpaceCard";
 
 type Msg =
@@ -72,6 +73,7 @@ export function SearchChat() {
   const [tour, setTour] = useState<string | null>(null);
   const [emailFor, setEmailFor] = useState<ShellReport | null>(null);
   const [detailsFor, setDetailsFor] = useState<ShellReport | null>(null);
+  const [viewing, setViewing] = useState<ShellReport | null>(null);
   const [saved, setSaved] = useState<Saved>({});
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -299,6 +301,7 @@ export function SearchChat() {
                 <span>{tab === "inside" ? "Matterport scan" : tab === "above" ? "Esri World Imagery (Vexcel not connected)" : "Your rooms mapped onto the measured floor plan"} · {current.name.split(" · ")[0]}</span>
                 <span style={{ display: "flex", gap: 8 }}>
                   {tab === "inside" && current.inside && tour !== current.inside.sid && <button type="button" className="btn small" onClick={() => setTour(current.inside!.sid)}>Open 3D tour</button>}
+                  <button type="button" className="btn small" onClick={() => setViewing(current)}>View property</button>
                   <button type="button" className="btn small" onClick={() => setEvidenceOpen(false)} aria-label="Hide evidence"><X aria-hidden="true" /></button>
                 </span>
               </div>
@@ -372,7 +375,7 @@ export function SearchChat() {
             {showResults && spec && visibleReports.map((r, i) => (
               <SpaceCard key={r.shellId} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
                 onSelect={() => { setSelected(i); setTour(null); }}
-                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} />
+                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)} />
             ))}
           </div>
         </section>
@@ -403,6 +406,7 @@ export function SearchChat() {
         )}
       </section>
 
+      {viewing && <PropertyViewer report={viewing} onClose={() => setViewing(null)} />}
       {drawing && <DesignSheet onDone={applyDrawing} onClose={() => setDrawing(false)} />}
       {emailFor && <EmailDraft report={emailFor} onClose={() => setEmailFor(null)} />}
       {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}

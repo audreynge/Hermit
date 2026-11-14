@@ -6,6 +6,7 @@ import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { EmailDraft } from "./EmailDraft";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
+import { PropertyViewer } from "./PropertyViewer";
 import { SpaceCard } from "./SpaceCard";
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
@@ -15,6 +16,7 @@ export function SavedList() {
   const [ready, setReady] = useState(false);
   const [emailFor, setEmailFor] = useState<ShellReport | null>(null);
   const [detailsFor, setDetailsFor] = useState<ShellReport | null>(null);
+  const [viewing, setViewing] = useState<ShellReport | null>(null);
   useEffect(() => {
     fetch("/api/saved").then((r) => (r.ok ? r.json() : [])).then((rows: Saved[string][]) => setSaved(Object.fromEntries(rows.map((x) => [x.report.shellId, x])))).catch(() => {}).finally(() => setReady(true));
   }, []);
@@ -39,11 +41,12 @@ export function SavedList() {
       <div className="results-list">
         {list.map(({ report, spec }) => (
           <div key={report.shellId} style={{ display: "grid", gap: 6 }}>
-            <SpaceCard report={report} spec={spec} selected={false} saved onSelect={() => setDetailsFor(report)} onEmail={() => setEmailFor(report)} onDetails={() => setDetailsFor(report)} onSave={() => remove(report.shellId)} />
+            <SpaceCard report={report} spec={spec} selected={false} saved onSelect={() => setDetailsFor(report)} onEmail={() => setEmailFor(report)} onDetails={() => setDetailsFor(report)} onSave={() => remove(report.shellId)} onView={() => setViewing(report)} />
             <button type="button" className="btn small" style={{ justifySelf: "end" }} onClick={() => remove(report.shellId)}><Trash2 aria-hidden="true" /> Remove</button>
           </div>
         ))}
       </div>
+      {viewing && <PropertyViewer report={viewing} onClose={() => setViewing(null)} />}
       {emailFor && <EmailDraft report={emailFor} onClose={() => setEmailFor(null)} />}
       {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} /></Modal>}
     </section>

@@ -20,6 +20,7 @@ const model = {
     },
     {
       id: "b", label: "Restroom", tags: [], dimensions: { areaFloor: 40, units: "imperial" }, floor: { id: "f1" },
+      panoLocations: [{ id: "pB1", label: "12" }, { id: "pB2", label: "13" }],
       boundary: { edges: [wall("shared", [4, 0], [4, 3], ["doorway"]), wall("e5", [4, 3], [6, 3]), wall("e6", [6, 3], [6, 0]), wall("e7", [6, 0], [4, 0])] },
     },
   ],
@@ -48,6 +49,14 @@ describe("roomGraphFromModel", () => {
     expect(g.panoCount).toBe(2);
     expect(g.floorCount).toBe(1);
     expect(g.classification).toBe("workspace");
+  });
+});
+
+describe("sweeps", () => {
+  it("keeps sweep ids and numbers per room", () => {
+    const g = roomGraphFromModel(model);
+    expect(g.rooms.find((r) => r.id === "b")?.sweeps).toEqual([{ id: "pB1", index: 12 }, { id: "pB2", index: 13 }]);
+    expect(g.rooms.find((r) => r.id === "a")?.sweeps).toEqual([]);
   });
 });
 

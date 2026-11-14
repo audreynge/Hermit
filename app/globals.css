@@ -264,6 +264,15 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 /* Modal */
 .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; background: rgb(59 35 32 / 0.35); }
 .modal { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 26px 28px; }
+.modal.wide { width: min(1180px, 100%); }
+.viewer-body { margin-top: 14px; }
+.viewer-3d { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; }
+.viewer-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: var(--sea-wash); }
+.viewer-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.room-stops { display: grid; gap: 8px; align-content: start; }
+.room-stops h3 { font-size: 16px; }
+.room-stops .btn[aria-pressed="true"] { background: var(--coral-wash); border-color: var(--coral); color: var(--coral-ink); }
+@media (max-width: 760px) { .viewer-3d { grid-template-columns: minmax(0, 1fr); } }
 .modal.sheet { width: min(1360px, 100%); background: var(--sand-1); }
 .modal.sheet .layout-cta { margin-left: 0; }
 .attach { position: relative; }

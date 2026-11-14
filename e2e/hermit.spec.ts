@@ -162,6 +162,26 @@ test.describe("results", () => {
     await other.close();
   });
 
+  test("View property opens a 3D tour that jumps between your rooms", async ({ page }) => {
+    await cards(page).first().getByRole("button", { name: "View property" }).click();
+    const dialog = page.getByRole("dialog");
+    const frame = dialog.locator("iframe");
+    await expect(frame).toHaveAttribute("src", /my\.matterport\.com\/show\/\?m=[A-Za-z0-9]+/);
+    await expect(frame).not.toHaveAttribute("src", /ss=/);
+    const stops = dialog.getByRole("navigation", { name: "Jump to a room" }).getByRole("button");
+    await expect(stops.first()).toBeVisible();
+    await stops.first().click();
+    await expect(stops.first()).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.locator("iframe")).toHaveAttribute("src", /&ss=\d+/);
+    await dialog.getByRole("tab", { name: "Aerial" }).click();
+    await expect(dialog.getByRole("img", { name: /Aerial image/ })).toBeVisible();
+    await dialog.getByRole("tab", { name: "Fit" }).click();
+    await expect(dialog.locator("figure")).toBeVisible();
+    await axe(page);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
   test("Inside, Above and Fit open evidence for the selected space", async ({ page }) => {
     if ((await cards(page).count()) > 1) {
       await cards(page).nth(1).locator("h3 button").click();
