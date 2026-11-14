@@ -1,9 +1,40 @@
 "use client";
 import { useState } from "react";
-import { esriTile, tileFor } from "@/lib/geometry/tiles";
+import { esriStreetTile, esriTile, tileFor } from "@/lib/geometry/tiles";
 import type { ShellReport } from "@/lib/types";
 
 const VIEWS = [["ortho", "Top-down"], ["oblique-north", "Looking north"], ["oblique-east", "Looking east"], ["oblique-south", "Looking south"], ["oblique-west", "Looking west"]] as const;
+
+const HEADING: Record<string, number | undefined> = { "oblique-north": 0, "oblique-east": 90, "oblique-south": 180, "oblique-west": 270 };
+
+// Street-map locator so first-time viewers know where the photo is; the arrow shows which way an angled photo faces.
+function MiniMap({ lat, lon, facing }: { lat: number; lon: number; facing?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  const z = 15, S = 150;
+  const t = tileFor(lat, lon, z);
+  const offX = (1 + t.fx) * 256, offY = (1 + t.fy) * 256;
+  return (
+    <div className="minimap" role="img" aria-label={`Street map locating the property${facing !== undefined ? `; photo faces ${["north", "east", "south", "west"][facing / 90]}` : ""}`}>
+      <div style={{ position: "absolute", left: `calc(50% - ${offX}px)`, top: `calc(50% - ${offY}px)`, width: 768, height: 768 }}>
+        {[-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={`${dx}${dy}`} alt="" src={esriStreetTile(z, t.x + dx, t.y + dy)} width={256} height={256} onError={() => setFailed(true)} style={{ position: "absolute", left: (dx + 1) * 256, top: (dy + 1) * 256 }} />
+        )))}
+      </div>
+      <svg width="100%" height="100%" viewBox={`0 0 ${S} ${S}`} aria-hidden="true" style={{ position: "absolute", inset: 0 }}>
+        {facing !== undefined && (
+          <g transform={`rotate(${facing} ${S / 2} ${S / 2})`}>
+            <path d={`M${S / 2} ${S / 2 - 34} L${S / 2 - 16} ${S / 2 + 4} L${S / 2 + 16} ${S / 2 + 4} Z`} fill="#111" fillOpacity={0.28} />
+          </g>
+        )}
+        <circle cx={S / 2} cy={S / 2} r={7} fill="#f26a4b" stroke="#fff" strokeWidth={2.5} />
+      </svg>
+      <span className="minimap-n" aria-hidden="true">N ↑</span>
+      <span className="minimap-credit">Esri</span>
+    </div>
+  );
+}
 
 // Vexcel aerial + oblique photos; falls back to Esri tiles when Vexcel has no top-down image here.
 export function Aerial({ report }: { report: ShellReport }) {
@@ -22,6 +53,7 @@ export function Aerial({ report }: { report: ShellReport }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img key={view} src={`/api/vexcel/${encodeURIComponent(report.shellId)}?view=${view}`} alt={`Vexcel ${label.toLowerCase()} aerial photo of ${report.address}`}
         onError={() => { setMissing((m) => new Set(m).add(view)); setView("ortho"); }} />
+      <MiniMap lat={report.above.lat} lon={report.above.lon} facing={HEADING[view]} />
     </div>
   );
 }

@@ -154,6 +154,21 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .evidence { flex: none; }
 .evidence .fit { max-height: 300px; overflow: auto; background: #fff; }
 .evidence .fit svg { max-height: 220px; }
+.plan { margin: 0; padding: 12px; background: #fff; color: #111; }
+.plan svg { display: block; margin: 0 auto; }
+@media (max-width: 760px) { .plan-scroll { overflow-x: auto; } .plan-scroll svg { min-width: 560px; } }
+.plan figcaption { font-size: 13px; color: #6b6b6b; margin-top: 6px; letter-spacing: 0.01em; }
+.plan-legend { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: #333; }
+.plan-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.plan-legend .sw { width: 14px; height: 14px; background: #fff; border: 2px solid #111; display: inline-block; }
+.plan-legend .sw.match { background: #e6e6e6; }
+.plan-legend .sw.build { border-style: dashed; }
+.plan-blocks { display: flex; flex-wrap: wrap; gap: 0; border: 2.5px solid #111; }
+.plan-blocks > div { min-width: 84px; min-height: 64px; padding: 8px; border: 1.25px solid #111; background: #fff; font-size: 11px; display: grid; align-content: center; justify-items: center; text-align: center; gap: 2px; }
+.plan-blocks strong { text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; }
+.plan-blocks span { color: #6b6b6b; }
+.plan-blocks .match { background: #e6e6e6; }
+.plan-blocks .build { border: 1.5px dashed #111; color: #6b6b6b; }
 .evidence .media { height: 230px; width: 100%; position: relative; overflow: hidden; background: var(--sea-wash); }
 .evidence iframe, .evidence img.photo { width: 100%; height: 100%; border: 0; object-fit: cover; display: block; }
 .evidence .cap { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; font-size: 14px; color: var(--ink-soft); }
@@ -284,6 +299,11 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .aerial-view .angles .btn[aria-pressed="true"] { background: var(--coral-wash); border-color: var(--coral); color: var(--coral-ink); }
 .aerial-view img { flex: 1; min-height: 0; width: 100%; object-fit: contain; display: block; }
 .evidence .media .aerial-view img { object-fit: cover; }
+.minimap { position: absolute; right: 12px; bottom: 12px; width: 150px; height: 150px; overflow: hidden; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 2px 10px rgb(0 0 0 / 0.25); background: #eee; }
+.minimap-n { position: absolute; top: 4px; left: 6px; font-size: 11px; font-weight: 700; color: #111; background: rgb(255 255 255 / 0.85); padding: 0 4px; border-radius: 4px; }
+.minimap-credit { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: #333; background: rgb(255 255 255 / 0.7); padding: 0 3px; border-radius: 3px; }
+.evidence .media .minimap { width: 96px; height: 96px; right: 8px; bottom: 8px; }
+@media (max-width: 760px) { .minimap { width: 110px; height: 110px; } }
 .viewer-body figure svg { max-height: min(62vh, 600px); }
 .viewer-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .room-stops { display: grid; gap: 8px; align-content: start; }
