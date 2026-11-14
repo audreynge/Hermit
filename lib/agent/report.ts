@@ -21,7 +21,13 @@ const QUESTIONS: Record<string, string> = {
   accessibility: "Is there a step-free entry and an accessible restroom on this floor?",
   hvac: "What cooling capacity (tons) serves the suite, and how old is the equipment?",
   availability: "Is the space currently available, and from what date?",
+  onsite_parking: "How many on-site parking spaces come with the space?",
+  ground_floor: "Which floor is the space on, and is there a street-level entrance?",
+  transit: "How close is the nearest bus or rail stop?",
 };
+
+export const displayName = (name: string) =>
+  name.split(" · ")[0].replace(/\s*[-–]\s*[\d,]+\s*(?:SF|sq\.?\s*ft)\s*$/i, "").trim();
 
 export function finalScore(fit: FitResult, rules: RuleHit[], searchScore: number, hasGraph: boolean): number {
   const penalty = rules.reduce((s, r) => s + (r.status === "fail" ? 25 : r.status === "warn" ? 4 : r.status === "unknown" ? 1 : 0), 0);
@@ -59,15 +65,18 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
 
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, 4).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for a ${spec.useType} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${shell.name.split(" · ")[0]} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for a ${spec.useType} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
     rank,
-    name: shell.name,
+    name: shell.name.includes(" · ") ? `${displayName(shell.name)} · ${shell.name.split(" · ").slice(1).join(" · ")}` : displayName(shell.name),
     address: shell.address,
     verdict,
     summary,
+    matchScore: Math.max(0, Math.min(100, e.finalScore)),
+    sqft: shell.sqft,
+    useTags: shell.useTags,
     reasons: e.searchReasons.slice(0, 3),
     fit,
     rules,

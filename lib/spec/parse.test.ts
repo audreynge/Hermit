@@ -44,6 +44,27 @@ describe("parseText", () => {
   });
 });
 
+describe("fromLayout with objects", () => {
+  it("turns objects inside rooms into fixtures and skips hallways and furniture", () => {
+    const s = fromLayout(
+      [
+        { id: "r", label: "reception", x: 0, y: 0, w: 30, h: 10 },
+        { id: "e1", label: "exam room", x: 0, y: 10, w: 10, h: 10 },
+        { id: "e2", label: "exam room", x: 0, y: 20, w: 10, h: 10 },
+        { id: "h", label: "hallway", x: 10, y: 10, w: 6, h: 20 },
+        { id: "w", label: "waiting area", x: 16, y: 10, w: 8, h: 8 },
+        { id: "s1", label: "sink", kind: "object", x: 7, y: 12, w: 2, h: 2 },
+        { id: "c1", label: "chair", kind: "object", x: 2, y: 2, w: 2, h: 2 },
+      ],
+      { mode: "business", city: "houston", useType: "medical clinic" },
+    );
+    expect(s.rooms.map((r) => r.label).sort()).toEqual(["exam room", "reception"]);
+    expect(s.rooms.find((r) => r.label === "exam room")).toMatchObject({ count: 2, fixtures: ["sink"] });
+    expect(s.rooms.find((r) => r.label === "reception")?.count).toBe(2);
+    expect(s.rooms.find((r) => r.label === "exam room")?.adjacentTo ?? []).not.toContain("hallway");
+  });
+});
+
 describe("fromLayout", () => {
   it("turns drawn blocks into sized rooms with adjacency for touching blocks", () => {
     const s = fromLayout(

@@ -19,6 +19,9 @@ describe("useCategory", () => {
     expect(useCategory("hair salon")).toBe("salon");
     expect(useCategory("3PL warehouse")).toBe("warehouse");
     expect(useCategory("something odd")).toBe("office");
+    expect(useCategory("fitness studio")).toBe("fitness");
+    expect(useCategory("yoga studio")).toBe("fitness");
+    expect(useCategory("medical clinic")).toBe("medical");
   });
 });
 
@@ -90,6 +93,17 @@ describe("checkRules", () => {
     const h = get(checkRules(spec({ mode: "home", useType: "home" }), shell({ mode: "home", sqft: 2000, sqftSource: "listing" }), g), "measured_size");
     expect(h?.status).toBe("warn");
     expect(h?.detail).toMatch(/25%/);
+  });
+
+  it("screens on-site parking, ground floor and transit from what the record can show", () => {
+    expect(get(checkRules(spec({ needs: { parking: true } }), shell({ parkingSpaces: 0 })), "onsite_parking")?.status).toBe("fail");
+    expect(get(checkRules(spec({ needs: { parking: true } }), shell({ parkingSpaces: 12 })), "onsite_parking")?.status).toBe("pass");
+    expect(get(checkRules(spec({ needs: { parking: true } }), shell()), "onsite_parking")?.status).toBe("unknown");
+    expect(get(checkRules(spec({ needs: { groundFloor: true } }), shell({ stories: 1 })), "ground_floor")?.status).toBe("pass");
+    expect(get(checkRules(spec({ needs: { groundFloor: true } }), shell({ stories: 8 })), "ground_floor")?.status).toBe("unknown");
+    const t = get(checkRules(spec({ needs: { transit: true } }), shell()), "transit");
+    expect(t?.status).toBe("unknown");
+    expect(t?.detail).toMatch(/not checked/i);
   });
 
   it("fails a home with fewer bedrooms than required", () => {

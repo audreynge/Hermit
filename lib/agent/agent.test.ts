@@ -85,7 +85,7 @@ describe("deterministic agent", () => {
     const esc = ev.filter((e) => e.type === "escalate") as Extract<TraceEvent, { type: "escalate" }>[];
     expect(esc.length).toBeGreaterThan(0);
     expect(esc.length).toBeLessThanOrEqual(4);
-    expect(esc[0].question).toMatch(/sink/);
+    expect(esc[0].question).toBe("Is there a sink in the exam rooms?");
   });
 
   it("keeps a single fixable code gap as priced work and batches drops into one call", async () => {

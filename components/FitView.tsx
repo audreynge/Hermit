@@ -15,9 +15,9 @@ export function FitView({ report }: { report: ShellReport }) {
 
   const legend = (
     <ul className="row" style={{ listStyle: "none", padding: 0, margin: "8px 0 0", fontSize: "var(--t-sm)" }}>
-      <li className="row" style={{ gap: 6 }}><Swatch c="var(--action)" /> matched to a requirement</li>
-      <li className="row" style={{ gap: 6 }}><Swatch c="var(--surface-2)" /> measured room, unused</li>
-      {unmatched.length > 0 && <li className="row" style={{ gap: 6 }}><Swatch c="var(--highlight)" dashed /> to build: {unmatched.join(", ")}</li>}
+      <li className="row" style={{ gap: 6 }}><Swatch c="var(--coral)" /> matched to a requirement</li>
+      <li className="row" style={{ gap: 6 }}><Swatch c="var(--sand-2)" /> measured room, unused</li>
+      {unmatched.length > 0 && <li className="row" style={{ gap: 6 }}><Swatch c="var(--coral-wash)" dashed /> to build: {unmatched.join(", ")}</li>}
     </ul>
   );
 
@@ -31,14 +31,14 @@ export function FitView({ report }: { report: ShellReport }) {
             return (
               <div key={r.id} title={`${r.label} ${Math.round(r.areaSqft)} sf`} style={{
                 flex: `${Math.max(0.08, r.areaSqft / total)} 1 0`, minWidth: 72, minHeight: 64, padding: 8, borderRadius: 8,
-                background: req ? "var(--action)" : "var(--surface-2)", color: req ? "var(--action-ink)" : "var(--ink)", fontSize: 12,
+                background: req ? "var(--coral)" : "var(--sand-2)", color: req ? "#fff" : "var(--ink)", fontSize: 12,
               }}>
                 <strong>{req ?? r.label}</strong><br /><span className="num">{Math.round(r.areaSqft)} sf</span>
               </div>
             );
           })}
           {unmatched.map((u) => (
-            <div key={u} style={{ minWidth: 72, minHeight: 64, padding: 8, borderRadius: 8, border: "2px dashed var(--fail)", background: "var(--highlight)", color: "#14213d", fontSize: 12 }}>
+            <div key={u} style={{ minWidth: 72, minHeight: 64, padding: 8, borderRadius: 8, border: "2px dashed var(--fail)", background: "var(--coral-wash)", color: "#14213d", fontSize: 12 }}>
               <strong>build</strong><br />{u}
             </div>
           ))}
@@ -64,9 +64,9 @@ export function FitView({ report }: { report: ShellReport }) {
           const cy = r.polygon.reduce((s, p) => s + ty(p.y), 0) / r.polygon.length;
           return (
             <g key={r.id}>
-              <polygon points={pts} fill={req ? "var(--action)" : "var(--surface-2)"} fillOpacity={req ? 0.85 : 1} stroke="var(--ink)" strokeWidth={1.2} />
+              <polygon points={pts} fill={req ? "var(--coral)" : "var(--sand-2)"} fillOpacity={req ? 0.85 : 1} stroke="var(--ink)" strokeWidth={1.2} />
               {r.areaSqft > 40 && (
-                <text x={cx} y={cy} textAnchor="middle" fontSize={11} fill={req ? "var(--action-ink)" : "var(--ink)"}>
+                <text x={cx} y={cy} textAnchor="middle" fontSize={11} fill={req ? "#fff" : "var(--ink)"}>
                   <tspan x={cx}>{req ?? r.label}</tspan>
                   <tspan x={cx} dy={13} className="num">{Math.round(r.areaSqft)} sf</tspan>
                 </text>

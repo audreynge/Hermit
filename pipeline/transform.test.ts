@@ -103,7 +103,7 @@ describe("shellFromCommercial", () => {
   it("matches the listing space by suite number for area, rate and status", () => {
     expect(s.sqft).toBe(9170);
     expect(s.sqftSource).toBe("listing space");
-    expect(s.listing).toMatchObject({ listingId: 3926912, status: "active", askingRate: 42, availableSqft: 9170 });
+    expect(s.listing).toMatchObject({ listingId: 3926912, status: "active", kind: "lease", askingRate: 42, availableSqft: 9170 });
     expect(s.listing?.contact?.name).toBe("Cody Powers");
   });
 
@@ -144,7 +144,7 @@ describe("shellFromResidential", () => {
     };
     expect(shellFromResidential(r)).toMatchObject({
       id: "Ki9YdfpNKum", sid: "Ki9YdfpNKum", mode: "home", city: "houston", beds: 4, baths: 2, sqft: 1436, sqftSource: "listing",
-      parkingSpaces: 3, homesListingId: 181343128, listing: { listingId: 181343128, status: "active", price: 280000, url: "https://www.homes.com/property/TX/Houston/9117-Richland-Drive" },
+      parkingSpaces: 3, homesListingId: 181343128, listing: { listingId: 181343128, status: "active", kind: "sale", price: 280000, url: "https://www.homes.com/property/TX/Houston/9117-Richland-Drive" },
     });
   });
 });

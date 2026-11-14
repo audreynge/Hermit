@@ -61,7 +61,10 @@ async function deterministic(run: Run) {
   for (const e of ordered(run).slice(0, 2)) {
     const asks = [
       ...e.fit.unknowns.map((u) => `Is there a ${u.split(":")[0].replace(/ #\d+$/, "")} in the scanned space?`),
-      ...unverifiedFixtures(run.spec, e).map((f) => `Is there a ${f} in the rooms assigned to the requested spaces?`),
+      ...unverifiedFixtures(run.spec, e).map((f) => {
+        const rooms = run.spec.rooms.filter((r) => r.fixtures?.includes(f)).map((r) => (r.count > 1 ? `${r.label}s` : r.label));
+        return `Is there a ${f} in the ${rooms.join(" or ") || "requested rooms"}?`;
+      }),
     ];
     for (const question of asks.slice(0, 1)) {
       if (run.inspections >= BUDGET.inspections || run.overBudget()) break;

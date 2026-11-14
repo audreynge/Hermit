@@ -18,14 +18,22 @@ Put `MATTERPORTAPIKEY` and `MATTERPORTAPITOKEN` in `.env`, and the kit at `~/Dow
 ```bash
 npm run etl            # -> data/processed/shells.json (~2.7k candidates)
 npm run matterport     # -> data/processed/roomgraphs/*.json (resumable, ~1.4k scans, ~3 min)
+npx tsx --env-file=.env pipeline/thumbs.ts   # -> data/processed/thumbs/*.jpg (512px scan previews, ~48 MB)
 npm run demo           # records the dental-clinic demo replay
 ```
 
 `data/processed/` is gitignored. Never commit CoStar or Matterport data.
 
+## Pages
+
+- `/`: a short survey (city, lease/buy, use, size, budget, accessibility, requirement chips, move-in timing).
+- `/search`: a chat with Hermit. It asks only for what's missing (at most 3 questions, each with tap-to-answer chips), shows its checks as they run ("Checking local zoning laws", "Measuring rooms in 3D scans"…), then lists matching spaces with a % fit, three reasons, Inside/Above/Fit evidence, a full report, Save, and an editable email to the property manager (copy or open in your mail app; never sent automatically). Follow-ups: compare layouts, refine size/location/budget, draft an email. `/search?replay=demo` replays a recorded run offline.
+- `/layout`: drag-and-drop room blocks and objects (a sink in an exam room becomes a fixture requirement), with undo/redo, zoom and snap; "Analyze & match layout" hands the layout to the chat.
+- `/saved`: bookmarked spaces, stored in this browser.
+
 ## Planner
 
-When `ANTHROPIC_API_KEY` is set, Claude (`claude-opus-5-5`) parses free text into a spec and plans the tool calls. Without a key, a deterministic planner runs the same tools (search → screen 20 → evaluate 8 → drop / escalate / rerank → report) and the trace shows `deterministic`.
+When `ANTHROPIC_API_KEY` is set, Claude (`claude-opus-5-5`) runs each chat turn (structured output: reply, spec update, ready, quick replies, action) and plans the search tool calls. Without a key, a deterministic conversation and planner run the same tools (search → screen 20 → evaluate 8 → drop / escalate / rerank → report) and the trace shows `deterministic`.
 
 ## Tests
 

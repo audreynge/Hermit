@@ -1,267 +1,285 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-const DENTAL = "Dental clinic in Houston, 2,000-3,000 sq ft, 3 exam rooms with sinks, a waiting room, 2 restrooms, wheelchair accessible";
-
-async function buildSpec(page: Page) {
-  await page.getByRole("button", { name: "Build my requirements" }).click();
-  await expect(page.getByRole("heading", { name: "Your requirements" })).toBeVisible();
-}
-
-async function waitForResults(page: Page) {
-  await expect(page.getByRole("status").filter({ hasText: /Shell Reports|Search stopped/ })).toBeVisible({ timeout: 45_000 });
-}
-
 async function axe(page: Page) {
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(", ")}`)).toEqual([]);
 }
 
-test.describe("landing", () => {
-  test("pitch, start link and skip link work by keyboard", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Tell Hermit what you need");
+const conversation = (page: Page) => page.getByLabel("Conversation");
+const cards = (page: Page) => page.locator("article.space");
+const quick = (page: Page, name: string) => page.getByRole("group", { name: "Suggested replies" }).getByRole("button", { name });
+
+async function waitForResults(page: Page) {
+  await expect(conversation(page)).toContainText(/Would you like me to compare|couldn't find/, { timeout: 45_000 });
+}
+
+async function fresh(page: Page, path = "/") {
+  await page.goto(path);
+  await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+  await page.goto(path);
+}
+
+async function surveyToSearch(page: Page) {
+  await fresh(page);
+  await page.getByLabel("City").selectOption("houston");
+  await page.getByLabel("Use Type").selectOption("medical");
+  await page.getByLabel("Size").selectOption("1000-2500");
+  await page.getByRole("button", { name: "Find shells" }).click();
+  await expect(page).toHaveURL(/\/search$/);
+  await expect(conversation(page)).toContainText("medical clinic in Houston");
+}
+
+test.describe("survey", () => {
+  test("is short, friendly and keyboard-reachable", async ({ page }) => {
+    await fresh(page);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Find a space that already fits");
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Survey" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("navigation", { name: "Progress" }).getByRole("link", { name: /Survey/ })).toHaveAttribute("aria-current", "step");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
-    await page.getByRole("link", { name: "Start a search" }).focus();
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/plan/);
+    for (const label of ["City", "Use Type", "Size", "Budget", "Move-in Timing"]) await expect(page.getByLabel(label)).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Lease" })).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("radio", { name: "Buy" }).click();
+    await expect(page.getByRole("radio", { name: "Buy" })).toHaveAttribute("aria-checked", "true");
+    const sw = page.getByRole("switch", { name: /accessibility/i });
+    await sw.click();
+    await expect(sw).toHaveAttribute("aria-checked", "true");
+    for (const chip of ["ADA Accessible", "On-site Parking", "Ground Floor", "Flexible Layout", "Patient-friendly", "Transit Nearby"]) await expect(page.getByRole("button", { name: chip })).toBeVisible();
+    await page.getByRole("button", { name: "On-site Parking" }).click();
+    await expect(page.getByRole("button", { name: "On-site Parking" })).toHaveAttribute("aria-pressed", "true");
     await axe(page);
+  });
+
+  test("hands off to a chat that asks only what is missing, then searches with visible thinking", async ({ page }) => {
+    await surveyToSearch(page);
+    await expect(conversation(page)).toContainText("How many exam rooms");
+    await quick(page, "3 exam rooms with sinks").click();
+    await expect(conversation(page)).toContainText("Checking local zoning laws");
+    await expect(conversation(page)).toContainText("Measuring rooms in 3D scans");
+    await waitForResults(page);
+
+    const n = await cards(page).count();
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThanOrEqual(5);
+    await expect(cards(page).first().locator(".fit-badge")).toContainText(/\d+% Fit/);
+    await expect(cards(page).first().locator("li")).toHaveCount(3);
+    await expect(conversation(page)).toContainText(/I found \d+ .*best fit \(\d+%\)/);
+    const trace = page.getByRole("region", { name: "Agent trace" });
+    await expect(trace).toContainText(/Searched \d+ candidates/);
+    await expect(trace).toContainText("Evaluated fit (layout, size, use)");
+    await expect(trace).toContainText(/Ranked \d+ matching space/);
+    await trace.getByText("See every step").click();
+    await expect(page.getByLabel("Full agent trace")).toContainText("search_shells");
+    await axe(page);
+  });
+
+  test("chat alone works without the survey", async ({ page }) => {
+    await fresh(page, "/search");
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await page.getByLabel("Message Hermit").fill("I'm looking for a space for a small medical clinic in Houston. I need about 1,200-1,800 sq ft, with 3 exam rooms, a reception area, and some storage.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("Perfect, I have what I need");
+    await waitForResults(page);
+    await expect(cards(page).first()).toBeVisible();
   });
 });
 
-test.describe("business search by text", () => {
-  test("text → editable spec → streamed reports with evidence-driven trace", async ({ page, context }) => {
+test.describe("results", () => {
+  test.beforeEach(async ({ page }) => {
+    await surveyToSearch(page);
+    await page.getByLabel("Message Hermit").fill("3 exam rooms with sinks, a reception area, and some storage");
+    await page.getByRole("button", { name: "Send" }).click();
+    await waitForResults(page);
+  });
+
+  test("email drafts are obvious, editable and never sent", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.goto("/plan");
-    await page.getByLabel("Describe the space in your own words").fill(DENTAL);
-    await buildSpec(page);
-
-    await expect(page.getByLabel("Summary")).toContainText("dental clinic");
-    await expect(page.getByLabel("exam room count")).toHaveValue("3");
-    await expect(page.getByLabel("bathroom is required")).toBeChecked();
-    await page.getByLabel("exam room minimum square feet").fill("90");
+    const btn = cards(page).first().getByRole("button", { name: "Email manager" });
+    await btn.click();
+    const dialog = page.getByRole("dialog", { name: "Email the property manager" });
+    await expect(dialog.getByLabel("Subject")).toHaveValue(/^Inquiry about /);
+    await expect(dialog.getByLabel("Message")).toHaveValue(/medical clinic/);
+    await expect(dialog.getByRole("link", { name: "Open in my email app" })).toHaveAttribute("href", /^mailto:/);
+    await expect(dialog).toContainText("never sends it");
+    await dialog.getByLabel("Message").fill("Hello, is the suite available in March?");
+    await dialog.getByRole("button", { name: "Copy email" }).click();
+    await expect(dialog.getByRole("status")).toContainText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("available in March");
     await axe(page);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(btn).toBeFocused();
 
-    const t0 = Date.now();
-    await page.getByRole("button", { name: "Find spaces" }).click();
-    await expect(page).toHaveURL(/\/results\?spec=/);
-    await expect(page.getByRole("heading", { name: /Spaces for a dental clinic/ })).toBeVisible();
-    await waitForResults(page);
-    expect(Date.now() - t0).toBeLessThan(45_000);
+    await quick(page, "Draft an email").click();
+    await expect(page.getByRole("dialog", { name: "Email the property manager" })).toBeVisible();
+  });
 
-    const cards = page.getByRole("navigation", { name: "Shortlist" }).getByRole("button");
-    expect(await cards.count()).toBeGreaterThan(0);
-    expect(await cards.count()).toBeLessThanOrEqual(5);
-    await expect(cards.first()).toHaveAttribute("aria-pressed", "true");
-
-    const trace = page.getByRole("list", { name: "Agent trace" });
-    await expect(trace).toContainText("search_shells");
-    await expect(trace.locator(".kind.drop").first()).toBeVisible();
-    await expect(trace.locator(".kind.escalate, .kind.rerank").first()).toBeVisible();
-
-    const report = page.locator("article").first();
-    await expect(report.getByRole("heading", { name: "Screening checks" })).toBeVisible();
-    await expect(report.getByRole("link", { name: "source" }).first()).toHaveAttribute("href", /^https:/);
-    await expect(report.locator("pre.draft")).toContainText("dental clinic");
-    await report.getByRole("button", { name: "Copy inquiry" }).click();
-    await expect(report.getByRole("status")).toContainText("never sends it");
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("dental clinic");
-    await axe(page);
-
-    if ((await cards.count()) > 1) {
-      await cards.nth(1).click();
-      await expect(cards.nth(1)).toHaveAttribute("aria-pressed", "true");
-    }
-
-    await report.getByRole("link", { name: "Printable report" }).click();
-    await expect(page).toHaveURL(/\/shell\/.+\?run=run-/);
+  test("full report, printable page and saving", async ({ page }) => {
+    await cards(page).first().getByRole("button", { name: "Full report" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "What Hermit checked" })).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "source" }).first()).toHaveAttribute("href", /^https:/);
+    await dialog.getByRole("link", { name: "Open printable report" }).click();
+    await expect(page).toHaveURL(/\/shell\/.+\?run=/);
     await expect(page.getByRole("heading", { name: "Fit overlay" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Screening checks" })).toBeVisible();
     await axe(page);
+
+    await page.goBack();
+    await expect(cards(page).first()).toBeVisible();
+    const name = await cards(page).first().locator("h3").innerText();
+    await cards(page).first().getByRole("button", { name: "Save" }).click();
+    await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
+    await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" }).click();
+    await expect(page).toHaveURL(/\/saved$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Saved spaces");
+    await expect(page.locator("article.space")).toHaveCount(1);
+    await expect(page.locator("article.space h3")).toContainText(name);
+    await axe(page);
+    await page.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByText("No saved spaces yet.")).toBeVisible();
   });
 
-  test("Inside / Above / Fit tabs switch with mouse and arrow keys", async ({ page }) => {
-    await page.goto("/plan");
-    await page.getByLabel("Describe the space in your own words").fill(DENTAL);
-    await buildSpec(page);
-    await page.getByRole("button", { name: "Find spaces" }).click();
-    await waitForResults(page);
+  test("Inside, Above and Fit open evidence for the selected space", async ({ page }) => {
+    if ((await cards(page).count()) > 1) {
+      await cards(page).nth(1).locator("h3 button").click();
+      await expect(cards(page).nth(1)).toHaveAttribute("data-selected", "true");
+    }
+    await page.getByRole("button", { name: "Inside" }).click();
+    const panel = page.locator("#evidence-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByRole("button", { name: "Open 3D tour" }).click();
+    await expect(panel.locator("iframe")).toHaveAttribute("src", /my\.matterport\.com/);
+    await page.getByRole("button", { name: "Above" }).click();
+    await expect(panel.getByRole("img", { name: /Aerial image/ })).toBeVisible();
+    await page.getByRole("button", { name: "Fit" }).click();
+    await expect(panel.locator("figure")).toBeVisible();
+    await page.getByRole("button", { name: "Fit" }).click();
+    await expect(panel).toBeHidden();
+  });
 
-    const tabs = page.getByRole("tablist", { name: "Evidence" });
-    await expect(tabs.getByRole("tab", { name: "Fit" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("tabpanel").locator("figure")).toBeVisible();
-
-    await tabs.getByRole("tab", { name: "Fit" }).focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(tabs.getByRole("tab", { name: "Inside" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("button", { name: "Load 3D tour" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "open it in a new tab" })).toHaveAttribute("href", /my\.matterport\.com\/show\/\?m=/);
-    await page.getByRole("button", { name: "Load 3D tour" }).click();
-    await expect(page.locator("iframe[title^='Matterport 3D tour']")).toHaveAttribute("src", /my\.matterport\.com/);
-
-    await page.keyboard.press("ArrowRight");
-    await tabs.getByRole("tab", { name: "Above" }).click();
-    await expect(page.getByRole("img", { name: /Aerial image centered on/ })).toBeVisible();
-    await expect(page.getByText(/Imagery: Esri World Imagery/)).toBeVisible();
+  test("follow-ups compare layouts and refine the search", async ({ page }) => {
+    await quick(page, "Compare the layouts").click();
+    const table = page.locator("table.compare");
+    await expect(table).toBeVisible();
+    await expect(table).toContainText("Rooms already built");
+    await page.getByLabel("Message Hermit").fill("actually make it 2,500-4,000 sq ft");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("Updating your search");
+    await expect(conversation(page)).toContainText(/2,500–4,000 sq ft/);
+    await expect(conversation(page).getByText(/Would you like me to compare/)).toHaveCount(2, { timeout: 45_000 });
   });
 });
 
-test.describe("other input modes", () => {
-  test("drawn layout becomes a spec with keyboard-moved rooms", async ({ page }) => {
-    await page.goto("/plan");
-    await page.getByRole("tab", { name: "Draw a layout" }).click();
-    await expect(page.getByRole("button", { name: "Build my requirements" })).toBeDisabled();
-    await page.getByRole("button", { name: "+ exam room" }).click();
-    await page.getByRole("button", { name: "+ exam room" }).click();
-    await page.getByRole("button", { name: "+ bathroom" }).click();
-    await page.getByLabel("Custom room name").fill("sterilization");
-    await page.getByRole("button", { name: "Add", exact: true }).click();
+test.describe("layout studio", () => {
+  test("build with blocks, undo/redo, zoom and snap, then match", async ({ page }) => {
+    await fresh(page, "/layout");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Build your layout");
+    const canvas = page.getByRole("application");
+    await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
 
-    const block = page.getByRole("button", { name: /^bathroom, 7 by 8 feet/ });
-    await block.focus();
-    const before = await block.getAttribute("aria-label");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Shift+ArrowRight");
-    await expect(block).not.toHaveAttribute("aria-label", before!);
-    await expect(page.getByText(/4 rooms · \d+ sf drawn/)).toBeVisible();
+    await page.getByRole("button", { name: "Add Office" }).click();
+    await expect(canvas).toHaveAttribute("aria-label", /6 rooms/);
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
+    await page.getByRole("button", { name: "Redo" }).click();
+    await expect(canvas).toHaveAttribute("aria-label", /6 rooms/);
 
-    await buildSpec(page);
-    await expect(page.getByLabel("Summary")).toContainText("via layout");
-    await expect(page.getByLabel("exam room count")).toHaveValue("2");
-    await expect(page.getByLabel("sterilization count")).toHaveValue("1");
-    await page.getByRole("button", { name: "Find spaces" }).click();
+    const office = page.getByRole("button", { name: /^Office, 10 by 10 feet/ });
+    await office.focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Delete");
+    await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
+
+    const before = Number((await canvas.getAttribute("aria-label"))!.match(/(\d+) objects/)![1]);
+    await page.getByRole("button", { name: "Add Sink" }).dragTo(page.locator(".canvas"), { targetPosition: { x: 200, y: 200 } });
+    await expect(canvas).toHaveAttribute("aria-label", new RegExp(`${before + 1} objects`));
+
+    await page.getByLabel("Zoom", { exact: true }).selectOption("150");
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect(page.getByLabel("Zoom", { exact: true })).toHaveValue("125");
+    const snap = page.getByRole("switch", { name: /Snap to grid/ });
+    await snap.click();
+    await expect(snap).toHaveAttribute("aria-checked", "false");
+    await axe(page);
+
+    await page.getByRole("button", { name: /Analyze & match layout/ }).click();
+    await expect(page).toHaveURL(/\/search$/);
+    await expect(conversation(page)).toContainText("Here's my layout");
+    await expect(conversation(page)).toContainText("2 exam rooms with sinks");
+    await quick(page, "Houston").click();
     await waitForResults(page);
   });
+});
 
-  test("voice input fills the request via the Web Speech API", async ({ page }) => {
-    await page.addInitScript(() => {
-      class FakeRec {
-        lang = ""; interimResults = false;
-        onresult: (e: unknown) => void = () => {}; onend: () => void = () => {}; onerror: () => void = () => {};
-        start() { setTimeout(() => { this.onresult({ results: [[{ transcript: "hair salon in Los Angeles about 1500 square feet" }]] }); this.onend(); }, 50); }
-      }
-      (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRec;
-    });
-    await page.goto("/plan");
-    await page.getByRole("tab", { name: "Say it" }).click();
-    await page.getByRole("button", { name: "Start speaking" }).click();
-    await expect(page.getByLabel("Describe the space in your own words")).toHaveValue(/hair salon/);
-    await buildSpec(page);
-    await expect(page.getByLabel("Summary")).toContainText("via voice");
-    await expect(page.getByLabel("Summary")).toContainText("Los Angeles");
-  });
-
-  test("voice falls back to a message when speech is unsupported", async ({ page }) => {
-    await page.addInitScript(() => {
-      const w = window as unknown as Record<string, unknown>;
-      delete w.SpeechRecognition;
-      delete w.webkitSpeechRecognition;
-    });
-    await page.goto("/plan");
-    await page.getByRole("tab", { name: "Say it" }).click();
-    await page.getByRole("button", { name: "Start speaking" }).click();
-    await expect(page.getByText(/isn't supported in this browser/)).toBeVisible();
-  });
-
-  test("survey only builds a spec from the form fields", async ({ page }) => {
-    await page.goto("/plan");
+test.describe("other uses", () => {
+  test("a warehouse search screens power", async ({ page }) => {
+    await fresh(page);
     await page.getByLabel("City").selectOption("los_angeles");
-    await page.getByLabel("Intended use").fill("creative office");
-    await page.getByLabel("Min sf").fill("1500");
-    await page.getByLabel("Max sf").fill("4000");
-    await page.getByLabel("Wheelchair accessible").check();
-    await page.getByRole("tab", { name: "Survey only" }).click();
-    await buildSpec(page);
-    await expect(page.getByLabel("Summary")).toContainText("via survey");
-    await expect(page.getByLabel("Summary")).toContainText("1,500–4,000 sf");
-    await page.getByRole("button", { name: "Find spaces" }).click();
+    await page.getByLabel("Use Type").selectOption("warehouse");
+    await page.getByLabel("Size").selectOption("10000+");
+    await page.getByRole("button", { name: "Find shells" }).click();
+    await expect(conversation(page)).toContainText("heavy power");
+    await quick(page, "Heavy power + 2 drive-in doors").click();
+    await expect(conversation(page)).toContainText("Checking electrical requirements");
     await waitForResults(page);
   });
-});
 
-test.describe("modes", () => {
-  test("enterprise warehouse search screens power, sprinklers and bays", async ({ page }) => {
-    await page.goto("/plan");
-    await page.getByLabel("Industrial / site").check();
-    await page.getByLabel("Describe the space in your own words").fill("Need a 20,000 sf warehouse in LA with heavy power, ESFR sprinklers and 2 drive-in doors");
-    await buildSpec(page);
-    await expect(page.getByLabel("Summary")).toContainText("enterprise");
-    await expect(page.getByRole("region", { name: "Your requirements" }).getByLabel("Heavy power")).toBeChecked();
-    await page.getByRole("button", { name: "Find spaces" }).click();
+  test("a home purchase asks for bedrooms", async ({ page }) => {
+    await fresh(page);
+    await page.getByLabel("City").selectOption("houston");
+    await page.getByRole("radio", { name: "Buy" }).click();
+    await page.getByLabel("Use Type").selectOption("home");
+    await page.getByLabel("Budget").fill("$450,000");
+    await page.getByRole("button", { name: "Find shells" }).click();
+    await expect(conversation(page)).toContainText("How many bedrooms");
+    await quick(page, "3 bed / 2 bath").click();
     await waitForResults(page);
-    await expect(page.getByRole("list", { name: "Agent trace" })).toContainText(/electrical|fire|drive_in_bays/);
-  });
-
-  test("home search compares listing and measured size", async ({ page }) => {
-    await page.goto("/plan");
-    await page.getByLabel("Home", { exact: true }).check();
-    await page.getByLabel("Describe the space in your own words").fill("3 bedroom 2 bath house in Houston under $450k with a home office");
-    await buildSpec(page);
-    await expect(page.getByLabel("Summary")).toContainText("3 bd");
-    await page.getByRole("button", { name: "Find spaces" }).click();
-    await waitForResults(page);
-    await expect(page.locator("article").first()).toContainText(/measured size/);
   });
 });
 
 test.describe("replay and failure states", () => {
-  test("replay works with every external request blocked", async ({ page }) => {
-    const external: string[] = [];
-    await page.route("**/*", (route) => {
-      const u = new URL(route.request().url());
-      if (u.hostname === "localhost") return route.continue();
-      external.push(u.hostname);
-      return route.abort();
-    });
-    await page.goto("/results?replay=demo");
-    await expect(page.getByRole("heading", { name: "Recorded run" })).toBeVisible();
+  test("the recorded demo replays with every outside request blocked", async ({ page }) => {
+    await page.route("**/*", (route) => (new URL(route.request().url()).hostname === "localhost" ? route.continue() : route.abort()));
+    await fresh(page, "/search?replay=demo");
+    await expect(conversation(page)).toContainText("recorded run");
     await waitForResults(page);
-    await expect(page.getByRole("status").filter({ hasText: "replay planner" })).toBeVisible();
-    await expect(page.getByRole("tabpanel").locator("figure")).toBeVisible();
-    await page.getByRole("tab", { name: "Above" }).click();
-    await expect(page.getByText(/couldn't load/)).toBeVisible();
-  });
-
-  test("invalid search links and missing runs fail gracefully", async ({ page }) => {
-    await page.goto("/results?spec=garbage");
-    await expect(page.getByRole("alert").filter({ hasText: "invalid" })).toBeVisible();
-    await page.goto("/results?replay=run-doesnotexist");
-    await expect(page.getByRole("alert").filter({ hasText: "No recorded run" })).toBeVisible();
-    await page.goto("/shell/nope?run=nope");
-    await expect(page.getByText("Report not found")).toBeVisible();
+    await expect(cards(page).first()).toBeVisible();
+    await page.getByRole("region", { name: "Agent trace" }).getByText("See every step").click();
+    await expect(page.getByLabel("Full agent trace")).toContainText("replay planner");
   });
 
   test("APIs validate input and refuse path tricks", async ({ request }) => {
+    expect((await request.post("/api/chat", { data: { text: "" } })).status()).toBe(400);
     expect((await request.post("/api/agent", { data: { mode: "nope" } })).status()).toBe(400);
-    expect((await request.post("/api/spec", { data: { input: "bogus" } })).status()).toBe(400);
     expect((await request.get("/api/agent?replay=..%2F..%2Fshells")).status()).toBe(404);
+    expect((await request.get("/api/asset/..%2Fshells")).status()).toBe(404);
     expect((await request.get("/api/shell/..%2Fshells")).status()).toBe(404);
+    const open = await request.post("/api/chat", { data: { open: true, spec: { mode: "business", useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" } } });
+    expect(open.status()).toBe(200);
+    expect((await open.json()).reply).toMatch(/what kind of space/i);
+  });
+
+  test("missing printable reports fail gracefully", async ({ page }) => {
+    await page.goto("/shell/nope?run=nope");
+    await expect(page.getByText("Report not found")).toBeVisible();
   });
 });
 
-test.describe("layout and theming", () => {
-  for (const path of ["/", "/plan", "/results?replay=demo"]) {
+test.describe("layout and motion", () => {
+  for (const path of ["/", "/search", "/layout", "/saved"]) {
     test(`no horizontal overflow on ${path} @mobile`, async ({ page }) => {
       await page.goto(path);
-      if (path.includes("replay")) await waitForResults(page);
+      await page.waitForTimeout(300);
       const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
       expect(sw).toBeLessThanOrEqual(cw);
     });
   }
 
-  test("dark mode swaps the palette and stays accessible", async ({ page }) => {
-    await page.emulateMedia({ colorScheme: "dark" });
-    await page.goto("/plan");
-    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bg).toBe("rgb(15, 26, 43)");
-    await axe(page);
-  });
-
-  test("reduced motion disables transitions", async ({ page }) => {
+  test("reduced motion turns animation off", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
-    const t = await page.getByRole("link", { name: "Start a search" }).evaluate((el) => getComputedStyle(el).transitionDuration);
+    const t = await page.getByRole("button", { name: "Find shells" }).evaluate((el) => getComputedStyle(el).transitionDuration);
     expect(t).toBe("0s");
   });
 });
