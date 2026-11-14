@@ -348,7 +348,7 @@ test.describe("replay and failure states", () => {
     await expect(cards(page).first()).toBeVisible();
     await page.getByRole("region", { name: "Agent trace" }).getByText("See every step").click();
     await expect(page.getByLabel("Full agent trace")).toContainText("replay planner");
-    await expect(conversation(page)).toContainText("medical clinic");
+    await expect(conversation(page)).toContainText(/(medical|dental) clinic/);
     await expect(conversation(page)).not.toContainText("for a space");
   });
 

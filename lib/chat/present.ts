@@ -72,8 +72,10 @@ export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, 
   const n = strong || reports.length;
   const kind = strong ? "strong" : "possible";
   const area = areaOf(top);
-  const h = highlights(top, spec).filter((x) => !x.startsWith("Right size")).map((x) => x[0].toLowerCase() + x.slice(1));
-  const why = [area ? `it's ${fmt(area)} sq ft` : "", ...h].filter(Boolean);
+  const all = highlights(top, spec);
+  const sizeNote = all.find((x) => /^[\d,]+ sq ft/.test(x));
+  const h = all.filter((x) => !x.startsWith("Right size") && x !== sizeNote).map((x) => x[0].toLowerCase() + x.slice(1));
+  const why = [sizeNote ? `it's ${sizeNote}` : area ? `it's ${fmt(area)} sq ft` : "", ...h].filter(Boolean);
   const list = why.length > 1 ? `${why.slice(0, -1).join(", ")}, and ${why.at(-1)}` : why[0];
   return {
     paragraphs: [

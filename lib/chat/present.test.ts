@@ -64,6 +64,12 @@ describe("summarizeResults", () => {
     expect(s.followUp).toMatch(/email/);
   });
 
+  it("mentions the size once when the best match is outside the range", () => {
+    const s = summarizeResults([report({ floorplan: { ...report().floorplan!, totalAreaSqft: 1520 } })], { ...spec, sizeSqft: [2000, 3000] }, { considered: 3, dropped: 0 });
+    expect(s.paragraphs[1].match(/1,520 sq ft/g)).toHaveLength(1);
+    expect(s.paragraphs[1]).toMatch(/1,520 sq ft \(you asked for 2,000–3,000\)/);
+  });
+
   it("explains an empty result and suggests what to relax", () => {
     const s = summarizeResults([], spec, { considered: 40, dropped: 12 });
     expect(s.paragraphs.join(" ")).toMatch(/couldn't find/i);
