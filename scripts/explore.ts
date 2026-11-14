@@ -21,7 +21,7 @@ const PERSONAS: Persona[] = [
   { name: "just hi", say: ["hi"], then: "idk" },
   { name: "contradicts", say: ["a salon in Houston", "actually make it an office in Los Angeles"], then: "tap" },
   { name: "idk everything", say: ["idk"], then: "idk" },
-  { name: "very long paste", say: [LONG.slice(0, 1900)], then: "idk" },
+  { name: "very long paste", say: [LONG], then: "idk" },
   { name: "taps everything", say: ["Medical / dental clinic"], then: "tap" },
   { name: "just search", say: ["office in Houston", "just search"], then: "none" },
   { name: "bakery LA", say: ["bakery in LA with a commercial kitchen, 1,500 sq ft"], then: "tap" },

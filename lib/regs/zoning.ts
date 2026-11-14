@@ -22,7 +22,9 @@ export async function lookupZoning(lat: number, lon: number, fetchFn: typeof fet
   try {
     const res = await fetchFn(`${SCAG}?${q}`, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
-    const parsed = parseZoningResponse(await res.json());
+    const json = await res.json();
+    if (!Array.isArray((json as { features?: unknown }).features)) return null;
+    const parsed = parseZoningResponse(json);
     const out = parsed ? { ...parsed, source: `scag Zoning_poly_LA (ZN24_CITY, APN ${parsed.apn})` } : null;
     putCached(key, out ?? { none: true }, 30);
     return out;

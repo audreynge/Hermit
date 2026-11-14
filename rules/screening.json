@@ -1,5 +1,6 @@
 {
   "version": "hermit-screening-2026-11",
+  "reviewed": "2026-11-14",
   "note": "Screening assumptions only. Not a code determination; verify with the jurisdiction and licensed professionals.",
   "sources": {
     "ada": { "title": "2010 ADA Standards for Accessible Design (§206 routes, §404 doors, §603 toilet rooms)", "url": "https://www.ada.gov/law-and-regs/design-standards/2010-stds/" },

@@ -25,14 +25,14 @@ import { SpaceCard } from "./SpaceCard";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
-  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card }
+  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: boolean }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
   | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn };
 
@@ -41,7 +41,7 @@ function fromStored(r: StoredRow): Msg | null {
     ? { id: uid(), role: "user", text: r.payload.summary ?? "Here's my layout.", design: { kind: "layout", blocks: r.payload.blocks ?? [] } }
     : { id: uid(), role: "user", text: `Uploaded ${r.payload.name ?? "a floor plan"}`, design: { kind: "upload", name: r.payload.name ?? "floor plan" } };
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
-  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card };
+  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card, fallback: !!r.payload.fallback };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
   if (r.kind === "regulations" && r.payload.findings) return { id: uid(), role: "bot", kind: "regulations", findings: r.payload.findings };
   return null;
@@ -62,6 +62,8 @@ export function SearchChat() {
   const params = useSearchParams();
   const router = useRouter();
   const conv = useRef<string | null>(params.get("c"));
+  // Resolves once the conversation exists, so a message typed during the greeting is not sent without an id.
+  const opening = useRef<Promise<void> | null>(null);
   const replay = params.get("replay");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [chat, setChat] = useState<ChatState>({ spec: EMPTY_DRAFT, asked: [], phase: "gathering" });
@@ -83,6 +85,7 @@ export function SearchChat() {
   const [busy, setBusy] = useState(false);
   const [runKey, setRunKey] = useState("");
   const [resultsReady, setResultsReady] = useState(false);
+  const [owner, setOwner] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawing, setDrawing] = useState(params.get("design") === "draw");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -156,7 +159,7 @@ export function SearchChat() {
 
   const respond = useCallback(async (turn: Turn) => {
     setChat(turn.state);
-    push(bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card));
+    push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: !!turn.fallback } as Msg);
     if (turn.action === "compare" && reports.length) {
       push({ id: uid(), role: "bot", kind: "compare", reports });
       void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
@@ -171,7 +174,7 @@ export function SearchChat() {
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
   }, [reports, selected, runSearch]);
 
-  const openNew = useCallback(async (draft: Draft, userText?: string) => {
+  const openNew = useCallback((draft: Draft, userText?: string) => (opening.current = (async () => {
     try {
       const r = await postJSON<ChatResponse>("/api/chat", { open: true, spec: draft, ...(userText ? { userText } : {}) });
       conv.current = r.conversationId;
@@ -180,7 +183,7 @@ export function SearchChat() {
     } catch {
       push(bot(["I couldn't reach the Hermit server. Check that it's running and try again."]));
     }
-  }, [respond, router]);
+  })()), [respond, router]);
 
   useEffect(() => {
     if (started.current) return;
@@ -197,6 +200,7 @@ export function SearchChat() {
       fetch(`/api/conversations/${conv.current}`).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((c: ConvResponse) => {
         setMessages(c.messages.map(fromStored).filter((m): m is Msg => !!m));
         setChat(c.state);
+        setOwner(c.owner);
         if (c.run) {
           const rep = c.run.events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }> | undefined;
           setSpec(c.run.spec); setEvents(c.run.events); setReports(rep?.reports ?? []);
@@ -213,7 +217,9 @@ export function SearchChat() {
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }); }, [messages, shown]);
 
   const sendDesign = async (body: FormData | { blocks: Block[] }, preview: DesignPreview, text: string) => {
+    if (!conv.current && opening.current) await opening.current;
     if (!conv.current || busy || running) return;
+    if (body instanceof FormData) body.set("conversationId", conv.current);
     push({ id: uid(), role: "user", text, design: preview });
     setBusy(true);
     try {
@@ -251,6 +257,7 @@ export function SearchChat() {
     push({ id: uid(), role: "user", text: t });
     setBusy(true);
     try {
+      if (!conv.current && opening.current) await opening.current;
       const r = await postJSON<ChatResponse>("/api/chat", { conversationId: conv.current, text: t });
       await respond(r.turn);
     } catch {
@@ -336,8 +343,9 @@ export function SearchChat() {
                       <>
                         <div className="bubble">{m.paragraphs.slice(0, m.paragraphs.length > 2 ? -1 : undefined).map((p, i) => <p key={i}>{p}</p>)}</div>
                         {m.paragraphs.length > 2 && <div className="bubble"><p>{m.paragraphs.at(-1)}</p></div>}
-                        {m.card && m === lastQuick && !running && <MultiCard card={m.card} onSubmit={send} />}
-                        {m.quick && m === lastQuick && !running && (
+                        {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered without Claude (it was unavailable).</p>}
+                        {m.card && m === lastQuick && !running && owner && <MultiCard card={m.card} onSubmit={send} />}
+                        {m.quick && m === lastQuick && !running && owner && (
                           <div className="quick" role="group" aria-label="Suggested replies">{m.quick.map((q) => <button key={q} type="button" onClick={() => send(q)}>{q}</button>)}</div>
                         )}
                       </>
@@ -352,7 +360,13 @@ export function SearchChat() {
             {busy && <div className="msg bot"><span className="avatar bot" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/hermit-logo.svg" alt="" /></span><div className="bubble"><span className="dots" aria-label="Hermit is typing"><span /><span /><span /></span></div></div>}
           </div>
 
-          <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
+          {!owner && (
+            <div className="readonly-banner" role="status">
+              <span>You&apos;re viewing someone else&apos;s search.</span>
+              <button type="button" className="btn primary" onClick={() => { setOwner(true); setMessages([]); setRunKey(""); void openNew({ ...chat.spec, input: "chat" }); }}>Start my own search from this</button>
+            </div>
+          )}
+          {owner && <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
             <div className="attach">
               <button type="button" className="icon-btn" aria-label="Add a design" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}
                 onKeyDown={(e) => { if (e.key === "Escape") setMenuOpen(false); }}><Plus aria-hidden="true" /></button>
@@ -367,9 +381,9 @@ export function SearchChat() {
             </div>
             <Sparkles className="spark" aria-hidden="true" />
             <label htmlFor="ask" className="sr-only">Message Hermit</label>
-            <input id="ask" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" />
+            <input id="ask" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" maxLength={2000} />
             <button className="send" type="submit" disabled={!input.trim() || busy || running} aria-label="Send"><Send aria-hidden="true" /></button>
-          </form>
+          </form>}
         </section>
 
         <section className="card results-card" aria-labelledby="matches-title">

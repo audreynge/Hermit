@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runAgent, type AgentDeps } from "./loop";
+import { BUDGET } from "./tools";
 import type { RequirementSpec, Room, RoomGraph, Shell, TraceEvent } from "../types";
 
 const shell = (id: string, over: Partial<Shell> = {}): Shell => ({
@@ -144,6 +145,21 @@ describe("deterministic agent", () => {
       expect(regs.map((h) => [h.status, h.citation])).toEqual([["warn", "https://tsbde.texas.gov/x"], ["unknown", "https://houstontx.gov/co"]]);
       expect(regs[0].evidence[0].source).toBe("state");
       expect(r.unknowns.some((u) => /state permit/i.test(u.question))).toBe(true);
+    }
+  });
+
+  it("does not let slow regulation research hold up the search", async () => {
+    BUDGET.researchMs = 50;
+    try {
+      const events: TraceEvent[] = [];
+      const t0 = Date.now();
+      await runAgent(spec, (e) => events.push(e), { ...deps(), research: () => new Promise(() => {}) });
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(events.some((e) => e.type === "drop")).toBe(true);
+      const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+      expect(report.reports[0].rules.some((h) => h.rule.startsWith("reg_"))).toBe(true);
+    } finally {
+      BUDGET.researchMs = 20_000;
     }
   });
 

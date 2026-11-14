@@ -38,6 +38,12 @@ describe("chatTurn", () => {
     expect(t2.state.spec).toMatchObject({ useType: "dental clinic", city: "houston" });
   });
 
+  it("marks turns answered by the fallback when Claude was configured but failed", async () => {
+    const broken = { messages: { parse: async () => { throw new Error("overloaded"); } } } as never;
+    expect((await chatTurn(state, "a dental clinic", broken)).fallback).toBe("deterministic");
+    expect((await chatTurn(state, "a dental clinic", null)).fallback).toBeUndefined();
+  });
+
   it("falls back to the deterministic conversation when there is no client or Claude fails", async () => {
     const a = await chatTurn(state, "a dental clinic", null);
     expect(a.state.spec.useType).toMatch(/dental clinic/);

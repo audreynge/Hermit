@@ -79,6 +79,17 @@ describe("claude planner loop", () => {
     expect(reports.length).toBeGreaterThan(0);
   });
 
+  it("attaches regulations even when the Claude planner never calls the research tool", async () => {
+    const { client } = fakeClient([
+      { stop_reason: "tool_use", content: [toolUse("t1", "search_shells", {})] },
+      { stop_reason: "tool_use", content: [toolUse("t2", "evaluate_candidates", { shellIds: ["S1"] })] },
+      { stop_reason: "tool_use", content: [toolUse("t3", "submit_reports", { shellIds: ["S1"] })] },
+    ]);
+    const research = async () => ({ fromCache: false, findings: [{ topic: "occupancy" as const, jurisdiction: "city" as const, requirement: "CO", appliesWhen: "x", certainty: "applies" as const, url: "https://houstontx.gov/co", citedText: "c", retrievedAt: "2026-11-14" }] });
+    const reports = await runAgent(spec, () => {}, { ...deps, research }, { client });
+    expect(reports[0].rules.some((h) => h.rule === "reg_occupancy")).toBe(true);
+  });
+
   it("finishes deterministically when the API fails", async () => {
     const { client } = fakeClient([]);
     const events: TraceEvent[] = [];

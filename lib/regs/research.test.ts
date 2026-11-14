@@ -44,13 +44,14 @@ describe("researchRegulations", () => {
 
   it("drops a finding with a url the search never returned", async () => {
     const { client } = fakeClient(["https://www.barbercosmo.ca.gov/a"], [finding("https://www.barbercosmo.ca.gov/made-up")]);
-    expect((await researchRegulations(q, client)).findings).toEqual([]);
+    const f = (await researchRegulations(q, client)).findings;
+    expect(f.some((x) => x.url.includes("made-up"))).toBe(false);
   });
 
   it("drops a non-official domain even if the search returned it", async () => {
     const url = "https://someblog.example.com/salon-rules";
     const { client } = fakeClient([url], [finding(url)]);
-    expect((await researchRegulations(q, client)).findings).toEqual([]);
+    expect((await researchRegulations(q, client)).findings.some((x) => x.url === url)).toBe(false);
   });
 
   it("serves the second identical query from cache without calling the client", async () => {
@@ -72,6 +73,33 @@ describe("researchRegulations", () => {
     const { client, calls } = fakeClient([], []);
     await researchRegulations({ city: "houston", useType: "salon" }, client);
     expect(calls.create).toBe(1);
+  });
+});
+
+describe("research cache and fallback edges", () => {
+  it("caches per specific use, not per broad category", async () => {
+    const url = "https://publichealth.lacounty.gov/eh/food.htm";
+    const { client, calls } = fakeClient([url], [finding(url, { topic: "health", jurisdiction: "county" })]);
+    await researchRegulations({ city: "los_angeles", useType: "coffee shop" }, client);
+    await researchRegulations({ city: "los_angeles", useType: "boutique shop" }, client);
+    expect(calls.create).toBe(2);
+    await researchRegulations({ city: "los_angeles", useType: "  Coffee   Shop " }, client);
+    expect(calls.create).toBe(2);
+  });
+
+  it("falls back to screening rules and caches nothing when every finding is dropped", async () => {
+    const { client, calls } = fakeClient(["https://dbs.lacity.gov/a"], [finding("https://dbs.lacity.gov/b")]);
+    const r = await researchRegulations(q, client);
+    expect(r.fromCache).toBe(false);
+    expect(r.findings.length).toBeGreaterThan(0);
+    expect(r.findings.every((f) => f.certainty === "may_apply")).toBe(true);
+    await researchRegulations(q, client);
+    expect(calls.create).toBe(2);
+  });
+
+  it("stamps fallback rules with a real review date", async () => {
+    const r = await researchRegulations({ city: "houston", useType: "salon" }, null);
+    expect(r.findings.every((f) => /^\d{4}-\d{2}-\d{2}$/.test(f.retrievedAt))).toBe(true);
   });
 });
 

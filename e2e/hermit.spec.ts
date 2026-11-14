@@ -157,6 +157,14 @@ test.describe("results", () => {
     const p2 = await other.newPage();
     await p2.goto(page.url());
     await expect(p2.getByLabel("Conversation")).toContainText("Perfect, I have what I need");
+    await expect(p2.getByText("You're viewing someone else's search")).toBeVisible();
+    await expect(p2.getByLabel("Message Hermit")).toHaveCount(0);
+    await p2.getByRole("button", { name: "Start my own search from this" }).click();
+    await expect(p2).not.toHaveURL(page.url());
+    await expect(p2.getByLabel("Message Hermit")).toBeVisible();
+    await p2.getByLabel("Message Hermit").fill("make it smaller");
+    await p2.getByRole("button", { name: "Send" }).click();
+    await expect(p2.getByLabel("Conversation")).not.toContainText("Something went wrong");
     await p2.goto("/saved");
     await expect(p2.getByText("No saved spaces yet.")).toBeVisible();
     await other.close();
@@ -311,8 +319,10 @@ test.describe("designs in the chat", () => {
   test("oversized uploads are refused before sending", async ({ page }) => {
     await fresh(page);
     await expect(conversation(page)).toContainText(/what kind of space/i);
-    await page.locator('input[type="file"]').setInputFiles({ name: "huge.png", mimeType: "image/png", buffer: Buffer.alloc(11 * 1024 * 1024) });
-    await expect(conversation(page)).toContainText("over 10 MB");
+    await page.locator('input[type="file"]').setInputFiles({ name: "big.png", mimeType: "image/png", buffer: Buffer.alloc(6 * 1024 * 1024) });
+    await expect(conversation(page)).toContainText("image is over 5 MB");
+    await page.locator('input[type="file"]').setInputFiles({ name: "huge.pdf", mimeType: "application/pdf", buffer: Buffer.alloc(11 * 1024 * 1024) });
+    await expect(conversation(page)).toContainText("PDF is over 10 MB");
   });
 });
 
@@ -378,6 +388,8 @@ test.describe("replay and failure states", () => {
     expect((await request.get("/api/conversations/..%2Fx")).status()).toBe(404);
     expect((await request.post("/api/saved", { data: { report: {} } })).status()).toBe(400);
     expect((await request.get("/api/regulations?city=paris&useType=salon")).status()).toBe(400);
+    const long = await request.post("/api/chat", { data: { conversationId: opened.conversationId, text: "a small dental clinic in Houston ".repeat(100) } });
+    expect(long.status()).toBe(200);
     const regs = await (await request.get("/api/regulations?city=houston&useType=salon")).json();
     expect(regs.findings.every((f: { url: string }) => f.url.startsWith("https://"))).toBe(true);
   });

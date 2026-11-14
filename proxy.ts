@@ -13,4 +13,5 @@ export function proxy(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|hermit-logo.svg).*)"] };
+// /api/design is excluded so multipart uploads skip the proxy body limit; the page load already set the cookie.
+export const config = { matcher: ["/((?!_next/static|_next/image|hermit-logo.svg|api/design).*)"] };

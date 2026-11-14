@@ -8,10 +8,11 @@ import { viewerId } from "@/lib/server/viewer";
 
 const Body = z.union([
   z.object({ open: z.literal(true), spec: Draft, userText: z.string().max(2000).optional() }),
-  z.object({ conversationId: z.string(), text: z.string().min(1).max(2000) }),
+  // Long pastes are trimmed rather than rejected, so the user gets an answer instead of an error.
+  z.object({ conversationId: z.string(), text: z.string().min(1).max(20_000).transform((s) => s.slice(0, 2000)) }),
 ]);
 
-const botMsg = (t: Turn): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card } });
+const botMsg = (t: Turn): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card, fallback: t.fallback } });
 
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));

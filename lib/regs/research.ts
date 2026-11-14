@@ -3,7 +3,6 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import table from "../../rules/screening.json";
 import { MODEL } from "../agent/model";
-import { useCategory } from "../reason/rules";
 import type { City } from "../types";
 import { getCached, putCached } from "./cache";
 import { isOfficial, OFFICIAL_DOMAINS } from "./domains";
@@ -25,10 +24,10 @@ type Client = Pick<Anthropic, "messages">;
 const STATE: Record<City, string> = { los_angeles: "Los Angeles, California (Los Angeles County)", houston: "Houston, Texas (Harris County)" };
 const today = () => new Date().toISOString().slice(0, 10);
 
-function fallback(q: RegQuery): Finding[] {
+export function screeningFindings(q: RegQuery): Finding[] {
   const s = table.sources;
   const row = (topic: Finding["topic"], jurisdiction: Finding["jurisdiction"], src: { title: string; url: string }): Finding => ({
-    topic, jurisdiction, requirement: src.title, appliesWhen: `opening a ${q.useType}`, certainty: "may_apply", url: src.url, citedText: src.title, retrievedAt: table.version,
+    topic, jurisdiction, requirement: src.title, appliesWhen: `opening a ${q.useType}`, certainty: "may_apply", url: src.url, citedText: src.title, retrievedAt: table.reviewed,
   });
   return q.city === "houston"
     ? [row("zoning", "city", s.houston_zoning), row("parking", "city", s.houston_parking), row("occupancy", "city", s.houston_permits), row("accessibility", "federal", s.ada)]
@@ -40,11 +39,11 @@ Cover, where they apply to this use: city zoning/permitted use, city business ta
 Write short plain-language notes. For every rule, say which page it came from.`;
 
 export async function researchRegulations(q: RegQuery, client?: Client | null): Promise<{ findings: Finding[]; fromCache: boolean }> {
-  const key = `regs:${q.city}:${useCategory(q.useType)}`;
+  const key = `regs:${q.city}:${q.useType.toLowerCase().trim().replace(/\s+/g, " ")}`;
   const cached = getCached<Finding[]>(key);
   if (cached) return { findings: cached, fromCache: true };
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-  if (!c) return { findings: fallback(q), fromCache: false };
+  if (!c) return { findings: screeningFindings(q), fromCache: false };
 
   try {
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: `Business: ${q.useType}\nLocation: ${STATE[q.city]}${q.zoning ? `\nParcel zoning: ${q.zoning}` : ""}` }];
@@ -55,7 +54,7 @@ export async function researchRegulations(q: RegQuery, client?: Client | null): 
         model: MODEL, max_tokens: 8000, system: SYSTEM, messages,
         output_config: { effort: "medium" },
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6, allowed_domains: OFFICIAL_DOMAINS }],
-      } as Anthropic.MessageCreateParamsNonStreaming);
+      } as Anthropic.MessageCreateParamsNonStreaming, { timeout: 20_000 });
       for (const b of res.content as { type: string; text?: string; content?: unknown }[]) {
         if (b.type === "web_search_tool_result" && Array.isArray(b.content)) for (const r of b.content as { url?: string }[]) if (r.url) urls.add(r.url);
         if (b.type === "text" && b.text) notes += `${b.text}\n`;
@@ -63,7 +62,7 @@ export async function researchRegulations(q: RegQuery, client?: Client | null): 
       if (res.stop_reason !== "pause_turn") break;
       messages.push({ role: "assistant", content: res.content });
     }
-    if (!urls.size) return { findings: fallback(q), fromCache: false };
+    if (!urls.size) return { findings: screeningFindings(q), fromCache: false };
 
     const parsed = await c.messages.parse({
       model: MODEL, max_tokens: 4096,
@@ -73,9 +72,11 @@ export async function researchRegulations(q: RegQuery, client?: Client | null): 
     const findings = (parsed.parsed_output?.findings ?? [])
       .filter((f) => urls.has(f.url) && isOfficial(f.url))
       .map((f) => ({ ...f, retrievedAt: today() }));
+    // Every finding can fail the citation gate; show the screening rules then, and retry research next time.
+    if (!findings.length) return { findings: screeningFindings(q), fromCache: false };
     putCached(key, findings, 30);
     return { findings, fromCache: false };
   } catch {
-    return { findings: fallback(q), fromCache: false };
+    return { findings: screeningFindings(q), fromCache: false };
   }
 }

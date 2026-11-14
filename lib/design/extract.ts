@@ -16,12 +16,14 @@ export const FloorPlanSchema = z.object({
 export type FloorPlanExtraction = z.infer<typeof FloorPlanSchema>;
 export type UploadFile = { mediaType: "image/png" | "image/jpeg" | "image/webp" | "application/pdf"; base64: string };
 
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_PDF = 10 * 1024 * 1024;
+const MAX_IMAGE = 5 * 1024 * 1024; // Claude's per-image limit
 const TYPES = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
 
 export function validateUpload(size: number, type: string): { status: 413 | 415; error: string } | null {
   if (!TYPES.includes(type)) return { status: 415, error: "Upload a PNG, JPEG, WebP or PDF floor plan." };
-  if (size > MAX_BYTES) return { status: 413, error: "That file is over 10 MB. Try a smaller image or a single-page PDF." };
+  if (type === "application/pdf" && size > MAX_PDF) return { status: 413, error: "That PDF is over 10 MB. Try a single-page PDF or an image." };
+  if (type !== "application/pdf" && size > MAX_IMAGE) return { status: 413, error: "That image is over 5 MB. Try a smaller image or a PDF." };
   return null;
 }
 
@@ -54,9 +56,11 @@ export function designToDraft(x: FloorPlanExtraction | Block[], base: Draft): Dr
 }
 
 export function applyDesign(state: ChatState, x: FloorPlanExtraction | Block[]): Turn {
-  if (!Array.isArray(x) && !x.isFloorPlan) {
+  if (!Array.isArray(x) && (!x.isFloorPlan || !x.rooms.length)) {
     return {
-      reply: "That doesn't look like a floor plan. Could you upload a plan drawing, a photo of a sketch, or a PDF? You can also draw it instead.",
+      reply: x.isFloorPlan
+        ? "I couldn't make out any rooms in that plan. A clearer image or a PDF with room labels works best, or you can draw it instead."
+        : "That doesn't look like a floor plan. Could you upload a plan drawing, a photo of a sketch, or a PDF? You can also draw it instead.",
       state, ready: false, quickReplies: ["Draw a layout"],
     };
   }

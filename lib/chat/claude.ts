@@ -40,7 +40,7 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
       messages: [{ role: "user", content: `Phase: ${state.phase}\nWhat I know so far: ${describe(state.spec)}\nQuestions already asked: ${state.asked.join(", ") || "none"}\nUser says: ${text}` }],
     });
     const out = res.parsed_output;
-    if (!out) return converse(state, text);
+    if (!out) return fallbackTurn(state, text, "no structured output");
     const u = out.update;
     const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms], input: "chat" as const };
     if (u.useType) spec.useType = u.useType;
@@ -62,7 +62,12 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
       return { reply: q.q, state: { ...next, asked: [...next.asked, slot] }, ready: false, quickReplies: q.quick };
     }
     return { reply: out.reply, state: next, ready: out.ready, quickReplies: out.quickReplies.slice(0, 4), ...(out.action !== "none" ? { action: out.action } : {}) };
-  } catch {
-    return converse(state, text);
+  } catch (e) {
+    return fallbackTurn(state, text, e instanceof Error ? e.message : String(e));
   }
+}
+
+function fallbackTurn(state: ChatState, text: string, why: string): Turn {
+  console.warn(`[hermit] Claude chat turn failed (${why}); answering deterministically`);
+  return { ...converse(state, text), fallback: "deterministic" };
 }

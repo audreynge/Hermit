@@ -5,7 +5,7 @@ import { IMPLIED_FIXTURES } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
-import type { Finding, RegQuery } from "../regs/research";
+import { screeningFindings, type Finding, type RegQuery } from "../regs/research";
 import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
@@ -15,7 +15,7 @@ export type AgentDeps = {
   zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
   research?: (q: RegQuery) => Promise<{ findings: Finding[]; fromCache: boolean }>;
 };
-export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
+export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000, researchMs: 20_000 };
 
 let seq = 0;
 const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
@@ -52,6 +52,8 @@ export class Run {
   dropped = new Set<string>();
   reports: ShellReport[] | null = null;
   regulations: Finding[] = [];
+  researched = false;
+  private researchJob: Promise<{ findings: Finding[]; fromCache: boolean; timedOut?: boolean }> | null = null;
   get canResearch() { return !!this.deps.research; }
 
   constructor(public spec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {}
@@ -84,7 +86,17 @@ export class Run {
     }
   }
 
+  // Research runs in the background from the first search so it never sits on the critical path.
+  private startResearch() {
+    if (this.researchJob || !this.deps.research) return;
+    const q = { city: this.spec.city, useType: this.spec.useType };
+    const timeout = new Promise<{ findings: Finding[]; fromCache: boolean; timedOut: boolean }>((res) =>
+      setTimeout(() => res({ findings: screeningFindings(q), fromCache: false, timedOut: true }), BUDGET.researchMs));
+    this.researchJob = Promise.race([this.deps.research(q).catch(() => ({ findings: screeningFindings(q), fromCache: false })), timeout]);
+  }
+
   private search() {
+    this.startResearch();
     const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
     return {
@@ -99,13 +111,15 @@ export class Run {
 
   private async research() {
     if (!this.deps.research) return { result: { findings: [] }, summary: "no regulation source configured" };
-    const { findings, fromCache } = await this.deps.research({ city: this.spec.city, useType: this.spec.useType });
+    this.startResearch();
+    const { findings, fromCache, timedOut } = await this.researchJob!;
     this.regulations = findings;
+    this.researched = true;
     const by = (j: Finding["jurisdiction"]) => findings.filter((f) => f.jurisdiction === j).length;
     const parts = (["city", "county", "state", "federal"] as const).filter((j) => by(j)).map((j) => `${j} ${by(j)}`);
     return {
       result: { findings: findings.map((f) => ({ topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty })) },
-      summary: `${findings.length} rules (${parts.join(", ") || "none"})${fromCache ? " from cache" : ""}`,
+      summary: `${findings.length} rules (${parts.join(", ") || "none"})${fromCache ? " from cache" : ""}${timedOut ? "; research timed out, showing screening rules" : ""}`,
     };
   }
 
@@ -206,7 +220,12 @@ export class Run {
     this.emit({ type: "drop", id: rid("ev"), shellId: id, reason, evidence });
   }
 
-  private submit(ids: string[]) {
+  private async submit(ids: string[]) {
+    if (this.deps.research && !this.researched) {
+      const t0 = Date.now();
+      const r = await this.research();
+      this.emit({ type: "tool", id: rid("ev"), tool: "research_regulations", args: {}, resultId: rid("research_regulations"), summary: r.summary, ms: Date.now() - t0 });
+    }
     const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id)).slice(0, 5);
     if (ids.length && !chosen.length) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped); call evaluate_candidates first`);
     this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1, this.regulations));

@@ -36,6 +36,14 @@ describe("zoning lookup", () => {
     expect(calls).toBe(1);
   });
 
+  it("does not cache an ArcGIS error reply as 'no zone'", async () => {
+    let calls = 0;
+    const f = async () => { calls++; return new Response(JSON.stringify({ error: { code: 500, message: "busy" } })); };
+    expect(await lookupZoning(34.05, -118.25, f as typeof fetch)).toBeNull();
+    await lookupZoning(34.05, -118.25, f as typeof fetch);
+    expect(calls).toBe(2);
+  });
+
   it("returns null when the service fails", async () => {
     expect(await lookupZoning(34.05, -118.25, async () => new Response("oops", { status: 500 }))).toBeNull();
   });

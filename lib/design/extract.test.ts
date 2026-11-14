@@ -41,6 +41,13 @@ describe("applyDesign", () => {
     expect(t.reply).toMatch(/floor plan/i);
   });
 
+  it("treats a 'floor plan' with no readable rooms as unreadable and keeps earlier rooms", () => {
+    const s = { ...openChat(base).state, spec: { ...base, rooms: [{ label: "exam room", count: 2, hard: false }] } };
+    const t = applyDesign(s, { ...plan, rooms: [] });
+    expect(t.state.spec.rooms).toEqual(s.spec.rooms);
+    expect(t.reply).toMatch(/couldn't make out any rooms|floor plan/i);
+  });
+
   it("continues the conversation from the design", () => {
     const t = applyDesign(openChat({ ...base, city: undefined }).state, plan);
     expect(t.reply).toMatch(/Houston or Los Angeles/);
@@ -53,6 +60,8 @@ describe("validateUpload", () => {
     expect(validateUpload(2_000_000, "image/png")).toBeNull();
     expect(validateUpload(2_000_000, "application/pdf")).toBeNull();
     expect(validateUpload(11 * 1024 * 1024, "image/jpeg")).toMatchObject({ status: 413 });
+    expect(validateUpload(6 * 1024 * 1024, "image/png")).toMatchObject({ status: 413 });
+    expect(validateUpload(8 * 1024 * 1024, "application/pdf")).toBeNull();
     expect(validateUpload(1000, "image/gif")).toMatchObject({ status: 415 });
   });
 });

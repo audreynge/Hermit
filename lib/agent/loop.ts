@@ -38,7 +38,6 @@ async function deterministic(run: Run) {
   if (fresh) {
     run.emit({ type: "plan", id: newEventId(), text: `Search ${run.spec.city === "houston" ? "Houston" : "Los Angeles"} for a ${run.spec.useType}; screen 20 site records, measure up to ${BUDGET.roomGraphs} scans, verify uncertain fixtures, report the best 5.` });
     await run.call("search_shells", {});
-    if (run.canResearch && !run.overBudget()) await run.call("research_regulations", {});
   }
   if (!run.candidates.length) return finalize(run, []);
   const top20 = run.candidates.slice(0, 20).map((c) => c.shell.id).filter((id) => !run.dropped.has(id));
@@ -82,13 +81,14 @@ async function deterministic(run: Run) {
       reason: `Measured evidence moved ${final[0].shell.id} to the top (search leader ${searchOrder[0]} ${run.dropped.has(searchOrder[0]) ? "was dropped" : "scored lower after evaluation"}).`,
     });
   }
+  if (run.canResearch && !run.researched && !run.overBudget()) await run.call("research_regulations", {});
   const picks = final.length ? final.slice(0, 5).map((e) => e.shell.id) : run.candidates.filter((c) => !run.dropped.has(c.shell.id)).slice(0, 5).map((c) => c.shell.id);
   await finalize(run, picks);
 }
 
 const SYSTEM = `You are Hermit's search planner. You find existing commercial or residential spaces that already fit the user's RequirementSpec and show what work is left.
 Work from evidence. Tools compute geometry, rules and costs deterministically; never invent measurements, compliance, or availability.
-Funnel: search_shells (top 50) -> screen_sites on up to 20 -> evaluate_candidates on up to ${BUDGET.roomGraphs} promising ones -> inspect_view only when one uncertain fact could change the ranking (max ${BUDGET.inspections}) -> drop_candidate for anything with a documented hard conflict -> submit_reports with up to 5 ids in your final rank order.
+Funnel: search_shells (top 50; regulation research starts automatically) -> screen_sites on up to 20 -> evaluate_candidates on up to ${BUDGET.roomGraphs} promising ones -> inspect_view only when one uncertain fact could change the ranking (max ${BUDGET.inspections}) -> drop_candidate for anything with a documented hard conflict -> submit_reports with up to 5 ids in your final rank order.
 Budget: at most ${BUDGET.toolCalls} tool calls. Batch independent ids into one call. Null record fields are unknown, not passes.
 Before each tool call, say in one short sentence what you are checking and why.`;
 
