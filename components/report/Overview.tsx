@@ -1,6 +1,6 @@
 "use client";
 import { breakEven } from "@/lib/money";
-import { competitors, customers, neighbors } from "@/lib/neighborhood/summarize";
+import { competitors, customers, errands, gettingAround, neighbors } from "@/lib/neighborhood/summarize";
 import { Card, useFurnished, useMoney } from "./shared";
 import type { ReportCtx } from "./ShellReportPage";
 
@@ -15,6 +15,33 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
   const zoning = report.rules.find((r) => r.rule === "zoning");
   const lic = plan.steps.find((s) => /license|permit and/i.test(s.title));
   const catches = [...(challenge?.concerns ?? []), ...report.unknowns.slice(0, 3).map((u) => u.question)].slice(0, 3);
+
+  // A home search gets a renter's or buyer's questions, never business ones (customers, competitors, licenses).
+  if (spec.mode === "home") {
+    const around = gettingAround(site), near = errands(site);
+    const price = report.listing?.price, budget = spec.budgetMonthly ?? spec.budgetTotal;
+    return (
+      <div className="overview">
+        <section className="verdict-card">
+          <h2>{report.verdict}</h2>
+          <p className="lede">{report.summary}</p>
+          <div className="next-step"><strong>Next step:</strong> ask the landlord your {report.unknowns.length} questions.
+            <button type="button" className="btn primary small" onClick={() => go("questions")}>Draft the message</button>
+            <button type="button" className="btn small" onClick={() => go("inside")}>Step inside first</button></div>
+        </section>
+        <div className="q-grid">
+          <Card title="What's the neighborhood like?" answer={n.headline} onMore={() => go("neighborhood")}><ul>{n.lines.slice(0, 2).map((l) => <li key={l}>{l}</li>)}</ul></Card>
+          <Card title="How easy is it to get around?" answer={around.headline} onMore={() => go("neighborhood")}><ul>{around.lines.map((l) => <li key={l}>{l}</li>)}</ul></Card>
+          <Card title="Errands nearby?" answer={near.headline} onMore={() => go("neighborhood")}><ul>{near.lines.map((l) => <li key={l}>{l}</li>)}</ul></Card>
+          <Card title="Does it fit my budget?" answer={price && budget ? (price <= budget ? `At $${price.toLocaleString()}, it's within your budget.` : `At $${price.toLocaleString()}, it's over your $${budget.toLocaleString()} budget.`) : price ? `Listed at $${price.toLocaleString()}.` : "The price isn't in the listing data; ask the landlord."} tone={price && budget && price > budget ? "warn" : undefined} />
+          <Card title="Will my stuff fit?" answer={total ? `${built} of the ${total} rooms you want are here.` : "No room scan to measure for this one."} onMore={() => go("furnish")} more="Furnish it" />
+          <Card title="What's the catch?" answer={catches[0] ?? "Nothing obvious from the evidence."} onMore={() => go("questions")} more="See every question" tone="warn" />
+          <Card title="How soon can I move in?" answer={`About ${plan.total[0]} to ${plan.total[1]} weeks.`} onMore={() => go("rules")} more="Step by step"><p className="small muted">{plan.steps.map((s) => s.title).join(" → ")}</p></Card>
+        </div>
+        <p className="muted small">Screening only. Neighborhood numbers are public data and proxies.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="overview">

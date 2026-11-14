@@ -57,7 +57,7 @@ export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: st
         <ScoreRing value={report.matchScore} size={64} />
       </header>
       <nav className="report-tabs" role="tablist" aria-label="Shell Report sections">
-        {TABS.map(({ id, label, Icon }) => (
+        {TABS.filter((t) => props.spec.mode !== "home" || !["money", "packet"].includes(t.id)).map(({ id, label, Icon }) => (
           <button key={id} role="tab" type="button" aria-selected={tab === id} aria-controls="report-panel" onClick={() => go(id)}><Icon aria-hidden="true" /> {label}</button>
         ))}
       </nav>

@@ -68,3 +68,20 @@ export function competitors(site: SiteFile | null, use: string): Answer {
 
 export const competitorCount = (site: SiteFile | null, use: string) => (site && COMPETITORS[use] ? within(site.pois, WALK10_KM, COMPETITORS[use].match).length : null);
 export const transitCount = (site: SiteFile | null) => (site?.osmSource ? within(site.pois, WALK5_KM, isTransit).length : null);
+
+// Home mode: what a renter or buyer asks instead of "will customers come?".
+export function gettingAround(site: SiteFile | null): Answer {
+  if (!site) return { headline: "No neighborhood data for this spot yet.", lines: [], source: "none", missing: "No coordinates" };
+  const stops = within(site.pois, WALK5_KM, isTransit);
+  const lines = [site.osmSource ? (stops.length ? `${stops.length} bus or rail stop${stops.length > 1 ? "s" : ""} within a 5-minute walk.` : "No bus or rail stops mapped within a 5-minute walk, so plan on a car.") : "Transit data isn't loaded here."];
+  if (site.traffic) lines.push(site.traffic.km < 0.3 && site.traffic.aadt > 40000 ? `A busy road is close by (about ${round(site.traffic.aadt, 1000).toLocaleString()} cars a day), so expect some traffic noise.` : `The nearest counted major road is about ${(site.traffic.km * 0.62).toFixed(1)} mi away.`);
+  return { headline: stops.length >= 3 ? "Easy to get around without a car." : stops.length ? "Some transit nearby; a car helps." : "You'll mostly drive from here.", lines, source: [site.osmSource, site.traffic?.source].filter(Boolean).join(" · ") || "none" };
+}
+
+export function errands(site: SiteFile | null): Answer {
+  if (!site?.osmSource) return { headline: "Nearby places aren't loaded for this spot.", lines: [], source: "none", missing: "OpenStreetMap data unavailable" };
+  const n = (f: (t: Record<string, string>) => boolean) => within(site.pois, WALK10_KM, f).length;
+  const groceries = n((t) => /supermarket|convenience/.test(t.shop ?? "")), food = n((t) => /restaurant|cafe|fast_food/.test(t.amenity ?? "")), pharmacy = n((t) => t.amenity === "pharmacy"), schools = n((t) => /school|kindergarten/.test(t.amenity ?? ""));
+  const lines = [`${groceries} grocery or corner store${groceries === 1 ? "" : "s"}, ${pharmacy} pharmac${pharmacy === 1 ? "y" : "ies"} and ${food} places to eat within a 10-minute walk.`, ...(schools ? [`${schools} school${schools > 1 ? "s" : ""} nearby.`] : [])];
+  return { headline: groceries + food >= 15 ? "Lots of everyday errands on foot." : groceries + food >= 4 ? "A few errands within walking distance." : "Mostly a drive for errands.", lines, source: `${site.osmSource} (mapped places)` };
+}

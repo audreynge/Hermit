@@ -56,7 +56,10 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     else hits.push(hit("drive_in_bays", shell.driveInBays >= n.driveInBays ? "pass" : "fail", `${shell.driveInBays} drive-in bay(s) recorded; ${n.driveInBays} needed.`, src("costar_kit"), ev));
   }
 
-  if (spec.city === "houston") {
+  // Living in a home is the use it was built for; zoning and deed-restriction screens are for businesses.
+  if (use === "home") {
+    // no zoning screen
+  } else if (spec.city === "houston") {
     hits.push(hit("zoning", "unknown", "Houston has no use zoning; check deed restrictions and the plat for this lot.", src("houston_zoning")));
   } else if (!shell.zoning) {
     hits.push(hit("zoning", "unknown", "Zoning code not in the record.", src("lamc_zoning"), [costar(shell, "zoningDescription")]));

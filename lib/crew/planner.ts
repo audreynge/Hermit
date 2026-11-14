@@ -33,6 +33,13 @@ export function openingPlan(spec: Pick<RequirementSpec, "city" | "useType">, rep
     steps.push({ ...s, weeks: [start[0] + 1, start[1] + wHi] });
     if (!parallel) { lo += wLo; hi += wHi; }
   };
+  if (use === "home") {
+    add(1, 2, { title: "Tour and apply", detail: "See it in person (or in 3D), send your questions, and apply." });
+    add(1, 2, { title: "Approval and lease signing", detail: "Background and income checks, then sign." });
+    if (report.work.length) add(Math.max(...report.work.map((w) => w.weeksLow)), Math.max(...report.work.map((w) => w.weeksHigh)), { title: "Changes before move-in", detail: report.work.map((w) => w.item).slice(0, 3).join("; ") });
+    add(1, 1, { title: "Move in", detail: "Keys, utilities and movers." });
+    return { steps, total: [lo + 1, hi] };
+  }
   add(1, 3, { title: "Tour, negotiate and sign", detail: "Send the broker your questions, agree on terms and sign the lease or LOI." });
   if (report.work.length) {
     add(pLo, pHi, { title: "Permits for the build-out", detail: `Submit plans for ${report.work.length} work item${report.work.length > 1 ? "s" : ""} (${table.uses[use]?.permit ?? "tenant improvement"}).`, who: PERMITS[spec.city] });

@@ -2,7 +2,7 @@
 import { Bus, Car, Store, Users } from "lucide-react";
 import { useState } from "react";
 import { esriTile, tileFor } from "@/lib/geometry/tiles";
-import { competitors, customers, neighbors, type Answer } from "@/lib/neighborhood/summarize";
+import { competitors, customers, errands, gettingAround, neighbors, type Answer } from "@/lib/neighborhood/summarize";
 import type { SiteFile } from "@/lib/neighborhood/types";
 import type { ReportCtx } from "./ShellReportPage";
 
@@ -50,18 +50,25 @@ function AnswerCard({ title, a, Icon }: { title: string; a: Answer; Icon: typeof
   );
 }
 
-export function Neighborhood({ site, use, report }: ReportCtx) {
+export function Neighborhood({ site, use, report, spec }: ReportCtx) {
+  const home = spec.mode === "home";
   if (!site) return <p className="card pad">Hermit doesn&apos;t have neighborhood data for this space (no coordinates in the index).</p>;
   const busy = site.busyness?.hours;
   return (
     <div className="neighborhood">
       <div className="q-grid three">
-        <AnswerCard title="Will customers come here?" a={customers(site)} Icon={Car} />
-        <AnswerCard title="Who lives and works nearby?" a={neighbors(site)} Icon={Users} />
-        <AnswerCard title="Who am I competing with?" a={competitors(site, use)} Icon={Store} />
+        {home ? <>
+          <AnswerCard title="What's the neighborhood like?" a={neighbors(site)} Icon={Users} />
+          <AnswerCard title="How easy is it to get around?" a={gettingAround(site)} Icon={Car} />
+          <AnswerCard title="Errands nearby?" a={errands(site)} Icon={Store} />
+        </> : <>
+          <AnswerCard title="Will customers come here?" a={customers(site)} Icon={Car} />
+          <AnswerCard title="Who lives and works nearby?" a={neighbors(site)} Icon={Users} />
+          <AnswerCard title="Who am I competing with?" a={competitors(site, use)} Icon={Store} />
+        </>}
       </div>
       <div className="nb-row">
-        <MiniMap site={site} use={use} label={`Map around ${report.name} showing competitors and transit stops within a 10-minute walk`} />
+        <MiniMap site={site} use={home ? "none" : use} label={`Map around ${report.name} showing ${home ? "" : "competitors and "}transit stops within a 10-minute walk`} />
         <article className="q-card">
           <h3><Bus aria-hidden="true" className="inline-icon" /> Busiest hours on this block</h3>
           {busy ? (
