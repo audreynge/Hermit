@@ -1,6 +1,6 @@
 "use client";
 import {
-  Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
+  Accessibility, ArrowUpDown, Check, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
   ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -578,10 +578,16 @@ function MultiCard({ card, onSubmit }: { card: Card; onSubmit: (text: string) =>
   const toggle = (label: string) => setPicked((p) => (p.includes(label) ? p.filter((x) => x !== label) : [...p, label]));
   return (
     <div className="multi-card" role="group" aria-label="Choose all that apply">
-      {card.options.map((o) => (
-        <button key={o.value} type="button" className="chip-toggle" aria-pressed={picked.includes(o.label)} onClick={() => toggle(o.label)}>{o.label}</button>
-      ))}
-      <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      <div className="multi-options">
+        {card.options.map((o) => {
+          const on = picked.includes(o.label);
+          return <button key={o.value} type="button" className="chip-toggle" aria-pressed={on} onClick={() => toggle(o.label)}>{on ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}{o.label}</button>;
+        })}
+      </div>
+      <div className="multi-foot">
+        <span className="muted" aria-live="polite">{picked.length ? `${picked.length} selected` : "Tap all that apply"}</span>
+        <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      </div>
     </div>
   );
 }
