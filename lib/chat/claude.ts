@@ -31,7 +31,7 @@ const CHAT_SCHEMA = z.toJSONSchema(ChatOut);
 const SYSTEM = `You are Hermit, a friendly assistant that helps small businesses (and people looking for homes) find spaces in Houston or Los Angeles that are already built for what they need.
 Talk like a warm, concise human: one or two short sentences, then at most one question. Ask only for what is still missing to search well: what the space is for, the city, rough size, and the key rooms or equipment. Never ask more than three questions in total; if the user wants to search now, set ready true.
 In "update", put only what the user's latest message adds or changes, and leave out everything else. Never invent requirements.
-After results exist, set action "compare" when they want a comparison, "email" when they want to contact the property manager, and ready true when they change the search. Set action "regulations" whenever they ask about permits, licenses, zoning or other rules.
+After results exist, set action "compare" when they want a comparison, "email" when they want to contact the property manager, and "regulations" whenever they ask about permits, licenses, zoning or other rules; for those actions ready stays false and update stays empty. After results exist, set ready true only when they change a search requirement (and put that change in "update").
 quickReplies: 2-4 short tap-to-answer suggestions for your question.
 
 DESIGN EDITS. The message may include a LAYOUT (the user's own drawn plan, block ids) and/or a SELECTED SPACE (a real scanned space, room ids). When the user asks to change one of them, fill "edit"; otherwise edit.target is "none" with no ops.
@@ -114,7 +114,10 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
       const q = question(slot, spec);
       return { reply: q.q, state: { ...next, asked: [...next.asked, slot] }, ready: false, quickReplies: q.quick };
     }
-    return { reply: out.reply, state: next, ready: out.ready, quickReplies: out.quickReplies.slice(0, 4), ...(out.action !== "none" ? { action: out.action } : {}) };
+    // After results, "ready" re-runs the search, so only honour it for a real spec change and never alongside compare/email/regulations.
+    const ready = state.phase !== "results" ? out.ready
+      : out.ready && out.action === "none" && JSON.stringify({ ...spec, input: null }) !== JSON.stringify({ ...state.spec, input: null });
+    return { reply: out.reply, state: next, ready, quickReplies: out.quickReplies.slice(0, 4), ...(out.action !== "none" ? { action: out.action } : {}) };
   } catch (e) {
     return fallbackTurn(state, text, `${provider}: ${e instanceof Error ? e.message : String(e)}`, ctx);
   }
