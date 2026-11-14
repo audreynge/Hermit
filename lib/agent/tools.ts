@@ -4,10 +4,15 @@ import { fit as fitRooms } from "../reason/fit";
 import { IMPLIED_FIXTURES } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
+import type { ParcelZone } from "../regs/zoning";
 import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
-export type AgentDeps = { shells: (spec: RequirementSpec) => Shell[]; graph: (sid: string) => RoomGraph | null };
+export type AgentDeps = {
+  shells: (spec: RequirementSpec) => Shell[];
+  graph: (sid: string) => RoomGraph | null;
+  zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
+};
 export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
 
 let seq = 0;
@@ -56,12 +61,12 @@ export class Run {
     this.calls++;
     const t0 = Date.now();
     const resultId = rid(name);
-    const { result, summary } = this.exec(name, args as never);
+    const { result, summary } = await this.exec(name, args as never);
     this.emit({ type: "tool", id: rid("ev"), tool: name, args, resultId, summary, ms: Date.now() - t0 });
     return { resultId, ...result };
   }
 
-  private exec(name: ToolName, args: Record<string, never>): { result: object; summary: string } {
+  private async exec(name: ToolName, args: Record<string, never>): Promise<{ result: object; summary: string }> {
     switch (name) {
       case "search_shells": return this.search();
       case "screen_sites": return this.screen(args.shellIds);
@@ -97,7 +102,16 @@ export class Run {
     return { result: { rows }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict` };
   }
 
-  private evaluate(ids: string[]) {
+  private async evaluate(ids: string[]) {
+    const zones = new Map<string, ParcelZone | null>();
+    if (this.deps.zoning) await Promise.all(ids.map(async (id) => {
+      const s = this.shell(id)?.shell;
+      if (s?.city === "los_angeles" && s.lat != null && s.lon != null) zones.set(id, await this.deps.zoning!(s.lat, s.lon).catch(() => null));
+    }));
+    return this.evaluateWith(ids, zones);
+  }
+
+  private evaluateWith(ids: string[], zones: Map<string, ParcelZone | null>) {
     const rows = ids.flatMap((id) => {
       const c = this.shell(id);
       if (!c || this.dropped.has(id)) return [];
@@ -108,7 +122,7 @@ export class Run {
         graph = this.deps.graph(c.shell.sid);
       }
       const fit = graph ? fitRooms(this.spec, graph) : { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] };
-      const rules = checkRules(this.spec, c.shell, graph ?? undefined);
+      const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null });
       const work = estimateWork(this.spec, c.shell, fit, rules);
       const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: finalScore(fit, rules, c.score, !!graph), escalations: [] };
       this.evaluated.set(id, e);
@@ -118,7 +132,7 @@ export class Run {
   }
 
   evaluateQuietly(ids: string[]) {
-    this.evaluate(ids);
+    return this.evaluate(ids);
   }
 
   private row(e: Evaluation) {
@@ -184,7 +198,7 @@ export class Run {
 // Last step when the budget is spent: evaluate any unevaluated picks inside the single submit call.
 export async function finalize(run: Run, ids: string[]) {
   const missing = ids.filter((id) => !run.evaluated.has(id));
-  if (missing.length) run.evaluateQuietly(missing);
+  if (missing.length) await run.evaluateQuietly(missing);
   return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id)) });
 }
 

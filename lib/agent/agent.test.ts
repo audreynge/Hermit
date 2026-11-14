@@ -118,6 +118,14 @@ describe("deterministic agent", () => {
     for (const e of esc) expect(e.outcome).not.toMatch(/^observed/);
   });
 
+  it("cross-checks zoning with the parcel layer for evaluated candidates", async () => {
+    const d = { ...deps(), zoning: async () => ({ zone: "R3", source: "scag test", apn: "1" }) };
+    const events: TraceEvent[] = [];
+    await runAgent({ ...spec, city: "los_angeles" }, (e) => events.push(e), { ...d, shells: () => d.shells(spec).map((s) => ({ ...s, city: "los_angeles" as const, zoning: "LAC2" })) });
+    const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    expect(report.reports[0].rules.find((r) => r.rule === "zoning_records")?.status).toBe("warn");
+  });
+
   it("reads at most 8 room graphs", async () => {
     let reads = 0;
     const d = deps();

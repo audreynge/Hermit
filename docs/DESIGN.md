@@ -35,6 +35,7 @@ Private precomputed bundle <- offline ETL / Matterport / Vexcel / OSM / zoning /
 | Matterport GraphQL | rooms, polygons, dimensions, wall/door graph, panos/sweeps, floor plans; Showcase for visualization |
 | Vexcel | pre-extracted orthophotos and available roof/site/parking observations |
 | OSM + LA zoning | nearby amenities/transit/lot polygons, parcel-level zone and allowed-use lookup (when verified) |
+| LA zoning (verified 2026-11-14) | SCAG regional parcel zoning, `https://maps.scag.ca.gov/scaggis/rest/services/LDX/Zoning_poly_LA/MapServer/0/query` point query (`geometryType=esriGeometryPoint`, `inSR=4326`), field `ZN24_CITY` = city base zone (no height district), `APN24` = parcel. Matched CoStar on 3 of 6 spot checks (C4, CR, C2); others differ (MU/C4, M1/MR1), used as a cross-check, not ground truth. |
 
 **Join strategy:** `models_index.costar_property_id` → commercial building ID; `homes_listing_id` → residential listing ID; occupancy `addressId` → commercial property-address ID; additional scan IDs via attachment type 43 or external reference type 36. Use geographic joins only for local context, with distance and provenance. Suite-level ID/area inferred from scan names is **best-effort**; do not conflate building RBA with available suite area. Validate actual kit keys and field population before shipping.
 

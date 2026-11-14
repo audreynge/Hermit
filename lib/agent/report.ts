@@ -24,6 +24,7 @@ const QUESTIONS: Record<string, string> = {
   onsite_parking: "How many on-site parking spaces come with the space?",
   ground_floor: "Which floor is the space on, and is there a street-level entrance?",
   transit: "How close is the nearest bus or rail stop?",
+  zoning_records: "Which zone is the parcel in today, and does it permit our use by right?",
 };
 
 export const displayName = (name: string) =>

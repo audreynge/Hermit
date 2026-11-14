@@ -1,4 +1,5 @@
 import table from "../../rules/screening.json";
+import { normalizeZone } from "../regs/zoning";
 import type { Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
 
 export type UseKey = keyof typeof table.uses;
@@ -29,7 +30,9 @@ const hit = (rule: string, status: RuleStatus, detail: string, citation: string,
   rule, status, detail, citation, evidence,
 });
 
-export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGraph): RuleHit[] {
+export type RuleExtras = { parcelZone?: { zone: string; source: string; apn: string } | null };
+
+export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGraph, extras: RuleExtras = {}): RuleHit[] {
   const hits: RuleHit[] = [];
   const use = useCategory(spec.useType);
   const u = table.uses[use];
@@ -67,6 +70,15 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     if (!classes.length) hits.push(hit("zoning", "unknown", `Could not classify zone "${shell.zoning}".`, src("lamc_zoning"), ev));
     else if (classes.includes(want)) hits.push(hit("zoning", "pass", `Zone ${shell.zoning} generally permits ${want} uses (screening; overlays and conditions not checked).`, src("lamc_zoning"), ev));
     else hits.push(hit("zoning", "fail", `Zone ${shell.zoning} is ${classes.join("/")}; ${use} use likely needs a variance or conditional use.`, src("lamc_zoning"), ev));
+  }
+
+  if (extras.parcelZone) {
+    const pz = extras.parcelZone;
+    const ev = [costar(shell, "zoningDescription"), { source: "scag", ref: pz.source, confidence: 0.6 }];
+    const agree = shell.zoning && normalizeZone(shell.zoning) === normalizeZone(pz.zone);
+    hits.push(shell.zoning
+      ? hit("zoning_records", agree ? "pass" : "warn", agree ? `Parcel zoning layer confirms zone ${pz.zone}.` : `Zoning records disagree: CoStar says ${shell.zoning}, the regional parcel layer says ${pz.zone}. Confirm with the city.`, src("lamc_zoning"), ev)
+      : hit("zoning_records", "warn", `Parcel zoning layer says ${pz.zone}; CoStar has no zoning on record.`, src("lamc_zoning"), ev));
   }
 
   const per1000 = u.parkingPer1000[spec.city];
