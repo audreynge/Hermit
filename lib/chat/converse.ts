@@ -147,7 +147,7 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   return { spec: next, changed };
 }
 
-function ask(state: ChatState, lead: string): Turn {
+export function ask(state: ChatState, lead: string): Turn {
   const slot = missing(state.spec, state.asked);
   const budgetLeft = state.asked.length >= MAX_QUESTIONS;
   if (!slot || budgetLeft) {

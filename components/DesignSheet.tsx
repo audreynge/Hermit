@@ -1,0 +1,30 @@
+"use client";
+import { X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import type { Block } from "@/lib/spec/parse";
+import { LayoutStudio } from "./LayoutStudio";
+
+export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); prev?.focus(); };
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={ref} className="card modal sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <header>
+          <div>
+            <h2 id="sheet-title">Build your layout</h2>
+            <p className="muted">Drag and drop room blocks to sketch the space you need.</p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button>
+        </header>
+        <LayoutStudio onDone={onDone} doneLabel="Use this layout" />
+      </div>
+    </div>
+  );
+}

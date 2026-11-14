@@ -264,6 +264,14 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 /* Modal */
 .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; background: rgb(59 35 32 / 0.35); }
 .modal { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 26px 28px; }
+.modal.sheet { width: min(1360px, 100%); background: var(--sand-1); }
+.modal.sheet .layout-cta { margin-left: 0; }
+.attach { position: relative; }
+.attach-menu { position: absolute; bottom: 52px; left: 0; z-index: 5; display: grid; gap: 4px; padding: 8px; min-width: 220px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.attach-menu button { display: flex; gap: 10px; align-items: center; text-align: left; border: 0; background: none; padding: 10px 12px; border-radius: 10px; font-size: 16px; cursor: pointer; }
+.attach-menu button:hover, .attach-menu button:focus-visible { background: var(--coral-wash-2); }
+.attach-menu svg { width: 20px; height: 20px; color: var(--coral-ink); }
+.design-img { display: block; max-width: 280px; max-height: 200px; margin-top: 8px; border-radius: 12px; }
 .modal header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 .modal h2 { font-size: 26px; }
 .modal label { display: grid; gap: 6px; font-weight: 700; margin-bottom: 14px; }
@@ -292,7 +300,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .decor .wave-bottom { position: absolute; right: -10px; bottom: -6px; width: 260px; }
 
 @media (max-width: 1100px) {
-  .search-grid, .layout-grid { grid-template-columns: 1fr; }
+  .search-grid, .layout-grid { grid-template-columns: minmax(0, 1fr); }
   .layout-cta { margin-left: 0; }
   .chat, .results-card { height: auto; min-height: 0; }
   .messages { max-height: 60vh; }

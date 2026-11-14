@@ -11,7 +11,7 @@ const Body = z.union([
   z.object({ conversationId: z.string(), text: z.string().min(1).max(2000) }),
 ]);
 
-const botMsg = (t: Turn): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies } });
+const botMsg = (t: Turn): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card } });
 
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -22,4 +22,4 @@ export function drop(key: string, store: "session" | "local" = "session") {
   } catch {}
 }
 
-export const KEYS = { survey: "hermit:survey", pending: "hermit:pending", layout: "hermit:layout" };
+export const KEYS = { layout: "hermit:layout" };

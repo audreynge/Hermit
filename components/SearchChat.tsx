@@ -1,14 +1,17 @@
 "use client";
 import {
   Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
-  Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
+  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Card, ChatState, Turn } from "@/lib/chat/converse";
 import { compareRows, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "@/lib/chat/present";
-import { KEYS, load, save } from "@/lib/client/store";
 import type { Draft } from "@/lib/spec/survey";
+import type { Block } from "@/lib/spec/parse";
+import { layoutSummary, validateUpload } from "@/lib/design/extract";
+import { DesignSheet } from "./DesignSheet";
+import { DesignThumb } from "./DesignThumb";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Aerial } from "./Aerial";
 import { EmailDraft } from "./EmailDraft";
@@ -18,17 +21,21 @@ import { ReportPanel } from "./ReportPanel";
 import { SpaceCard } from "./SpaceCard";
 
 type Msg =
-  | { id: string; role: "user"; text: string }
+  | { id: string; role: "user"; text: string; design?: DesignPreview }
   | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[] } };
+type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn };
 
 function fromStored(r: StoredRow): Msg | null {
+  if (r.role === "user" && r.kind === "design") return r.payload.kind === "layout"
+    ? { id: uid(), role: "user", text: r.payload.summary ?? "Here's my layout.", design: { kind: "layout", blocks: r.payload.blocks ?? [] } }
+    : { id: uid(), role: "user", text: `Uploaded ${r.payload.name ?? "a floor plan"}`, design: { kind: "upload", name: r.payload.name ?? "floor plan" } };
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
   if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
@@ -70,6 +77,9 @@ export function SearchChat() {
   const [busy, setBusy] = useState(false);
   const [runKey, setRunKey] = useState("");
   const [resultsReady, setResultsReady] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  const fileInput = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
@@ -171,8 +181,7 @@ export function SearchChat() {
       void runSearch({ ...EMPTY_DRAFT, city: "houston", useType: "space" }, replay);
       return;
     }
-    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string }>(KEYS.pending);
-    if (!pending && conv.current) {
+    if (conv.current) {
       fetch(`/api/conversations/${conv.current}`).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((c: ConvResponse) => {
         setMessages(c.messages.map(fromStored).filter((m): m is Msg => !!m));
         setChat(c.state);
@@ -186,15 +195,44 @@ export function SearchChat() {
       }).catch(() => { conv.current = null; push(bot(["I couldn't find that conversation. Let's start a new one."])); void openNew(EMPTY_DRAFT); });
       return;
     }
-    save(KEYS.pending, null);
-    const draft = pending?.source === "layout" && pending.spec ? pending.spec : EMPTY_DRAFT;
-    if (pending?.summary) push({ id: uid(), role: "user", text: pending.summary });
-    void openNew(draft, pending?.summary);
+    void openNew(EMPTY_DRAFT);
   }, [replay, openNew, runSearch]);
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }); }, [messages, shown]);
 
+  const sendDesign = async (body: FormData | { blocks: Block[] }, preview: DesignPreview, text: string) => {
+    if (!conv.current || busy || running) return;
+    push({ id: uid(), role: "user", text, design: preview });
+    setBusy(true);
+    try {
+      const res = await fetch("/api/design", body instanceof FormData
+        ? { method: "POST", body }
+        : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: conv.current, ...body }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
+      await respond(((await res.json()) as ChatResponse).turn);
+    } catch (e) {
+      push(bot([`${e instanceof Error ? e.message : String(e)}`], ["Draw a layout"]));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyDrawing = (blocks: Block[]) => {
+    setDrawing(false);
+    void sendDesign({ blocks }, { kind: "layout", blocks }, layoutSummary(blocks));
+  };
+
+  const upload = (file: File) => {
+    const bad = validateUpload(file.size, file.type);
+    if (bad) { push(bot([bad.error], ["Draw a layout"])); return; }
+    const fd = new FormData();
+    fd.append("conversationId", conv.current ?? "");
+    fd.append("file", file);
+    void sendDesign(fd, { kind: "upload", name: file.name, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined }, `Uploaded ${file.name}`);
+  };
+
   const send = async (text: string) => {
+    if (/^draw a layout$/i.test(text.trim())) { setDrawing(true); return; }
     const t = text.trim();
     if (!t || busy || running) return;
     setInput("");
@@ -270,7 +308,11 @@ export function SearchChat() {
           <div className="messages" ref={scroller} aria-live="polite" aria-label="Conversation">
             {messages.map((m) => {
               if (m.role === "user") return (
-                <div key={m.id} className="msg user"><span className="avatar user" aria-hidden="true"><User /></span><div className="bubbles"><div className="bubble">{m.text}</div></div></div>
+                <div key={m.id} className="msg user"><span className="avatar user" aria-hidden="true"><User /></span><div className="bubbles"><div className="bubble">{m.text}
+                  {m.design?.kind === "layout" && <DesignThumb blocks={m.design.blocks} />}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {m.design?.kind === "upload" && m.design.url && <img className="design-img" src={m.design.url} alt={`Uploaded floor plan ${m.design.name}`} />}
+                </div></div></div>
               );
               return (
                 <div key={m.id} className="msg bot">
@@ -297,6 +339,18 @@ export function SearchChat() {
           </div>
 
           <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
+            <div className="attach">
+              <button type="button" className="icon-btn" aria-label="Add a design" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}
+                onKeyDown={(e) => { if (e.key === "Escape") setMenuOpen(false); }}><Plus aria-hidden="true" /></button>
+              {menuOpen && (
+                <div className="attach-menu" role="menu" onKeyDown={(e) => { if (e.key === "Escape") setMenuOpen(false); }}>
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setDrawing(true); }}><PencilRuler aria-hidden="true" /> Draw a layout</button>
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}><ImageUp aria-hidden="true" /> Upload a floor plan</button>
+                </div>
+              )}
+              <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="sr-only" tabIndex={-1} aria-label="Floor plan file"
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) upload(f); }} />
+            </div>
             <Sparkles className="spark" aria-hidden="true" />
             <label htmlFor="ask" className="sr-only">Message Hermit</label>
             <input id="ask" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" />
@@ -349,6 +403,7 @@ export function SearchChat() {
         )}
       </section>
 
+      {drawing && <DesignSheet onDone={applyDrawing} onClose={() => setDrawing(false)} />}
       {emailFor && <EmailDraft report={emailFor} onClose={() => setEmailFor(null)} />}
       {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}
     </>

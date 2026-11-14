@@ -3,10 +3,9 @@ import {
   Archive, ArrowRight, Armchair, Columns2, ConciergeBell, CookingPot, Layers, Monitor, Redo2, Sparkles, SquarePlus,
   Stethoscope, Toilet, Undo2, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
-import { fromLayout, type Block } from "@/lib/spec/parse";
+import type { Block } from "@/lib/spec/parse";
 
 type Item = Block & { kind: "room" | "object" };
 
@@ -55,8 +54,7 @@ const TEMPLATE: Item[] = [
 ];
 const PX = 14;
 
-export function LayoutStudio() {
-  const router = useRouter();
+export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: { onDone: (items: Block[]) => void; doneLabel?: string }) {
   const [items, setItems] = useState<Item[]>(TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);
   const [future, setFuture] = useState<Item[][]>([]);
@@ -115,19 +113,6 @@ export function LayoutStudio() {
   const W = Math.max(64, ...items.map((i) => i.x + i.w + 6)), H = Math.max(44, ...items.map((i) => i.y + i.h + 6));
   const bounds = rooms.length ? { x: Math.min(...rooms.map((r) => r.x)), y: Math.min(...rooms.map((r) => r.y)), x2: Math.max(...rooms.map((r) => r.x + r.w)), y2: Math.max(...rooms.map((r) => r.y + r.h)) } : null;
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
-
-  const analyze = () => {
-    const base = null as null | { mode?: "business"; city?: "houston" | "los_angeles"; useType?: string; needs?: Record<string, boolean>; budgetMonthly?: number; budgetTotal?: number; transaction?: "lease" | "buy" };
-    const types = new Set(rooms.map((r) => r.label));
-    const useType = types.has("exam room") || types.has("procedure room") ? "medical clinic" : base?.useType || (types.has("kitchen") && !types.has("office") ? "restaurant" : "office");
-    const s = fromLayout(items, { mode: base?.mode ?? "business", city: (base?.city ?? "houston"), useType });
-    const draft = { ...s, ...(base?.city ? {} : { city: undefined }), needs: { ...(base?.needs ?? {}) }, ...(base?.budgetMonthly ? { budgetMonthly: base.budgetMonthly } : {}), ...(base?.budgetTotal ? { budgetTotal: base.budgetTotal } : {}), transaction: base?.transaction ?? "lease" };
-    const one: Record<string, string> = { reception: "a reception area", storage: "storage", kitchen: "a kitchen", office: "an office" };
-    const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.count > 1 ? r.fixtures.map((f) => `${f}s`).join(" and ") : `a ${r.fixtures.join(" and a ")}`}` : ""}`);
-    const summary = `Here's my layout: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space"}${types.has("hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft). Find the closest match.`;
-    save(KEYS.pending, { source: "layout", spec: draft, summary });
-    router.push("/");
-  };
 
   return (
     <>
@@ -219,7 +204,7 @@ export function LayoutStudio() {
         </section>
       </div>
       <div className="layout-cta">
-        <button type="button" className="cta" onClick={analyze} disabled={!rooms.length}><Sparkles aria-hidden="true" /> Analyze &amp; match layout <ArrowRight aria-hidden="true" /></button>
+        <button type="button" className="cta" onClick={() => onDone(items)} disabled={!rooms.length}><Sparkles aria-hidden="true" /> {doneLabel} <ArrowRight aria-hidden="true" /></button>
       </div>
     </>
   );

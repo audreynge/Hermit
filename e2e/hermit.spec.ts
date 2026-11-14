@@ -193,45 +193,90 @@ test.describe("results", () => {
   });
 });
 
-test.describe("layout studio", () => {
-  test("build with blocks, undo/redo, zoom and snap, then match", async ({ page }) => {
-    await fresh(page, "/layout");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Build your layout");
-    const canvas = page.getByRole("application");
+test.describe("designs in the chat", () => {
+  test("draw a layout inside the chat, then match it", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: "Add a design" }).click();
+    await page.getByRole("menuitem", { name: "Draw a layout" }).click();
+    const sheet = page.getByRole("dialog", { name: "Build your layout" });
+    const canvas = sheet.getByRole("application");
     await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
 
-    await page.getByRole("button", { name: "Add Office" }).click();
+    await sheet.getByRole("button", { name: "Add Office" }).click();
     await expect(canvas).toHaveAttribute("aria-label", /6 rooms/);
-    await page.getByRole("button", { name: "Undo" }).click();
+    await sheet.getByRole("button", { name: "Undo" }).click();
     await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
-    await page.getByRole("button", { name: "Redo" }).click();
-    await expect(canvas).toHaveAttribute("aria-label", /6 rooms/);
-
-    const office = page.getByRole("button", { name: /^Office, 10 by 10 feet/ });
+    await sheet.getByRole("button", { name: "Redo" }).click();
+    const office = sheet.getByRole("button", { name: /^Office, 10 by 10 feet/ });
     await office.focus();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Delete");
     await expect(canvas).toHaveAttribute("aria-label", /5 rooms/);
-
     const before = Number((await canvas.getAttribute("aria-label"))!.match(/(\d+) objects/)![1]);
-    await page.getByRole("button", { name: "Add Sink" }).dragTo(page.locator(".canvas"), { targetPosition: { x: 200, y: 200 } });
+    await sheet.getByRole("button", { name: "Add Sink" }).dragTo(sheet.locator(".canvas"), { targetPosition: { x: 200, y: 200 } });
     await expect(canvas).toHaveAttribute("aria-label", new RegExp(`${before + 1} objects`));
-
-    await page.getByLabel("Zoom", { exact: true }).selectOption("150");
-    await page.getByRole("button", { name: "Zoom out" }).click();
-    await expect(page.getByLabel("Zoom", { exact: true })).toHaveValue("125");
-    const snap = page.getByRole("switch", { name: /Snap to grid/ });
+    await sheet.getByLabel("Zoom", { exact: true }).selectOption("150");
+    await sheet.getByRole("button", { name: "Zoom out" }).click();
+    await expect(sheet.getByLabel("Zoom", { exact: true })).toHaveValue("125");
+    const snap = sheet.getByRole("switch", { name: /Snap to grid/ });
     await snap.click();
     await expect(snap).toHaveAttribute("aria-checked", "false");
     await axe(page);
 
-    await page.getByRole("button", { name: /Analyze & match layout/ }).click();
-    await expect(page).toHaveURL(/\/(\?c=.*)?$/);
+    await sheet.getByRole("button", { name: /Use this layout/ }).click();
+    await expect(sheet).toBeHidden();
     await expect(conversation(page)).toContainText("Here's my layout");
     await expect(conversation(page)).toContainText("2 exam rooms with sinks");
+    await expect(conversation(page).getByRole("img", { name: /Drawn layout with 5 rooms/ })).toBeVisible();
     await quick(page, "Houston").click();
     await quick(page, "None of these").click();
     await waitForResults(page);
+
+    await page.reload();
+    await expect(conversation(page).getByRole("img", { name: /Drawn layout/ })).toBeVisible();
+  });
+
+  test("/layout opens the drawing sheet in the chat", async ({ page }) => {
+    await page.goto("/layout");
+    await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeVisible();
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeHidden();
+    await expect(conversation(page)).toBeVisible();
+  });
+
+  test("uploading a floor plan continues the conversation", async ({ page }) => {
+    await page.route("**/api/design", async (route) => {
+      const body = { conversationId: "x", turn: { reply: "I read your floor plan: 3 exam rooms, a reception. Which city should I search: Houston or Los Angeles?", state: { spec: { mode: "business", useType: "medical clinic", rooms: [{ label: "exam room", count: 3, hard: false }], needs: {}, priorities: {}, input: "layout" }, asked: ["size", "rooms", "city"], phase: "gathering" }, ready: false, quickReplies: ["Houston", "Los Angeles"] } };
+      await route.fulfill({ json: body });
+    });
+    await fresh(page);
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await page.getByRole("button", { name: "Add a design" }).click();
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("menuitem", { name: "Upload a floor plan" }).click();
+    await (await chooser).setFiles({ name: "plan.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await expect(conversation(page)).toContainText("Uploaded plan.png");
+    await expect(conversation(page).getByRole("img", { name: /Uploaded floor plan/ })).toBeVisible();
+    await expect(conversation(page)).toContainText("I read your floor plan");
+    await expect(quick(page, "Houston")).toBeVisible();
+  });
+
+  test("uploads explain the missing key and offer drawing instead", async ({ page }) => {
+    test.skip(!!process.env.ANTHROPIC_API_KEY, "only meaningful without a key");
+    await fresh(page);
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await page.locator('input[type="file"]').setInputFiles({ name: "plan.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
+    await expect(conversation(page)).toContainText("needs the Claude API key");
+    await quick(page, "Draw a layout").click();
+    await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeVisible();
+  });
+
+  test("oversized uploads are refused before sending", async ({ page }) => {
+    await fresh(page);
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await page.locator('input[type="file"]').setInputFiles({ name: "huge.png", mimeType: "image/png", buffer: Buffer.alloc(11 * 1024 * 1024) });
+    await expect(conversation(page)).toContainText("over 10 MB");
   });
 });
 
@@ -305,7 +350,7 @@ test.describe("replay and failure states", () => {
 });
 
 test.describe("layout and motion", () => {
-  for (const path of ["/", "/layout", "/saved"]) {
+  for (const path of ["/", "/saved", "/?design=draw"]) {
     test(`no horizontal overflow on ${path} @mobile`, async ({ page }) => {
       await page.goto(path);
       await page.waitForTimeout(300);
@@ -316,8 +361,8 @@ test.describe("layout and motion", () => {
 
   test("reduced motion turns animation off", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto("/layout");
-    const t = await page.getByRole("button", { name: /Analyze & match layout/ }).evaluate((el) => getComputedStyle(el).transitionDuration);
+    await page.goto("/?design=draw");
+    const t = await page.getByRole("button", { name: /Use this layout/ }).evaluate((el) => getComputedStyle(el).transitionDuration);
     expect(t).toBe("0s");
   });
 });
