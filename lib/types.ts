@@ -161,6 +161,7 @@ export type ShellReport = {
   work: WorkItem[];
   weeksToOpen: [number, number];
   costRange?: [number, number];
+  tiAllowance?: number;
   unknowns: { topic: string; question: string }[];
   inside?: { sid: string; sweepId?: string };
   above?: { lat: number; lon: number; provider: string; overlays: Overlay[] };

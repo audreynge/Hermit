@@ -11,6 +11,9 @@
     "ladbs": { "title": "LADBS plan check and permitting", "url": "https://dbs.lacity.gov/services/plan-check-permitting" },
     "houston_permits": { "title": "Houston Permitting Center", "url": "https://www.houstonpermittingcenter.org/" },
     "ashrae_rule": { "title": "HVAC sizing rule of thumb (sf per ton by occupancy); screening only, Manual N/ASHRAE load calc required", "url": "https://www.energy.gov/energysaver/central-air-conditioning" },
+    "nfpa13": { "title": "NFPA 13: Standard for the Installation of Sprinkler Systems (ESFR for high-piled storage)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-13-standard-development/13" },
+    "nfpa70": { "title": "NFPA 70 National Electrical Code (service sizing)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70" },
+    "costar_kit": { "title": "CoStar hackathon kit record fields (listingStatus, electric, driveInBays, bedsMax); private kit, cited by field", "url": "https://www.costar.com/" },
     "costs": { "title": "Hermit cost table v2026-11: broad screening ranges, not bids", "url": "https://github.com/audreynge/hackprinceton-fall26/blob/main/rules/screening.json" }
   },
   "uses": {

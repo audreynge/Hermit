@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { RequirementSpec, TraceEvent } from "../types";
-import { BUDGET, newEventId, Run, TOOL_DESCRIPTIONS, ToolInputs, unverifiedFixtures, type AgentDeps, type ToolName } from "./tools";
+import { BUDGET, finalize, newEventId, Run, TOOL_DESCRIPTIONS, ToolInputs, unverifiedFixtures, type AgentDeps, type ToolName } from "./tools";
 
 export type { AgentDeps };
-export const MODEL = "claude-opus-5-5";
+import { MODEL } from "./model";
 
 type Client = Pick<Anthropic, "beta">;
 type Opts = { client?: Client | null };
@@ -39,13 +39,14 @@ async function deterministic(run: Run) {
     run.emit({ type: "plan", id: newEventId(), text: `Search ${run.spec.city === "houston" ? "Houston" : "Los Angeles"} for a ${run.spec.useType}; screen 20 site records, measure up to ${BUDGET.roomGraphs} scans, verify uncertain fixtures, report the best 5.` });
     await run.call("search_shells", {});
   }
+  if (!run.candidates.length) return finalize(run, []);
   const top20 = run.candidates.slice(0, 20).map((c) => c.shell.id).filter((id) => !run.dropped.has(id));
-  if (top20.length && !run.screened.size) {
+  if (top20.length && !run.screened.size && !run.overBudget()) {
     const s = (await run.call("screen_sites", { shellIds: top20 })) as { rows: { id: string; fails: string[] }[] };
     const drops = s.rows.flatMap((r) => (dealbreaker(r.fails.map((f) => f.split(":")[0])) ? [{ shellId: r.id, reason: r.fails.join("; ") }] : []));
-    if (drops.length) await run.call("drop_candidate", { drops });
+    if (drops.length && !run.overBudget()) await run.call("drop_candidate", { drops });
   }
-  if (!run.evaluated.size) {
+  if (!run.evaluated.size && !run.overBudget()) {
     const next = run.candidates.map((c) => c.shell.id).filter((id) => !run.dropped.has(id)).slice(0, 8);
     if (next.length) {
       const ev = (await run.call("evaluate_candidates", { shellIds: next })) as { rows: { id: string; hardFails: string[]; ruleFails: string[] }[] };
@@ -53,7 +54,7 @@ async function deterministic(run: Run) {
         const why = r.hardFails[0] ?? (dealbreaker(r.ruleFails) ? `fails ${r.ruleFails.join(", ")} screen` : null);
         return why ? [{ shellId: r.id, reason: why }] : [];
       });
-      if (drops.length) await run.call("drop_candidate", { drops });
+      if (drops.length && !run.overBudget()) await run.call("drop_candidate", { drops });
     }
   }
 
@@ -77,7 +78,8 @@ async function deterministic(run: Run) {
       reason: `Measured evidence moved ${final[0].shell.id} to the top (search leader ${searchOrder[0]} ${run.dropped.has(searchOrder[0]) ? "was dropped" : "scored lower after evaluation"}).`,
     });
   }
-  await run.call("submit_reports", { shellIds: final.slice(0, 5).map((e) => e.shell.id) });
+  const picks = final.length ? final.slice(0, 5).map((e) => e.shell.id) : run.candidates.filter((c) => !run.dropped.has(c.shell.id)).slice(0, 5).map((c) => c.shell.id);
+  await finalize(run, picks);
 }
 
 const SYSTEM = `You are Hermit's search planner. You find existing commercial or residential spaces that already fit the user's RequirementSpec and show what work is left.

@@ -8,3 +8,4 @@ data/processed/
 test-results/
 playwright-report/
 *.tsbuildinfo
+data/sample/replay/run-*

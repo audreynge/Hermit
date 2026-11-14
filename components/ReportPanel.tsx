@@ -27,7 +27,7 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
       </header>
 
       <section aria-label="Scores" className="row">
-        <div><div className="score num">{report.fit.score}</div><div className="muted">room fit</div></div>
+        <div><div className="score num">{report.badge === "record-only" ? "—" : report.fit.score}</div><div className="muted">{report.badge === "record-only" ? "room fit not measured" : "room fit"}</div></div>
         <div><div className="score num">{report.weeksToOpen[0]}–{report.weeksToOpen[1]}</div><div className="muted">weeks to open</div></div>
         {report.costRange && report.costRange[1] > 0 && <div><div className="score num">{money(report.costRange[0])}–{money(report.costRange[1])}</div><div className="muted">known work</div></div>}
         {report.listing?.askingRate ? <div><div className="score num">${report.listing.askingRate}</div><div className="muted">asking $/sf/yr</div></div> : null}
@@ -73,7 +73,7 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
               ))}
             </tbody>
           </table>
-          <p className="muted" style={{ fontSize: "var(--t-sm)" }}>Screening ranges, not bids. Weeks include permit review.</p>
+          <p className="muted" style={{ fontSize: "var(--t-sm)" }}>Screening ranges, not bids. Weeks include permit review.{report.tiAllowance ? ` Your TI allowance input (${money(report.tiAllowance)}) is not netted out; it depends on lease terms.` : ""}</p>
         </section>
       )}
 

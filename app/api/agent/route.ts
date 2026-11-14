@@ -21,7 +21,11 @@ export async function POST(req: Request) {
       const enc = new TextEncoder();
       const emit = (e: TraceEvent) => {
         events.push(e);
-        controller.enqueue(enc.encode(sse(e)));
+        try {
+          controller.enqueue(enc.encode(sse(e)));
+        } catch {
+          // client went away; keep recording so the run can still be replayed
+        }
       };
       emit({ type: "run", id: "run", runId, replay: false });
       try {
@@ -34,7 +38,7 @@ export async function POST(req: Request) {
       } catch {
         // read-only filesystem (e.g. serverless): replay of this run is unavailable
       }
-      controller.close();
+      try { controller.close(); } catch {}
     },
   });
   return new Response(stream, { headers });

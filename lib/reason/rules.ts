@@ -38,22 +38,22 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
 
   if (n.heavyPower || n.threePhase) {
     const ev = [costar(shell, "electric.hasHeavyPower")];
-    if (shell.heavyPower === true) hits.push(hit("electrical", "pass", "Record lists heavy power. Amperage/phase still to confirm with landlord.", src("costs"), ev));
-    else if (shell.heavyPower === false) hits.push(hit("electrical", "fail", "Record shows no heavy power; service upgrade likely needed.", src("costs"), ev));
-    else hits.push(hit("electrical", "unknown", "Power service is not in the record (null).", src("costs"), ev));
+    if (shell.heavyPower === true) hits.push(hit("electrical", "pass", "Record lists heavy power. Amperage/phase still to confirm with landlord.", src("nfpa70"), ev));
+    else if (shell.heavyPower === false) hits.push(hit("electrical", "fail", "Record shows no heavy power; service upgrade likely needed.", src("nfpa70"), ev));
+    else hits.push(hit("electrical", "unknown", "Power service is not in the record (null).", src("nfpa70"), ev));
   }
 
   if (n.esfr) {
     const ev = [costar(shell, "sprinklerType")];
-    if (shell.sprinkler === "esfr") hits.push(hit("fire", "pass", "Record lists ESFR sprinklers.", src("costs"), ev));
-    else if (shell.sprinkler === "unknown") hits.push(hit("fire", "unknown", "Sprinkler type not recorded.", src("costs"), ev));
-    else hits.push(hit("fire", "fail", `Record lists ${shell.sprinkler} sprinklers, not ESFR; high-piled storage would need a retrofit.`, src("costs"), ev));
+    if (shell.sprinkler === "esfr") hits.push(hit("fire", "pass", "Record lists ESFR sprinklers.", src("nfpa13"), ev));
+    else if (shell.sprinkler === "unknown") hits.push(hit("fire", "unknown", "Sprinkler type not recorded.", src("nfpa13"), ev));
+    else hits.push(hit("fire", "fail", `Record lists ${shell.sprinkler} sprinklers, not ESFR; high-piled storage would need a retrofit.`, src("nfpa13"), ev));
   }
 
   if (n.driveInBays) {
     const ev = [costar(shell, "driveInBays.numDriveInBays")];
-    if (shell.driveInBays == null) hits.push(hit("drive_in_bays", "unknown", "Drive-in bay count not recorded.", src("costs"), ev));
-    else hits.push(hit("drive_in_bays", shell.driveInBays >= n.driveInBays ? "pass" : "fail", `${shell.driveInBays} drive-in bay(s) recorded; ${n.driveInBays} needed.`, src("costs"), ev));
+    if (shell.driveInBays == null) hits.push(hit("drive_in_bays", "unknown", "Drive-in bay count not recorded.", src("costar_kit"), ev));
+    else hits.push(hit("drive_in_bays", shell.driveInBays >= n.driveInBays ? "pass" : "fail", `${shell.driveInBays} drive-in bay(s) recorded; ${n.driveInBays} needed.`, src("costar_kit"), ev));
   }
 
   if (spec.city === "houston") {
@@ -97,14 +97,14 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
   if (use !== "home" || shell.listing) {
     const l = shell.listing;
     const ev: Evidence[] = l ? [{ source: "costar", ref: `listing ${l.listingId}.listingStatus`, confidence: 0.8 }] : [];
-    if (l?.status === "active") hits.push(hit("availability", "pass", "Active listing on record (not a live availability guarantee).", src("costs"), ev));
-    else hits.push(hit("availability", "warn", l ? `Listing status is ${l.status}; confirm availability.` : "No active listing on record; availability unknown.", src("costs"), ev));
+    if (l?.status === "active") hits.push(hit("availability", "pass", "Active listing on record (not a live availability guarantee).", src("costar_kit"), ev));
+    else hits.push(hit("availability", "warn", l ? `Listing status is ${l.status}; confirm availability.` : "No active listing on record; availability unknown.", src("costar_kit"), ev));
   }
 
   if (spec.beds != null && shell.beds != null)
-    hits.push(hit("bedrooms", shell.beds >= spec.beds ? "pass" : "fail", `${shell.beds} bedrooms listed; ${spec.beds} needed.`, src("costs"), [costar(shell, "property.bedsMax")]));
+    hits.push(hit("bedrooms", shell.beds >= spec.beds ? "pass" : "fail", `${shell.beds} bedrooms listed; ${spec.beds} needed.`, src("costar_kit"), [costar(shell, "property.bedsMax")]));
   if (spec.baths != null && shell.baths != null)
-    hits.push(hit("bathrooms", shell.baths >= spec.baths ? "pass" : "fail", `${shell.baths} baths listed; ${spec.baths} needed.`, src("costs"), [costar(shell, "property.bathsMax")]));
+    hits.push(hit("bathrooms", shell.baths >= spec.baths ? "pass" : "fail", `${shell.baths} baths listed; ${spec.baths} needed.`, src("costar_kit"), [costar(shell, "property.bathsMax")]));
 
   if (spec.mode === "home" && graph && shell.sqft) {
     const gap = (shell.sqft - graph.totalAreaSqft) / shell.sqft;
@@ -112,7 +112,7 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     const ev = [costar(shell, "property.sqftMax"), { source: "matterport", ref: `${graph.sid}.dimensions.areaFloor`, confidence: 0.8 }];
     hits.push(hit("measured_size", pct > 10 ? "warn" : "pass",
       `Listing says ${shell.sqft} sf; scan measures ${Math.round(graph.totalAreaSqft)} sf net floor (${pct}% ${gap > 0 ? "smaller" : "larger"}). Net vs gross differences are normal; a screening flag, not a misstatement.`,
-      src("costs"), ev));
+      src("costar_kit"), ev));
   }
 
   return hits;

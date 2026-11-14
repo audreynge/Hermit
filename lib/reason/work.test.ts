@@ -33,11 +33,10 @@ describe("estimateWork", () => {
     expect(w.costRange).toEqual([0, 0]);
   });
 
-  it("subtracts an optional TI allowance from the cost range without going negative", () => {
+  it("reports an optional TI allowance separately instead of netting it out as savings", () => {
     const w = estimateWork(spec({ tiPerSqft: 2 }), { ...shell, sqft: 1000 }, fitWith(["Build bathroom"]), []);
-    expect(w.costRange).toEqual([23000, 58000]);
-    const big = estimateWork(spec({ tiPerSqft: 100 }), { ...shell, sqft: 1000 }, fitWith(["Build bathroom"]), []);
-    expect(big.costRange[0]).toBe(0);
+    expect(w.costRange).toEqual([25000, 60000]);
+    expect(w.tiAllowance).toBe(2000);
   });
 
   it("prices one drive-in door per missing bay", () => {

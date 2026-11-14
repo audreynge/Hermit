@@ -7,7 +7,7 @@ export type Evaluation = {
   graph: RoomGraph | null;
   fit: FitResult;
   rules: RuleHit[];
-  work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number] };
+  work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number]; tiAllowance?: number };
   finalScore: number;
   escalations: { question: string; outcome: string }[];
 };
@@ -74,6 +74,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
     work: work.items,
     weeksToOpen: work.weeksToOpen,
     costRange: work.costRange,
+    tiAllowance: work.tiAllowance,
     unknowns,
     inside: shell.sid ? { sid: shell.sid } : undefined,
     above: shell.lat != null && shell.lon != null ? { lat: shell.lat, lon: shell.lon, provider: "Esri World Imagery", overlays: [{ kind: "pin", lat: shell.lat, lon: shell.lon, label: shell.name }] } : undefined,

@@ -107,6 +107,17 @@ describe("deterministic agent", () => {
     if (c) expect(c.work.some((w) => /service upgrade/i.test(w.item))).toBe(true);
   });
 
+  it("does not report an unrelated object as the fixture asked about", async () => {
+    const d = deps();
+    const g = d.graph;
+    d.graph = (sid) => (sid === "B" ? { ...g("B")!, objects: [{ label: "chair", roomId: "e1", confidence: 0.5 }] } : g(sid));
+    const events: TraceEvent[] = [];
+    await runAgent(spec, (e) => events.push(e), d);
+    const esc = events.filter((e) => e.type === "escalate") as Extract<TraceEvent, { type: "escalate" }>[];
+    expect(esc.length).toBeGreaterThan(0);
+    for (const e of esc) expect(e.outcome).not.toMatch(/^observed/);
+  });
+
   it("reads at most 8 room graphs", async () => {
     let reads = 0;
     const d = deps();

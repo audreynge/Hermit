@@ -51,6 +51,17 @@ describe("roomGraphFromModel", () => {
   });
 });
 
+describe("units", () => {
+  it("keeps imperial values as feet and converts metric ones", () => {
+    const room = (units: string) => ({ id: "r", tags: ["office"], dimensions: { areaFloor: 10, height: 3, units }, floor: { id: "f" }, boundary: { edges: [] } });
+    const imp = roomGraphFromModel({ id: "M", rooms: [room("imperial")] }).rooms[0];
+    expect(imp).toMatchObject({ areaSqft: 10, heightFt: 3 });
+    const met = roomGraphFromModel({ id: "M", rooms: [room("metric")] }).rooms[0];
+    expect(met.areaSqft).toBeCloseTo(107.64, 1);
+    expect(met.heightFt).toBeCloseTo(9.84, 1);
+  });
+});
+
 describe("parseSuiteSqft", () => {
   it("reads square footage from scan names", () => {
     expect(parseSuiteSqft("Brentwood Medical Plaza - Suite 106 - 9,170 SF")).toBe(9170);

@@ -10,7 +10,8 @@ export function roomGraphFromModel(m: Any): RoomGraph {
   const edgeOwners = new Map<string, { rooms: string[]; door: boolean }>();
   const rooms: Room[] = [];
   for (const r of m.rooms ?? []) {
-    const area = r.dimensions?.areaFloor ?? 0;
+    const metric = r.dimensions?.units === "metric";
+    const area = (r.dimensions?.areaFloor ?? 0) * (metric ? 10.7639 : 1);
     if (area <= 0) continue;
     const edges = r.boundary?.edges ?? [];
     for (const e of edges) {
@@ -25,13 +26,12 @@ export function roomGraphFromModel(m: Any): RoomGraph {
       label: normalizeRoomLabel([r.label, ...(r.tags ?? []), ...(r.classifications ?? []).map((c: Any) => c.label)]),
       rawTags: [r.label, ...(r.tags ?? [])].filter(Boolean),
       areaSqft: area,
-      heightFt: r.dimensions?.height ? r.dimensions.height * 3.28084 : undefined,
+      heightFt: r.dimensions?.height ? r.dimensions.height * (metric ? 3.28084 : 1) : undefined,
       polygon: ringFromEdges(segs),
       floorId: r.floor?.id ?? "",
     });
   }
   const keep = new Set(rooms.map((r) => r.id));
-  const seen = new Set<string>();
   const links: RoomGraph["edges"] = [];
   for (const { rooms: owners, door } of edgeOwners.values()) {
     const [a, b] = owners;
@@ -39,8 +39,6 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     const key = [a, b].sort().join("|");
     const existing = links.find((l) => [l.a, l.b].sort().join("|") === key);
     if (existing) { if (door) existing.kind = "door"; continue; }
-    if (seen.has(key)) continue;
-    seen.add(key);
     links.push({ a, b, kind: door ? "door" : "possible" });
   }
   return {

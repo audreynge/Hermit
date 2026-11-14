@@ -40,15 +40,15 @@ export function estimateWork(spec: RequirementSpec, shell: Shell, fit: FitResult
   }
   if (failed("accessibility")) items.push(row("ramp", 1, "code", "Accessible route (ramp/lift); elevator may be required"));
 
-  if (!items.length) return { items, weeksToOpen: [1, 4] as [number, number], costRange: [0, 0] as [number, number] };
+  const tiAllowance = spec.tiPerSqft && shell.sqft ? spec.tiPerSqft * shell.sqft : undefined;
+  if (!items.length) return { items, weeksToOpen: [1, 4] as [number, number], costRange: [0, 0] as [number, number], tiAllowance };
 
   const [pLo, pHi] = table.permitWeeks[spec.city] as [number, number];
   const weeksToOpen: [number, number] = [
     pLo + Math.max(...items.map((i) => i.weeksLow)),
     pHi + items.reduce((s, i) => s + i.weeksHigh, 0),
   ];
-  const ti = (spec.tiPerSqft ?? 0) * (shell.sqft ?? 0);
   const lo = items.reduce((s, i) => s + i.low, 0);
   const hi = items.reduce((s, i) => s + i.high, 0);
-  return { items, weeksToOpen, costRange: [Math.max(0, lo - ti), Math.max(0, hi - ti)] as [number, number] };
+  return { items, weeksToOpen, costRange: [lo, hi] as [number, number], tiAllowance };
 }

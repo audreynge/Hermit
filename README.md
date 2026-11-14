@@ -35,8 +35,12 @@ npm run e2e            # Playwright; starts the dev server if one isn't running
 npx tsx scripts/try.ts "hair salon in LA about 1500 square feet"   # CLI run of the agent
 ```
 
-## Known gaps
+## Known gaps and deliberate deviations from docs/DESIGN.md
 
+- The bundle is JSON (`shells.json`), not `shells.csv`. There is no `/api/asset` route: aerial tiles load straight from Esri, and floor plans are drawn from room polygons.
+- `inspect_view` checks cached scan metadata (Matterport room tags and object annotations) for named fixtures and room types. There is no vision pipeline yet.
+- `search_shells` filters only city, mode, construction status, size, beds and budget. Recorded code gaps (power, sprinklers, bays) are screened next. A single gap is priced as work; a zoning conflict or two or more gaps drops the candidate.
+- A TI allowance input is shown next to the work estimate and never subtracted from it.
 - Vexcel: the token in `.env` returns 401 on every endpoint (it looks like an expired session token from api.vexcelgroup.com/v2). The Above tab shows Esri World Imagery and says so.
 - Matterport rooms are mostly tagged `other`, and object annotations are rare. Required rooms that a scan can't identify stay *unknown*; they are not failed.
 - Parking, HVAC, permit and cost figures are cited screening ranges in `rules/screening.json`, not code determinations or bids.

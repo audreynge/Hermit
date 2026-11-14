@@ -96,7 +96,7 @@ export function Results() {
                 </span>
                 <strong>{r.name.split(" · ")[0]}</strong>
                 <span className="muted" style={{ fontSize: "var(--t-sm)" }}>{r.address}</span>
-                <span><span className="score num">{r.fit.score}</span> <span className="muted">fit · {r.verdict}</span></span>
+                <span><span className="score num">{r.badge === "record-only" ? "—" : r.fit.score}</span> <span className="muted">{r.badge === "record-only" ? "not measured" : "fit"} · {r.verdict}</span></span>
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: "var(--t-sm)" }}>{r.reasons.map((x) => <li key={x}>{x}</li>)}</ul>
               </button>
             ))}

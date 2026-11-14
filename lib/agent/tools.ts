@@ -51,6 +51,8 @@ export class Run {
 
   async call(name: ToolName, rawArgs: unknown): Promise<unknown> {
     const args = ToolInputs[name].parse(rawArgs ?? {});
+    if (name !== "submit_reports" && this.overBudget())
+      throw new Error(`tool budget exhausted (${BUDGET.toolCalls} calls or ${BUDGET.ms / 1000}s); call submit_reports with evaluated ids now`);
     this.calls++;
     const t0 = Date.now();
     const resultId = rid(name);
@@ -115,6 +117,10 @@ export class Run {
     return { result: { rows }, summary: `evaluated ${rows.length} (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
   }
 
+  evaluateQuietly(ids: string[]) {
+    this.evaluate(ids);
+  }
+
   private row(e: Evaluation) {
     return {
       id: e.shell.id, score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
@@ -132,10 +138,13 @@ export class Run {
     let outcome: string;
     if (!e?.graph) outcome = "unresolved: no cached scan for this candidate";
     else {
-      const words = question.toLowerCase().match(/[a-z]+/g) ?? [];
-      const objs = e.graph.objects.filter((o) => words.some((w) => o.label.includes(w)));
-      const rooms = e.graph.rooms.filter((r) => r.rawTags.some((t) => words.some((w) => w.length > 3 && t.toLowerCase().includes(w))));
-      outcome = objs.length
+      const words = new Set((question.toLowerCase().match(/[a-z]+/g) ?? []).map((w) => w.replace(/s$/, "")));
+      const fixtures = FIXTURE_WORDS.filter((f) => words.has(f));
+      const roomTypes = ROOM_WORDS.filter((r) => words.has(r));
+      const objs = e.graph.objects.filter((o) => fixtures.includes(o.label.replace(/s$/, "")));
+      const rooms = e.graph.rooms.filter((r) => roomTypes.includes(r.label));
+      outcome = !fixtures.length && !roomTypes.length ? "unresolved: question names no fixture or room type Hermit can look up"
+        : objs.length
         ? `observed: ${objs.map((o) => `${o.label} in room ${o.roomId ?? "?"} (conf ${o.confidence.toFixed(2)})`).join("; ")}`
         : rooms.length ? `observed: room tags ${rooms.map((r) => r.rawTags.join("/")).join("; ")}`
         : `not observed in ${e.graph.objects.length} object annotations / ${e.graph.rooms.length} room tags; treat as unknown`;
@@ -146,6 +155,9 @@ export class Run {
   }
 
   private drop(drops: { shellId: string; reason: string }[]) {
+    const unknown = drops.filter((d) => !this.shell(d.shellId)).map((d) => d.shellId);
+    if (unknown.length === drops.length) throw new Error(`not candidates from search_shells: ${unknown.join(", ")}`);
+    drops = drops.filter((d) => this.shell(d.shellId));
     for (const d of drops) this.dropOne(d.shellId, d.reason);
     return { result: { dropped: drops.map((d) => d.shellId) }, summary: `dropped ${drops.length}: ${drops.map((d) => d.shellId).join(", ")}` };
   }
@@ -163,10 +175,21 @@ export class Run {
 
   private submit(ids: string[]) {
     const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id)).slice(0, 5);
+    if (ids.length && !chosen.length) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped); call evaluate_candidates first`);
     this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1));
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
   }
 }
+
+// Last step when the budget is spent: evaluate any unevaluated picks inside the single submit call.
+export async function finalize(run: Run, ids: string[]) {
+  const missing = ids.filter((id) => !run.evaluated.has(id));
+  if (missing.length) run.evaluateQuietly(missing);
+  return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id)) });
+}
+
+const FIXTURE_WORDS = ["sink", "toilet", "shower", "bathtub", "tub", "hood", "drain", "range", "stove", "oven", "refrigerator", "dishwasher", "washer", "dryer"];
+const ROOM_WORDS = ["bathroom", "kitchen", "office", "bedroom", "reception", "conference", "storage", "utility", "garage"];
 
 export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string[] {
   if (!e.graph) return [];

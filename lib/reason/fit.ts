@@ -55,6 +55,8 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
   });
 
   const breakdown: Record<string, number> = {};
+  const adjacency = scoreAdjacency(reqs, assignment, g, edits);
+  if (adjacency != null) breakdown.adjacency = adjacency;
   breakdown.rooms = reqs.length ? Math.round(100 - assignment.reduce((s, a) => s + a.cost, 0) / reqs.length) : 100;
 
   if (spec.sizeSqft) {
@@ -64,11 +66,38 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
     if (a < lo * 0.7) hardFails.push(`Measured area ${Math.round(a)} sf is far below the ${lo} sf minimum (scan ${g.sid})`);
   }
 
-  const weights = { rooms: spec.priorities.rooms ?? 2, size: spec.priorities.size ?? 2 };
+  const weights = { rooms: spec.priorities.rooms ?? 2, size: spec.priorities.size ?? 2, adjacency: spec.priorities.adjacency ?? 1 };
   const keys = Object.keys(breakdown) as (keyof typeof weights)[];
   const wsum = keys.reduce((s, k) => s + weights[k], 0);
   let score = keys.reduce((s, k) => s + breakdown[k] * weights[k], 0) / wsum;
   if (hardFails.length) score = Math.min(score, 40);
 
   return { score: Math.round(Math.max(0, score)), assignment, edits, breakdown, hardFails, unknowns };
+}
+
+// Door edges count as verified access; "possible" edges (shared wall, no recorded opening) only partly.
+function scoreAdjacency(
+  reqs: { label: string; key: string; adjacentTo?: string[] }[],
+  assignment: FitResult["assignment"],
+  g: RoomGraph,
+  edits: string[],
+): number | null {
+  const scores: number[] = [];
+  const link = (a: string, b: string) => g.edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))?.kind;
+  reqs.forEach((req, i) => {
+    const from = assignment[i].roomId;
+    if (!from) return;
+    for (const label of req.adjacentTo ?? []) {
+      const targets = assignment.filter((a, j) => j !== i && a.roomId && reqs[j].label === label).map((a) => a.roomId!);
+      if (!targets.length) continue;
+      const kinds = targets.map((t) => link(from, t));
+      if (kinds.includes("door")) scores.push(100);
+      else if (kinds.includes("possible")) scores.push(70);
+      else {
+        scores.push(30);
+        edits.push(`Rework layout so ${req.key} sits next to ${label}`);
+      }
+    }
+  });
+  return scores.length ? Math.round(scores.reduce((s, x) => s + x, 0) / scores.length) : null;
 }

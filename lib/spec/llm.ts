@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { MODEL } from "../agent/loop";
+import { MODEL } from "../agent/model";
 import { RequirementSpec, type City, type Mode } from "../types";
 import { parseText } from "./parse";
 

@@ -65,6 +65,20 @@ describe("fit", () => {
     expect(r.unknowns).toEqual([expect.stringMatching(/bathroom/)]);
   });
 
+  it("penalizes requested adjacency the scan does not show, and trusts door edges", () => {
+    const rooms = [room("a", "reception", 200), room("b", "office", 150), room("c", "office", 150)];
+    const req = spec([
+      { label: "reception", count: 1, adjacentTo: ["office"], hard: false },
+      { label: "office", count: 1, hard: false },
+    ]);
+    const apart = fit(req, graph(rooms));
+    const linked = fit(req, graph(rooms, { edges: [{ a: "a", b: "b", kind: "door" }, { a: "a", b: "c", kind: "door" }] }));
+    expect(linked.breakdown.adjacency).toBe(100);
+    expect(apart.breakdown.adjacency).toBeLessThan(100);
+    expect(apart.edits.some((e) => /next to office/i.test(e))).toBe(true);
+    expect(linked.score).toBeGreaterThan(apart.score);
+  });
+
   it("prefers the room that already has the requested fixture", () => {
     const g = graph([room("r1", "other", 120), room("r2", "other", 120)], {
       objects: [{ label: "sink", roomId: "r2", confidence: 0.9 }],
