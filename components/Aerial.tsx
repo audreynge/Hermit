@@ -13,16 +13,15 @@ export function Aerial({ report }: { report: ShellReport }) {
   if (missing.has("ortho")) return <EsriAerial report={report} />;
   const label = VIEWS.find(([k]) => k === view)![1];
   return (
-    <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto 1fr" }}>
-      <div role="group" aria-label="Vexcel camera angle" style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 8 }}>
+    <div className="aerial-view">
+      <div role="group" aria-label="Vexcel camera angle" className="angles">
         {VIEWS.filter(([k]) => !missing.has(k)).map(([k, l]) => (
           <button key={k} type="button" className="btn small" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>
         ))}
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img key={view} src={`/api/vexcel/${encodeURIComponent(report.shellId)}?view=${view}`} alt={`Vexcel ${label.toLowerCase()} aerial photo of ${report.address}`}
-        onError={() => { setMissing((m) => new Set(m).add(view)); setView("ortho"); }}
-        style={{ width: "100%", height: "100%", objectFit: "contain", minHeight: 0 }} />
+        onError={() => { setMissing((m) => new Set(m).add(view)); setView("ortho"); }} />
     </div>
   );
 }

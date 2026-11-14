@@ -1,6 +1,7 @@
 "use client";
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -11,7 +12,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus(); };
   }, [onClose]);
-  return (
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} className={`card modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <header>
@@ -20,6 +21,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
         </header>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

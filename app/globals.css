@@ -145,6 +145,8 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .search-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 20px; align-items: stretch; }
 .chat { display: flex; flex-direction: column; padding: 18px 20px 20px; height: max(600px, calc(100vh - 380px)); }
 .tabs-pill { display: flex; gap: 12px; }
+.tabs-pill button { white-space: nowrap; }
+.chat > .tabs-pill { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .tabs-pill button { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 22px; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--card); font-size: 18px; font-weight: 600; cursor: pointer; }
 .tabs-pill button svg { width: 24px; height: 24px; stroke-width: 1.7; }
 .tabs-pill button[data-active="true"] { background: var(--coral-wash); border-color: var(--coral-wash); color: var(--coral-ink); }
@@ -270,11 +272,19 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 
 /* Modal */
 .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; background: rgb(59 35 32 / 0.35); }
-.modal { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 26px 28px; }
+.modal { width: min(760px, 100%); max-height: calc(100dvh - 40px); overflow: auto; padding: 26px 28px; }
 .modal.wide { width: min(1180px, 100%); }
 .viewer-body { margin-top: 14px; }
 .viewer-3d { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; }
 .viewer-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: var(--sea-wash); }
+.viewer-frame.aerial { aspect-ratio: auto; height: min(68vh, 640px); }
+.aerial-view { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.aerial-view .angles { display: flex; gap: 6px; padding: 8px; overflow-x: auto; flex: none; border-bottom: 1px solid var(--line); background: var(--card); }
+.aerial-view .angles .btn { white-space: nowrap; }
+.aerial-view .angles .btn[aria-pressed="true"] { background: var(--coral-wash); border-color: var(--coral); color: var(--coral-ink); }
+.aerial-view img { flex: 1; min-height: 0; width: 100%; object-fit: contain; display: block; }
+.evidence .media .aerial-view img { object-fit: cover; }
+.viewer-body figure svg { max-height: min(62vh, 600px); }
 .viewer-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .room-stops { display: grid; gap: 8px; align-content: start; }
 .room-stops h3 { font-size: 16px; }
@@ -308,7 +318,8 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 
 /* Decor */
 .decor { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-.decor .wave-top { position: absolute; top: 0; right: -40px; width: min(760px, 60vw); }
+.decor .wave-top { position: absolute; top: 0; right: -40px; width: min(560px, 40vw); }
+@media (min-width: 761px) { .page-head { max-width: 58%; } }
 .decor .shell-top { position: absolute; top: 76px; right: 58px; width: 64px; }
 .decor .sand { position: absolute; left: 0; right: 0; bottom: 0; height: 96px; }
 .decor .star { position: absolute; left: 44px; bottom: 30px; width: 74px; }
@@ -339,7 +350,8 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
   .step[aria-current="step"] { padding-right: 4px; }
   .space { grid-template-columns: 1fr; }
   .space .thumb { width: 100%; height: 160px; }
-  .space h3 { padding-right: 0; margin-top: 36px; }
+  .space h3 { padding-right: 0; margin-top: 4px; }
+  .viewer-frame.aerial { height: min(62vh, 480px); }
   .tiles.objects { grid-template-columns: repeat(4, 1fr); }
   .layout-grid { grid-template-columns: minmax(0, 1fr); }
   .toolbar .sep { display: none; }

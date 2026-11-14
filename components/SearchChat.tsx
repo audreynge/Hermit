@@ -315,7 +315,7 @@ export function SearchChat() {
                 </div>
               )}
               <div className="cap">
-                <span>{tab === "inside" ? "Matterport scan" : tab === "above" ? "Esri World Imagery (Vexcel not connected)" : "Your rooms mapped onto the measured floor plan"} · {current.name.split(" · ")[0]}</span>
+                <span>{tab === "inside" ? "Matterport scan" : tab === "above" ? "Vexcel aerial imagery" : "Your rooms mapped onto the measured floor plan"} · {current.name.split(" · ")[0]}</span>
                 <span style={{ display: "flex", gap: 8 }}>
                   {tab === "inside" && current.inside && tour !== current.inside.sid && <button type="button" className="btn small" onClick={() => setTour(current.inside!.sid)}>Open 3D tour</button>}
                   <button type="button" className="btn small" onClick={() => setViewing(current)}>View property</button>
