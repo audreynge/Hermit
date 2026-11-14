@@ -26,6 +26,7 @@ import { PropertyViewer } from "./PropertyViewer";
 import { RegulationList } from "./Regulations";
 import type { Finding } from "@/lib/regs/research";
 import { SpaceCard } from "./SpaceCard";
+import { ResultsMap } from "./ResultsMap";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
@@ -488,14 +489,15 @@ export function SearchChat() {
             <h2 id="matches-title"><Layers aria-hidden="true" /> Matching Spaces</h2>
             <span className="muted" role="status">{searching ? "Searching…" : showResults ? `${visibleReports.length} result${visibleReports.length === 1 ? "" : "s"}` : ""}</span>
           </div>
+          {showResults && visibleReports.length > 0 && <ResultsMap reports={visibleReports} selected={selected} onSelect={(i) => { setSelected(i); setTour(null); document.getElementById(`sp-${visibleReports[i].shellId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }} />}
           <div className="results-list">
             {!showResults && (
-              <div style={{ padding: "40px 20px", textAlign: "center" }} className="muted">
+              <div style={{ padding: "40px 20px", textAlign: "center", gridColumn: "1 / -1" }} className="muted">
                 {searching ? "Hermit is checking spaces. Matches will appear here." : "Tell Hermit about your space and the best matches will show up here, each with the evidence behind it."}
               </div>
             )}
             {showResults && spec && visibleReports.map((r, i) => (
-              <SpaceCard key={r.shellId} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
+              <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
                 onSelect={() => { setSelected(i); setTour(null); }}
                 onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)} />
             ))}
