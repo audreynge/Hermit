@@ -26,6 +26,8 @@ const ChatOut = z.object({
   edit: EditOut,
 });
 
+const CHAT_SCHEMA = z.toJSONSchema(ChatOut);
+
 const SYSTEM = `You are Hermit, a friendly assistant that helps small businesses (and people looking for homes) find spaces in Houston or Los Angeles that are already built for what they need.
 Talk like a warm, concise human: one or two short sentences, then at most one question. Ask only for what is still missing to search well: what the space is for, the city, rough size, and the key rooms or equipment. Never ask more than three questions in total; if the user wants to search now, set ready true.
 In "update", put only what the user's latest message adds or changes, and leave out everything else. Never invent requirements.
@@ -67,6 +69,7 @@ function offline(state: ChatState, text: string, ctx: EditContext): Turn {
 export async function chatTurn(state: ChatState, text: string, client?: Client | null, { openai, gemini, ctx = {} }: Opts = {}): Promise<Turn> {
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
   if (!c && !openai && !gemini) return offline(state, text, ctx);
+  const provider = c ? "Claude" : gemini ? "Gemini" : "OpenAI";
   const prompt = `Phase: ${state.phase}\nWhat I know so far: ${describe(state.spec)}\nQuestions already asked: ${state.asked.join(", ") || "none"}${editable(ctx) ? `\n\n${promptContext(ctx, state.spec)}` : ""}\n\nUser says: ${text}`;
   try {
     const out = c
@@ -80,13 +83,13 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
       : gemini
       ? ChatOut.safeParse(JSON.parse(geminiText(await gemini.generate({
           systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json", responseJsonSchema: z.toJSONSchema(ChatOut) },
+          generationConfig: { responseMimeType: "application/json", responseJsonSchema: CHAT_SCHEMA },
         })) || "null")).data
       : ChatOut.safeParse(JSON.parse(outputText((await openai!.respond({
           instructions: SYSTEM, input: [{ type: "message", role: "user", content: prompt }], reasoning: { effort: "low" },
           text: { format: { type: "json_schema", name: "chat_turn", schema: z.toJSONSchema(ChatOut), strict: false } },
         })).output) || "null")).data;
-    if (!out) return fallbackTurn(state, text, "no structured output", ctx);
+    if (!out) return fallbackTurn(state, text, `${provider}: no structured output`, ctx);
     const u = out.update;
     const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms], input: "chat" as const };
     if (u.useType) spec.useType = u.useType;
@@ -113,11 +116,11 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
     }
     return { reply: out.reply, state: next, ready: out.ready, quickReplies: out.quickReplies.slice(0, 4), ...(out.action !== "none" ? { action: out.action } : {}) };
   } catch (e) {
-    return fallbackTurn(state, text, e instanceof Error ? e.message : String(e), ctx);
+    return fallbackTurn(state, text, `${provider}: ${e instanceof Error ? e.message : String(e)}`, ctx);
   }
 }
 
 function fallbackTurn(state: ChatState, text: string, why: string, ctx: EditContext = {}): Turn {
   console.warn(`[hermit] AI chat turn failed (${why}); answering deterministically`);
-  return { ...offline(state, text, ctx), fallback: "deterministic" };
+  return { ...offline(state, text, ctx), fallback: "deterministic", fallbackWhy: why };
 }

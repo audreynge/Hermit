@@ -29,7 +29,7 @@ import { SpaceCard } from "./SpaceCard";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
-  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: boolean }
+  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: string }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
   | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] }
@@ -43,7 +43,7 @@ const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the las
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string; design?: Design } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; fallbackWhy?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string; design?: Design } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn; design?: Design };
 
@@ -61,7 +61,7 @@ function fromStoredOne(r: StoredRow): Msg | null {
     ? { id: uid(), role: "user", text: r.payload.summary ?? "Here's my layout.", design: { kind: "layout", blocks: r.payload.blocks ?? [] } }
     : { id: uid(), role: "user", text: `Uploaded ${r.payload.name ?? "a floor plan"}`, design: { kind: "upload", name: r.payload.name ?? "floor plan" } };
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
-  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card, fallback: !!r.payload.fallback };
+  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card, fallback: r.payload.fallback ? r.payload.fallbackWhy ?? "the AI provider was unavailable" : undefined };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
   if (r.kind === "regulations" && r.payload.findings) return { id: uid(), role: "bot", kind: "regulations", findings: r.payload.findings };
   return null;
@@ -217,7 +217,7 @@ export function SearchChat() {
       push(bot([turn.reply], turn.quickReplies));
       return;
     }
-    push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: !!turn.fallback } as Msg);
+    push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: turn.fallback ? turn.fallbackWhy ?? "the AI provider was unavailable" : undefined } as Msg);
     if (turn.action === "compare" && reports.length) {
       push({ id: uid(), role: "bot", kind: "compare", reports });
       void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
@@ -439,7 +439,7 @@ export function SearchChat() {
                       <>
                         <div className="bubble">{m.paragraphs.slice(0, m.paragraphs.length > 2 ? -1 : undefined).map((p, i) => <p key={i}>{p}</p>)}</div>
                         {m.paragraphs.length > 2 && <div className="bubble"><p>{m.paragraphs.at(-1)}</p></div>}
-                        {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered without Claude (it was unavailable).</p>}
+                        {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered by built-in rules, not AI ({m.fallback}).</p>}
                         {m.card && m === lastQuick && !running && owner && <MultiCard card={m.card} onSubmit={send} />}
                         {m.quick && m === lastQuick && !running && owner && (
                           <div className="quick" role="group" aria-label="Suggested replies">{m.quick.map((q) => <button key={q} type="button" onClick={() => send(q)}>{q}</button>)}</div>
