@@ -35,7 +35,7 @@ export const ToolInputs = {
 export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  search_shells: "Retrieve the top 50 candidate spaces for the user's RequirementSpec from the local index (city, mode, size, prior use, scan evidence). Call first.",
+  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first.",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
   evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run. Must-have failures and missing required rooms are dropped automatically (dropped: true).",
@@ -109,7 +109,7 @@ export class Run {
     this.candidates = out.results;
     return {
       result: { considered: out.considered, rejected: out.rejected, top: out.results.map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons, scan: !!c.shell.sid })) },
-      summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → top ${out.results.length} kept`,
+      summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → ${out.results.length} kept`,
     };
   }
 
@@ -119,9 +119,9 @@ export class Run {
     for (const r of results) this.similarity.set(r.candidate.shell.id, r.sim);
     const ranked = results
       .map(({ candidate: c, sim }) => ({ ...c, score: Math.round(c.score * 0.4 + sim.score * 0.6), reasons: [`Layout ${sim.score}% similar to your drawing`, ...c.reasons] }))
-      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id)).slice(0, 50);
+      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id));
     const seen = new Set(ranked.map((c) => c.shell.id));
-    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))].slice(0, 50);
+    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))];
     const best = results[0];
     const at = scale === 1 ? "" : ` at ${Math.round(scale * 100)}% of the drawn area`;
     return {

@@ -70,7 +70,7 @@ test.describe("chat onboarding", () => {
     await expect(cards(page).first().locator(".space-facts")).toContainText(/sq ft/);
     await expect(cards(page).first().locator("li")).toHaveCount(3);
     const trace = page.getByRole("region", { name: "Agent trace" });
-    await expect(trace).toContainText(/Shortlisted \d+ of [\d,]+ spaces/);
+    await expect(trace).toContainText(/Found [\d,]+ spaces? that pass your filters/);
     await expect(trace).toContainText(/Ranked \d+ matching space/);
     await trace.getByText("See every step").click();
     await expect(page.getByLabel("Full agent trace")).toContainText("search_shells");

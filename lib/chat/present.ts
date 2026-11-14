@@ -135,7 +135,7 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
 export function traceSummary(events: TraceEvent[]): string[] {
   const out: string[] = [];
   const { kept, considered } = searchCounts(events);
-  if (events.some((e) => e.type === "tool" && e.tool === "search_shells")) out.push(`Shortlisted ${kept} of ${fmt(considered)} spaces`);
+  if (events.some((e) => e.type === "tool" && e.tool === "search_shells")) out.push(`Found ${fmt(kept)} space${kept === 1 ? "" : "s"} that pass your filters`);
   const lay = events.find((e) => e.type === "tool" && e.tool === "match_layout") as Extract<TraceEvent, { type: "tool" }> | undefined;
   const n = lay?.summary.match(/with (\d+) scanned/)?.[1];
   if (n) out.push(`Matched your layout against ${n} floor plans`);

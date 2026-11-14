@@ -95,7 +95,7 @@ describe("summarizeResults", () => {
 describe("thinkingSteps", () => {
   const events: TraceEvent[] = [
     { type: "plan", id: "1", text: "plan" },
-    { type: "tool", id: "2", tool: "search_shells", args: {}, resultId: "r1", summary: "2659 indexed → 2291 rejected by hard filters → top 50 kept", ms: 3 },
+    { type: "tool", id: "2", tool: "search_shells", args: {}, resultId: "r1", summary: "2659 indexed → 2291 rejected by hard filters → 368 kept", ms: 3 },
     { type: "tool", id: "3", tool: "screen_sites", args: {}, resultId: "r2", summary: "screened 20", ms: 1 },
     { type: "drop", id: "4", shellId: "X", reason: "zoning: Zone R3 is residential", evidence: [] },
     { type: "tool", id: "5", tool: "evaluate_candidates", args: {}, resultId: "r3", summary: "evaluated 8", ms: 4 },
@@ -125,11 +125,11 @@ describe("thinkingSteps", () => {
 describe("traceSummary", () => {
   it("condenses the run into three steps with counts", () => {
     const ev: TraceEvent[] = [
-      { type: "tool", id: "1", tool: "search_shells", args: {}, resultId: "r", summary: "2659 indexed → 2291 rejected by hard filters → top 50 kept", ms: 1 },
+      { type: "tool", id: "1", tool: "search_shells", args: {}, resultId: "r", summary: "2659 indexed → 2291 rejected by hard filters → 368 kept", ms: 1 },
       { type: "tool", id: "2", tool: "evaluate_candidates", args: {}, resultId: "r", summary: "", ms: 1 },
       { type: "report", id: "3", reports: [report(), report()] },
     ];
-    expect(traceSummary(ev)).toEqual(["Shortlisted 50 of 368 spaces", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
+    expect(traceSummary(ev)).toEqual(["Found 368 spaces that pass your filters", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
   });
 });
 

@@ -17,7 +17,7 @@ function modeOk(spec: RequirementSpec, s: Shell): boolean {
   return s.mode === "business" || INDUSTRIAL.has(useCategory(spec.useType));
 }
 
-export function searchShells(spec: RequirementSpec, shells: Shell[], limit = 50) {
+export function searchShells(spec: RequirementSpec, shells: Shell[], limit = Infinity) {
   const use = useCategory(spec.useType);
   let rejected = 0;
   const results: Candidate[] = [];

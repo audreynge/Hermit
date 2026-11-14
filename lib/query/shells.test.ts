@@ -40,10 +40,11 @@ describe("searchShells", () => {
     expect(r.findIndex((x) => x.shell.id === "medical-record")).toBeGreaterThan(r.findIndex((x) => x.shell.id === "office-scan") - 2);
   });
 
-  it("counts what it rejected and caps results", () => {
+  it("counts what it rejected and keeps every match (no cap unless asked)", () => {
     const many = Array.from({ length: 80 }, (_, i) => s(`o${i}`, { sid: `s${i}` }));
     const out = searchShells(spec(), [...many, s("la2", { city: "los_angeles" })]);
-    expect(out.results).toHaveLength(50);
+    expect(out.results).toHaveLength(80);
+    expect(searchShells(spec(), many, 50).results).toHaveLength(50);
     expect(out.rejected).toBe(1);
   });
 
