@@ -6,7 +6,7 @@ import { useCategory } from "./rules";
 type CostKey = keyof typeof table.costs;
 const SOURCE = table.sources.costs.url;
 
-function row(key: CostKey, qty: number, reason: WorkItem["reason"], label?: string): WorkItem {
+export function row(key: CostKey, qty: number, reason: WorkItem["reason"], label?: string): WorkItem {
   const c = table.costs[key];
   return {
     item: label ?? c.label, qty, low: c.low * qty, high: c.high * qty,
@@ -14,8 +14,8 @@ function row(key: CostKey, qty: number, reason: WorkItem["reason"], label?: stri
   };
 }
 
-export function estimateWork(spec: RequirementSpec, shell: Shell, fit: FitResult, rules: RuleHit[]) {
-  const items: WorkItem[] = [];
+export function estimateWork(spec: RequirementSpec, shell: Shell, fit: FitResult, rules: RuleHit[], extra: WorkItem[] = []) {
+  const items: WorkItem[] = [...extra];
   const restaurant = useCategory(spec.useType) === "restaurant";
 
   for (const e of fit.edits) {

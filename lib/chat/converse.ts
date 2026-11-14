@@ -5,7 +5,7 @@ import type { RoomReq } from "../types";
 
 export type Slot = "use" | "city" | "size" | "rooms";
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; action?: "compare" | "email" };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; action?: "compare" | "email"; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
 
 const MAX_QUESTIONS = 3;
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|find (it|them|spaces|shells))\b/i;

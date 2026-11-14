@@ -10,6 +10,7 @@ export type Evaluation = {
   work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number]; tiAllowance?: number };
   finalScore: number;
   escalations: { question: string; outcome: string }[];
+  extraUnknowns?: { topic: string; question: string }[];
 };
 
 const QUESTIONS: Record<string, string> = {
@@ -49,6 +50,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
     .filter((r) => r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule]))
     .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
   for (const u of fit.unknowns) unknowns.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
+  unknowns.push(...(e.extraUnknowns ?? []));
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) unknowns.push({ topic: "scan detail", question: x.question });
 
   const matched = fit.assignment.filter((a) => a.roomId).length;

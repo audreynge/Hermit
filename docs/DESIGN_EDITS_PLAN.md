@@ -4,6 +4,13 @@
 
 **Done means:** every threshold in §5 is green on two loop iterations in a row (§6).
 
+**Corrections made during the loop** (see `docs/DESIGN_EDITS_LOG.md` for why):
+- [F1] tests two conversions for two exam rooms, plus one conversion for one exam room. A single conversion when two are needed raises fit by only ~7.5, because the other bedroom already half-matches.
+- [F10] "cost never drops" was wrong: converting an existing room legitimately replaces a "Build X" item. The test now checks that every decrease is fully explained by a removed planned item.
+- `add` has an optional `count`, so "add two offices" isn't collapsed by the duplicate-op rule [L11].
+- The chat preview is a small read-only `LayoutPreview`, not Layout Studio's interactive canvas.
+- The eval runs through the `claude` CLI when no API key is set, and measures latency as API time plus local apply time. CLI process start-up isn't part of the product.
+
 ## 1. Two kinds of "design" (both editable from chat)
 
 | | A. The user's own layout | B. A fit-out of a real space |

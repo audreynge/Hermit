@@ -3,16 +3,19 @@ import {
   Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
   Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatState, Turn } from "@/lib/chat/converse";
 import { compareRows, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "@/lib/chat/present";
 import { KEYS, load, save } from "@/lib/client/store";
+import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
+import type { Block } from "@/lib/spec/parse";
 import { surveyToSpec, type Draft, type Survey } from "@/lib/spec/survey";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Aerial } from "./Aerial";
 import { EmailDraft } from "./EmailDraft";
-import { FitView } from "./FitView";
+import { FitView, type Proposal } from "./FitView";
+import { LayoutPreview } from "./LayoutPreview";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
 import { SpaceCard } from "./SpaceCard";
@@ -21,10 +24,21 @@ type Msg =
   | { id: string; role: "user"; text: string }
   | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[] }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
-  | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] };
+  | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
+  | { id: string; role: "bot"; kind: "layout"; blocks: Block[] };
+
+type Fitout = Proposal & { ops: FitoutOp[] };
+type Design =
+  | { kind: "layout"; blocks: Block[]; applied: number; rejected: unknown[] }
+  | { kind: "fitout"; shellId: string; ops: FitoutOp[]; report: ShellReport; diff: FitoutDiff; rejected: unknown[] };
+type ChatReply = Turn & { design?: Design };
+const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open in layout studio$/i };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
-type Persist = { messages: Msg[]; chat: ChatState; spec: RequirementSpec | null; reports: ShellReport[]; events: TraceEvent[]; runId: string | null };
+type Persist = {
+  messages: Msg[]; chat: ChatState; spec: RequirementSpec | null; reports: ShellReport[]; events: TraceEvent[]; runId: string | null;
+  layout?: Block[] | null; layoutPast?: Block[][]; fitouts?: Record<string, Fitout[]>; lastEdit?: "layout" | "fitout" | null;
+};
 
 const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bolt: Zap, flame: Flame, car: Car, accessible: Accessibility, tag: Tag, ruler: Ruler, layout: LayoutGrid, dollar: DollarSign, x: CircleX, eye: Eye, sort: ArrowUpDown, doc: FileText };
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -39,6 +53,7 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
 
 export function SearchChat() {
   const params = useSearchParams();
+  const router = useRouter();
   const replay = params.get("replay");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [chat, setChat] = useState<ChatState>({ spec: EMPTY_DRAFT, asked: [], phase: "gathering" });
@@ -59,6 +74,11 @@ export function SearchChat() {
   const [busy, setBusy] = useState(false);
   const [runKey, setRunKey] = useState("");
   const [resultsReady, setResultsReady] = useState(false);
+  const [layout, setLayout] = useState<Block[] | null>(null);
+  const [layoutPast, setLayoutPast] = useState<Block[][]>([]);
+  const [fitouts, setFitouts] = useState<Record<string, Fitout[]>>({});
+  const [lastEdit, setLastEdit] = useState<"layout" | "fitout" | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
@@ -120,19 +140,65 @@ export function SearchChat() {
     setResultsReady(true);
   }, [finished, spec, reports, events, runKey]);
 
-  const respond = useCallback(async (turn: Turn) => {
+  const respond = useCallback(async (turn: ChatReply) => {
     setChat(turn.state);
+    const d = turn.design;
+    if (d?.kind === "layout") {
+      if (d.applied) {
+        if (layout) setLayoutPast((p) => [...p.slice(-49), layout]);
+        setLayout(d.blocks);
+        save(KEYS.layout, d.blocks);
+        setLastEdit("layout");
+      }
+      const stale = d.applied && reports.length ? ["These results are from before this change. Tap \u201cSearch with this\u201d to update them."] : [];
+      push(bot([turn.reply, ...stale], turn.quickReplies), ...(d.applied ? [{ id: uid(), role: "bot" as const, kind: "layout" as const, blocks: d.blocks }] : []));
+      return;
+    }
+    if (d?.kind === "fitout") {
+      setFitouts((all) => {
+        const stack = all[d.shellId] ?? [];
+        const last = stack.at(-1);
+        if (last && JSON.stringify(last.ops) === JSON.stringify(d.ops)) return all;
+        return { ...all, [d.shellId]: [...stack, { ops: d.ops, report: d.report, diff: d.diff, kept: false }] };
+      });
+      setLastEdit("fitout");
+      setTab("fit"); setEvidenceOpen(true);
+      push(bot([turn.reply], turn.quickReplies));
+      return;
+    }
     push(bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined));
     if (turn.action === "compare" && reports.length) push({ id: uid(), role: "bot", kind: "compare", reports });
     if (turn.action === "email" && reports.length) setEmailFor(reports[selected] ?? reports[0]);
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
-  }, [reports, selected, runSearch]);
+  }, [reports, selected, runSearch, layout]);
+
+  const undo = (kind = lastEdit) => {
+    const id = reports[selected]?.shellId;
+    if (kind === "fitout" && id && fitouts[id]?.length) {
+      setFitouts((all) => ({ ...all, [id]: all[id].slice(0, -1) }));
+      push(bot([fitouts[id].length > 1 ? "Undone. Back to the previous proposal." : "Undone. This is the space as measured."]));
+      return;
+    }
+    const prev = layoutPast.at(-1);
+    if (!prev) return push(bot(["There's nothing to undo."]));
+    setLayoutPast((p) => p.slice(0, -1));
+    setLayout(prev);
+    save(KEYS.layout, prev);
+    push(bot(["Undone. Here's your layout again."]), { id: uid(), role: "bot", kind: "layout", blocks: prev });
+  };
+  const keep = () => {
+    const id = reports[selected]?.shellId;
+    const last = id ? fitouts[id]?.at(-1) : undefined;
+    if (!id || !last) return push(bot(["There's no proposed change to keep yet."]));
+    setFitouts((all) => ({ ...all, [id]: [...all[id].slice(0, -1), { ...last, kept: true }] }));
+    push(bot(["Kept. The open questions from these changes are now in the email draft for this space."]));
+  };
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     setSaved(load<Saved>(KEYS.saved, "local") ?? {});
-    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string }>(KEYS.pending);
+    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string; items?: Block[] }>(KEYS.pending);
     const restored = load<Persist>(KEYS.chat);
     if (replay) {
       push({ id: uid(), role: "user", text: "Show me the recorded demo search." });
@@ -145,18 +211,20 @@ export function SearchChat() {
       setChat(restored.chat); setSpec(restored.spec); setReports(restored.reports); setEvents(restored.events); setRunId(restored.runId);
       setShown(Number.MAX_SAFE_INTEGER);
       setResultsReady(restored.reports.length > 0);
+      setLayout(restored.layout ?? null); setLayoutPast(restored.layoutPast ?? []); setFitouts(restored.fitouts ?? {}); setLastEdit(restored.lastEdit ?? null);
       return;
     }
     save(KEYS.pending, null);
     const draft = pending?.source === "layout" && pending.spec ? pending.spec : pending?.source === "survey" ? surveyToSpec(load<Survey>(KEYS.survey) ?? { transaction: "lease", accessibility: false, requirements: [] }) : EMPTY_DRAFT;
     if (pending?.summary) push({ id: uid(), role: "user", text: pending.summary });
+    if (pending?.source === "layout" && pending.items?.length) setLayout(pending.items);
     postJSON<Turn>("/api/chat", { open: true, spec: draft }).then(respond).catch(() => push(bot(["I couldn't reach the Hermit server. Check that it's running and try again."])));
   }, [replay, respond, runSearch]);
 
   useEffect(() => {
     if (!started.current || replay || !messages.length) return;
-    save(KEYS.chat, { messages, chat, spec, reports, events, runId } satisfies Persist);
-  }, [messages, chat, spec, reports, events, runId, replay]);
+    save(KEYS.chat, { messages, chat, spec, reports, events, runId, layout, layoutPast, fitouts, lastEdit } satisfies Persist);
+  }, [messages, chat, spec, reports, events, runId, replay, layout, layoutPast, fitouts, lastEdit]);
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }); }, [messages, shown]);
 
@@ -165,13 +233,26 @@ export function SearchChat() {
     if (!t || busy || running) return;
     setInput("");
     push({ id: uid(), role: "user", text: t });
+    const refocus = () => inputRef.current?.focus({ preventScroll: true });
+    if (COMMANDS.undo.test(t)) return void (undo(), refocus());
+    if (COMMANDS.keep.test(t)) return void (keep(), refocus());
+    if (COMMANDS.studio.test(t)) return void router.push("/layout");
+    if (COMMANDS.search.test(t)) {
+      refocus();
+      const s = chat.spec;
+      if (s.city && s.useType) return void runSearch(s as RequirementSpec);
+      return void push(bot(["Which city should I search: Houston or Los Angeles?"], ["Houston", "Los Angeles"]));
+    }
     setBusy(true);
+    const current = reports[selected];
+    const fitout = chat.phase === "results" && current ? { shellId: current.shellId, ops: fitouts[current.shellId]?.at(-1)?.ops ?? [] } : null;
     try {
-      await respond(await postJSON<Turn>("/api/chat", { state: chat, text: t }));
+      await respond(await postJSON<ChatReply>("/api/chat", { state: chat, text: t, layout, fitout }));
     } catch {
       push(bot(["Something went wrong talking to the server. Try that again?"]));
     } finally {
       setBusy(false);
+      refocus();
     }
   };
 
@@ -208,7 +289,7 @@ export function SearchChat() {
           {showResults && current && evidenceOpen && (
             <div className="evidence" id="evidence-panel" role="region" aria-label={`${tab} view of ${current.name.split(" · ")[0]}`}>
               {tab === "fit" ? (
-                <div className="fit"><FitView report={current} /></div>
+                <div className="fit"><FitView report={current} proposal={fitouts[current.shellId]?.at(-1)} onKeep={() => keep()} onUndo={() => undo("fitout")} /></div>
               ) : (
                 <div className="media">
                   {tab === "above" && <Aerial report={current} />}
@@ -251,6 +332,7 @@ export function SearchChat() {
                     )}
                     {m.kind === "thinking" && <Thinking steps={m.runKey === runKey ? steps.slice(0, shown) : steps} total={steps.length} done={m.runKey !== runKey || finished} />}
                     {m.kind === "compare" && <Compare reports={m.reports} />}
+                    {m.kind === "layout" && <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>}
                   </div>
                 </div>
               );
@@ -261,7 +343,7 @@ export function SearchChat() {
           <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
             <Sparkles className="spark" aria-hidden="true" />
             <label htmlFor="ask" className="sr-only">Message Hermit</label>
-            <input id="ask" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" />
+            <input id="ask" ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" />
             <button className="send" type="submit" disabled={!input.trim() || busy || running} aria-label="Send"><Send aria-hidden="true" /></button>
           </form>
         </section>
@@ -311,7 +393,7 @@ export function SearchChat() {
         )}
       </section>
 
-      {emailFor && <EmailDraft report={emailFor} onClose={() => setEmailFor(null)} />}
+      {emailFor && <EmailDraft report={fitouts[emailFor.shellId]?.at(-1)?.kept ? fitouts[emailFor.shellId].at(-1)!.report : emailFor} onClose={() => setEmailFor(null)} />}
       {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}
     </>
   );

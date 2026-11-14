@@ -6,30 +6,20 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
+import { OBJECT_TYPES, ROOM_TYPES } from "@/lib/design/rooms";
 import { fromLayout, type Block } from "@/lib/spec/parse";
 import { surveyToSpec, type Survey } from "@/lib/spec/survey";
 
 type Item = Block & { kind: "room" | "object" };
 
-const ROOMS: { type: string; label: string; Icon: typeof Stethoscope; w: number; h: number; fill: string }[] = [
-  { type: "reception", label: "Reception", Icon: ConciergeBell, w: 16, h: 10, fill: "#fde3d4" },
-  { type: "exam room", label: "Exam Room", Icon: Stethoscope, w: 12, h: 10, fill: "#dcefff" },
-  { type: "office", label: "Office", Icon: Monitor, w: 10, h: 10, fill: "#e6f4e8" },
-  { type: "hallway", label: "Hallway", Icon: Columns2, w: 6, h: 18, fill: "#fff1d6" },
-  { type: "storage", label: "Storage", Icon: Archive, w: 8, h: 8, fill: "#ece6f6" },
-  { type: "kitchen", label: "Kitchen", Icon: CookingPot, w: 10, h: 8, fill: "#fff0e0" },
-  { type: "bathroom", label: "Bathroom", Icon: Toilet, w: 7, h: 8, fill: "#e3f4fb" },
-  { type: "waiting area", label: "Waiting Area", Icon: Armchair, w: 12, h: 8, fill: "#fde3d4" },
-  { type: "conference", label: "Conference Room", Icon: Users, w: 14, h: 12, fill: "#f3ecff" },
-  { type: "procedure room", label: "Procedure Room", Icon: SquarePlus, w: 12, h: 12, fill: "#ffe5e5" },
-];
-const OBJECTS: { type: string; label: string; w: number; h: number }[] = [
-  { type: "chair", label: "Chair", w: 3, h: 3 }, { type: "table", label: "Table", w: 5, h: 3 }, { type: "desk", label: "Desk", w: 5, h: 3 },
-  { type: "sink", label: "Sink", w: 3, h: 3 }, { type: "counter", label: "Counter", w: 6, h: 2.5 }, { type: "kitchenette", label: "Kitchenette", w: 6, h: 3 },
-  { type: "door", label: "Door", w: 3, h: 3 }, { type: "window", label: "Window", w: 4, h: 1.5 }, { type: "plant", label: "Plant", w: 2.5, h: 3 },
-  { type: "other", label: "Other", w: 3, h: 3 },
-];
-const FILL = Object.fromEntries(ROOMS.map((r) => [r.type, r.fill]));
+const ICONS: Record<string, typeof Stethoscope> = {
+  reception: ConciergeBell, "exam room": Stethoscope, office: Monitor, hallway: Columns2, storage: Archive, kitchen: CookingPot,
+  bathroom: Toilet, "waiting area": Armchair, conference: Users, "procedure room": SquarePlus,
+};
+const ALL_ROOMS = ROOM_TYPES.map((r) => ({ ...r, Icon: ICONS[r.type] as typeof Stethoscope | undefined }));
+const ROOMS = ALL_ROOMS.filter((r) => r.palette).map((r) => ({ ...r, Icon: r.Icon ?? SquarePlus }));
+const OBJECTS = OBJECT_TYPES.filter((o) => o.palette);
+const FILL = Object.fromEntries(ALL_ROOMS.map((r) => [r.type, r.fill]));
 const TEMPLATE: Item[] = [
   { id: "t1", kind: "room", label: "reception", x: 4, y: 4, w: 52, h: 13 },
   { id: "t2", kind: "room", label: "exam room", x: 4, y: 17, w: 23, h: 10 },
@@ -68,8 +58,10 @@ export function LayoutStudio() {
   const svg = useRef<SVGSVGElement>(null);
   const scale = (PX * zoom) / 100;
 
-  useEffect(() => { const prev = load<Item[]>(KEYS.layout); if (prev?.length) setItems(prev); }, []);
-  useEffect(() => { save(KEYS.layout, items); }, [items]);
+  // Save only after the stored layout has loaded, or the template overwrites it (effects run twice in dev).
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { const prev = load<Item[]>(KEYS.layout); if (prev?.length) setItems(prev); setLoaded(true); }, []);
+  useEffect(() => { if (loaded) save(KEYS.layout, items); }, [items, loaded]);
 
   const commit = useCallback((next: Item[], before = items) => {
     setPast((p) => [...p.slice(-49), before]);
@@ -80,11 +72,11 @@ export function LayoutStudio() {
   const redo = () => { const next = future[0]; if (!next) return; setPast((p) => [...p, items]); setFuture((f) => f.slice(1)); setItems(next); };
 
   const q = (v: number) => (snap ? Math.round(v) : Math.round(v * 4) / 4);
-  const spec = (type: string) => ROOMS.find((r) => r.type === type) ?? OBJECTS.find((o) => o.type === type);
+  const spec = (type: string) => ALL_ROOMS.find((r) => r.type === type) ?? OBJECT_TYPES.find((o) => o.type === type);
   const add = (type: string, x?: number, y?: number) => {
     const s = spec(type);
     if (!s) return;
-    const kind = ROOMS.some((r) => r.type === type) ? "room" : "object";
+    const kind = ALL_ROOMS.some((r) => r.type === type) ? "room" : "object";
     const id = `${kind[0]}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const bx = x ?? 20 + (items.length % 5) * 3, by = y ?? 14 + (items.length % 4) * 3;
     commit([...items, { id, kind, label: type, x: q(Math.max(0, bx - s.w / 2)), y: q(Math.max(0, by - s.h / 2)), w: s.w, h: s.h }]);
@@ -127,7 +119,7 @@ export function LayoutStudio() {
     const one: Record<string, string> = { reception: "a reception area", storage: "storage", kitchen: "a kitchen", office: "an office" };
     const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.fixtures.join(" and ")}s` : ""}`);
     const summary = `Here's my layout: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space"}${types.has("hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft). Find the closest match.`;
-    save(KEYS.pending, { source: "layout", spec: draft, summary });
+    save(KEYS.pending, { source: "layout", spec: draft, summary, items });
     save(KEYS.chat, null);
     router.push("/search");
   };
@@ -193,7 +185,7 @@ export function LayoutStudio() {
               {[...rooms, ...objects].map((it) => {
                 const isSel = sel === it.id;
                 const room = it.kind === "room";
-                const Icon = room ? ROOMS.find((r) => r.type === it.label)?.Icon : null;
+                const Icon = room ? ALL_ROOMS.find((r) => r.type === it.label)?.Icon : null;
                 const furnished = room && objects.some((o) => o.x >= it.x && o.x < it.x + it.w && o.y >= it.y && o.y < it.y + it.h && o.label !== "door");
                 const ly = furnished && it.label !== "reception" ? it.y + 3.6 : it.y + it.h / 2 + 1.3;
                 return (
