@@ -321,7 +321,7 @@ test.describe("designs in the chat", () => {
     await fresh(page);
     await expect(conversation(page)).toContainText(/what kind of space/i);
     await page.locator('input[type="file"]').setInputFiles({ name: "plan.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
-    await expect(conversation(page)).toContainText("needs the Claude API key");
+    await expect(conversation(page)).toContainText("needs an AI provider key");
     await quick(page, "Draw a layout").click();
     await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeVisible();
   });

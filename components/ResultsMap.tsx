@@ -34,6 +34,9 @@ export function ResultsMap({ reports, selected, onSelect }: { reports: ShellRepo
     z--;
   }
   const ps = pins.map((p) => ({ ...p, ...px(p.lat, p.lon, z) }));
+  // Pins at (nearly) the same spot would overlap and be too small to tap: fan later ones out sideways by a pin width.
+  // ponytail: greedy sideways nudge; a proper cluster/spiderfy only if results grow past a handful.
+  ps.forEach((p, k) => { while (ps.slice(0, k).some((q) => Math.abs(q.x - p.x) < 46 && Math.abs(q.y - p.y) < 48)) p.x += 46; });
   const cx = (Math.max(...ps.map((p) => p.x)) + Math.min(...ps.map((p) => p.x))) / 2;
   const cy = (Math.max(...ps.map((p) => p.y)) + Math.min(...ps.map((p) => p.y))) / 2;
   const ox = cx - w / 2, oy = cy - h / 2; // world pixel at the box's top-left
