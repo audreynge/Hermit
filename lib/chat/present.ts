@@ -81,8 +81,15 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
 
 export function searchCounts(events: TraceEvent[]) {
   const s = events.find((e) => e.type === "tool" && e.tool === "search_shells") as Extract<TraceEvent, { type: "tool" }> | undefined;
-  const [indexed, rejected, kept] = (s?.summary.match(/\d+/g) ?? []).map(Number);
-  return { indexed: indexed ?? 0, considered: (indexed ?? 0) - (rejected ?? 0), kept: kept ?? 0 };
+  const text = (s?.summary ?? "").replace(/(\d),(?=\d{3})/g, "$1");
+  // Older recorded runs: "N indexed → R rejected by hard filters → K kept".
+  if (/rejected by hard filters/.test(text)) {
+    const [indexed, rejected, kept] = (text.match(/\d+/g) ?? []).map(Number);
+    return { indexed: indexed ?? 0, considered: (indexed ?? 0) - (rejected ?? 0), kept: kept ?? 0 };
+  }
+  // Current: "N scans indexed → … → M <last stage>; K kept". Stage labels can contain numbers (sizes), so read each stage's leading count.
+  const stages = text.split(";")[0].split(" → ").map((x) => Number(x.match(/^\d+/)?.[0] ?? 0));
+  return { indexed: stages[0] ?? 0, considered: stages.at(-1) ?? 0, kept: Number(text.match(/(\d+) kept/)?.[1] ?? 0) };
 }
 
 export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, stats: { considered: number; dropped: number }) {
