@@ -261,7 +261,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .canvas svg.plan:focus { outline: none; }
 .canvas:has(svg.plan:focus-visible) { outline: 3px solid var(--coral); outline-offset: 2px; }
 .layout-library { margin-top: 22px; display: grid; gap: 12px; }
-.file-bar { gap: 10px; }
+.file-bar { gap: 10px; padding: 14px 0 0 16px; }
 .file-bar .control { width: min(320px, 100%); min-height: 42px; padding: 0 14px; font-size: 16px; }
 .file-bar .file-status { margin: 0 0 0 4px; font-size: 14px; }
 .layout-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

@@ -227,15 +227,6 @@ export function LayoutStudio() {
         </aside>
 
         <section className="card canvas-card" aria-label="Layout canvas">
-          <div className="toolbar file-bar">
-            <label className="sr-only" htmlFor="layout-name">Layout name</label>
-            <input id="layout-name" className="control" placeholder="Untitled layout" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
-            <button type="button" className="btn primary" onClick={store} disabled={!rooms.length || (!!openId && !dirty && name === library.find((l) => l.id === openId)?.name)}>
-              <Save aria-hidden="true" /> {!openId ? "Save layout" : dirty || name !== library.find((l) => l.id === openId)?.name ? "Save changes" : "Saved"}
-            </button>
-            <button type="button" className="btn" onClick={startNew}><FilePlus2 aria-hidden="true" /> New layout</button>
-            <p className="muted file-status" role="status">{status}</p>
-          </div>
           <div className="toolbar">
             <button type="button" className="btn" onClick={undo} disabled={!past.length}><Undo2 aria-hidden="true" /> Undo</button>
             <button type="button" className="btn" onClick={redo} disabled={!future.length}><Redo2 aria-hidden="true" /> Redo</button>
@@ -301,6 +292,15 @@ export function LayoutStudio() {
                 );
               })}
             </svg>
+          </div>
+          <div className="toolbar file-bar">
+            <label className="sr-only" htmlFor="layout-name">Layout name</label>
+            <input id="layout-name" className="control" placeholder="Untitled layout" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+            <button type="button" className="btn primary" onClick={store} disabled={!rooms.length || (!!openId && !dirty && name === library.find((l) => l.id === openId)?.name)}>
+              <Save aria-hidden="true" /> {!openId ? "Save layout" : dirty || name !== library.find((l) => l.id === openId)?.name ? "Save changes" : "Saved"}
+            </button>
+            <button type="button" className="btn" onClick={startNew}><FilePlus2 aria-hidden="true" /> New layout</button>
+            <p className="muted file-status" role="status">{status}</p>
           </div>
         </section>
       </div>
