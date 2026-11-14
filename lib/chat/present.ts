@@ -119,6 +119,8 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       add(e.id, "eye", thing ? `Looking for ${an(thing)} in the scan` : "Double-checking a detail in the scan");
     }
     if (e.type === "rerank") add(e.id, "sort", "Re-ranking on measured evidence");
+    if (e.type === "tool" && e.tool === "verify_reports") add(e.id, "check", e.summary.replace(/ \((rules[^)]*)\)/, ""), /[1-9]\d* (demoted|flagged)|unavailable/.test(e.summary) ? "warn" : "info");
+    if (e.type === "error") add(e.id, "alert", e.message, "warn");
     if (e.type === "report") add(e.id, "doc", "Writing your shell reports");
   }
   return steps;

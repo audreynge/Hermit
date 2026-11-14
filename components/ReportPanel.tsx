@@ -10,6 +10,12 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
     <div className="report">
       <p className="muted">#{report.rank} · {report.address} · <span className={`badge-src ${report.badge === "scan-verified" ? "verified" : "record"}`}>{report.badge === "scan-verified" ? "measured from 3D scan" : "record only"}</span></p>
       <p style={{ marginTop: 10, fontSize: 17 }}><strong>{report.verdict}.</strong> {report.summary}</p>
+      {report.verification && (
+        <p className={report.verification.status === "verified" ? "status-pass" : report.verification.status === "demoted" ? "status-fail" : "status-warn"} style={{ fontSize: 14 }}>
+          <strong>{report.verification.status === "verified" ? "✓ Checked against your must-haves and sources" : report.verification.status === "demoted" ? "✕ Demoted by verifier" : "! Flagged by verifier"}</strong>
+          {" "}<span className="muted">({report.verification.by.join(" + ")}){report.verification.issues.length ? `: ${report.verification.issues.join("; ")}` : ""}</span>
+        </p>
+      )}
 
       <div className="stats">
         <div><div className="big num">{report.matchScore}%</div><div className="muted">match</div></div>
