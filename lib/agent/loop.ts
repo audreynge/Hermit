@@ -6,7 +6,8 @@ import { BUDGET, finalize, newEventId, Run, TOOL_DESCRIPTIONS, ToolInputs, unver
 export type { AgentDeps };
 import { MODEL } from "./model";
 import { outputText, type OpenAIClient, type ResponseItem } from "../llm/openai";
-import { geminiText, type GeminiClient, type GeminiContent } from "../llm/gemini";
+import { geminiJson, geminiText, type GeminiClient, type GeminiContent } from "../llm/gemini";
+import { AUDIT_PROMPT, AUDIT_SCHEMA, type AuditResult, type Auditor } from "./verify";
 import { an } from "../text";
 
 type Client = Pick<Anthropic, "beta">;
@@ -16,14 +17,16 @@ export async function runAgent(spec: RequirementSpec, emit: (e: TraceEvent) => v
   const client = opts.client !== undefined ? opts.client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
   const run = new Run(spec, emit, deps);
   let planner: "claude" | "gemini" | "openai" | "deterministic" = "deterministic";
-  const llm = client ? { name: "claude" as const, label: "Claude", go: () => claudeLoop(run, client) }
-    : opts.gemini ? { name: "gemini" as const, label: "Gemini", go: () => geminiLoop(run, opts.gemini!) }
-    : opts.openai ? { name: "openai" as const, label: "OpenAI", go: () => openaiLoop(run, opts.openai!) } : null;
+  const llm = client ? { name: "claude" as const, label: "Claude", go: () => claudeLoop(run, client), audit: claudeAudit(client) }
+    : opts.gemini ? { name: "gemini" as const, label: "Gemini", go: () => geminiLoop(run, opts.gemini!), audit: geminiAudit(opts.gemini) }
+    : opts.openai ? { name: "openai" as const, label: "OpenAI", go: () => openaiLoop(run, opts.openai!), audit: openaiAudit(opts.openai) } : null;
   if (llm) {
+    run.audit = llm.audit;
     try {
       await llm.go();
       planner = llm.name;
     } catch (e) {
+      run.audit = null;
       emit({ type: "error", id: newEventId(), message: `${llm.label} planner failed (${e instanceof Error ? e.message : e}); finishing deterministically.` });
     }
   }
@@ -42,22 +45,23 @@ const dealbreaker = (failedRules: string[]) => failedRules.includes("zoning") ||
 async function deterministic(run: Run) {
   const fresh = !run.candidates.length;
   if (fresh) {
-    run.emit({ type: "plan", id: newEventId(), text: `Search ${run.spec.city === "houston" ? "Houston" : "Los Angeles"} for ${an(run.spec.useType)}; screen 20 site records, measure up to ${BUDGET.roomGraphs} scans, verify uncertain fixtures, report the best 5.` });
+    run.emit({ type: "plan", id: newEventId(), text: `Search ${run.spec.city === "houston" ? "Houston" : "Los Angeles"} for ${an(run.spec.useType)}; screen 20 site records, measure up to ${BUDGET.roomGraphs} scans, verify uncertain fixtures, report the best 5 and audit them against your must-haves.` });
     await run.call("search_shells", {});
     if (run.spec.layout?.length && !run.overBudget()) await run.call("match_layout", {});
   }
   if (!run.candidates.length) return finalize(run, []);
   const top20 = run.candidates.slice(0, 20).map((c) => c.shell.id).filter((id) => !run.dropped.has(id));
   if (top20.length && !run.screened.size && !run.overBudget()) {
-    const s = (await run.call("screen_sites", { shellIds: top20 })) as { rows: { id: string; fails: string[] }[] };
-    const drops = s.rows.flatMap((r) => (dealbreaker(r.fails.map((f) => f.split(":")[0])) ? [{ shellId: r.id, reason: r.fails.join("; ") }] : []));
+    const s = (await run.call("screen_sites", { shellIds: top20 })) as { rows: { id: string; dropped: boolean; fails: string[] }[] };
+    const drops = s.rows.flatMap((r) => (!r.dropped && dealbreaker(r.fails.map((f) => f.split(":")[0])) ? [{ shellId: r.id, reason: r.fails.join("; ") }] : []));
     if (drops.length && !run.overBudget()) await run.call("drop_candidate", { drops });
   }
   if (!run.evaluated.size && !run.overBudget()) {
     const next = run.candidates.map((c) => c.shell.id).filter((id) => !run.dropped.has(id)).slice(0, 8);
     if (next.length) {
-      const ev = (await run.call("evaluate_candidates", { shellIds: next })) as { rows: { id: string; hardFails: string[]; ruleFails: string[] }[] };
+      const ev = (await run.call("evaluate_candidates", { shellIds: next })) as { rows: { id: string; dropped: boolean; hardFails: string[]; ruleFails: string[] }[] };
       const drops = ev.rows.flatMap((r) => {
+        if (r.dropped) return [];
         const why = r.hardFails[0] ?? (dealbreaker(r.ruleFails) ? `fails ${r.ruleFails.join(", ")} screen` : null);
         return why ? [{ shellId: r.id, reason: why }] : [];
       });
@@ -96,6 +100,7 @@ async function deterministic(run: Run) {
 const SYSTEM = `You are Hermit's search planner. You find existing commercial or residential spaces that already fit the user's RequirementSpec and show what work is left.
 Work from evidence. Tools compute geometry, rules and costs deterministically; never invent measurements, compliance, or availability.
 Funnel: search_shells (top 50; regulation research starts automatically) -> match_layout if the spec has a drawn layout -> screen_sites on up to 20 -> evaluate_candidates on up to ${BUDGET.roomGraphs} promising ones -> inspect_view only when one uncertain fact could change the ranking (max ${BUDGET.inspections}) -> drop_candidate for anything with a documented hard conflict -> submit_reports with up to 5 ids in your final rank order.
+Must-haves the user selected (needs, hard rooms) are enforced in code: a candidate whose record fails one is dropped automatically (rows show dropped: true); don't submit those. Unknown is not a fail.
 Budget: at most ${BUDGET.toolCalls} tool calls. Batch independent ids into one call. Null record fields are unknown, not passes.
 Before each tool call, say in one short sentence what you are checking and why.`;
 
@@ -194,3 +199,21 @@ async function geminiLoop(run: Run, client: GeminiClient) {
     contents.push({ role: "user", parts });
   }
 }
+
+// Independent verifier: a fresh call with its own auditor prompt and none of the planner's conversation.
+const json = (t: string) => JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as AuditResult;
+const claudeAudit = (client: Client): Auditor => ({
+  name: "Claude",
+  audit: async (prompt) => {
+    const res = await client.beta.messages.create({ model: MODEL, max_tokens: 2048, system: AUDIT_PROMPT, messages: [{ role: "user", content: prompt }], output_config: { effort: "low" } });
+    return json(res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""));
+  },
+});
+const geminiAudit = (g: GeminiClient): Auditor => ({ name: "Gemini", audit: async (prompt) => (await geminiJson(g, AUDIT_PROMPT, [{ text: prompt }], AUDIT_SCHEMA)) as AuditResult });
+const openaiAudit = (c: OpenAIClient): Auditor => ({
+  name: "OpenAI",
+  audit: async (prompt) => json(outputText((await c.respond({
+    instructions: AUDIT_PROMPT, input: [{ type: "message", role: "user", content: prompt }], reasoning: { effort: "low" },
+    text: { format: { type: "json_schema", name: "audit", schema: AUDIT_SCHEMA, strict: false } },
+  })).output)),
+});

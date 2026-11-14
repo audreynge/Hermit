@@ -1,6 +1,7 @@
 import type { Finding } from "../regs/research";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
+import { mustHaves } from "./verify";
 
 export type Evaluation = {
   shell: Shell;
@@ -72,6 +73,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
   for (const f of regs) if (f.certainty === "applies") unknowns.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   for (const u of fit.unknowns) unknowns.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
+  for (const m of mustHaves(spec)) if (!rules.some((r) => r.rule === m.rule)) unknowns.push({ topic: m.rule.replace(/_/g, " "), question: `Can you confirm the space has ${m.need}?` });
   unknowns.push(...(e.extraUnknowns ?? []));
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) unknowns.push({ topic: "scan detail", question: x.question });
 
@@ -101,7 +103,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     matchScore: Math.max(0, Math.min(100, e.finalScore)),
     sqft: shell.sqft,
     useTags: shell.useTags,
-    reasons: e.searchReasons.slice(0, 3),
+    reasons: e.searchReasons,
     fit,
     rules,
     work: work.items,

@@ -187,7 +187,11 @@ export type ShellReport = {
   sources: Evidence[];
   listing?: Listing;
   similarity?: Similarity;
+  verification?: Verification;
 };
+
+// Verifier pass over a finished report: "demoted" = a must-have fails on record; "flagged" = an unsourced or unverified claim.
+export type Verification = { status: "verified" | "flagged" | "demoted"; issues: string[]; by: string[] };
 
 export type Similarity = {
   score: number;
