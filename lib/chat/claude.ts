@@ -92,6 +92,8 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
     const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms], input: "chat" as const };
     if (u.useType) spec.useType = u.useType;
     if (u.mode) spec.mode = u.mode;
+    // For a home the mode is the use; models often set mode "home" and leave useType blank, which re-asks "what kind of space?" forever.
+    if (spec.mode === "home" && !spec.useType) spec.useType = "home";
     if (u.city) spec.city = u.city;
     if (u.sizeMinSqft && u.sizeMaxSqft) spec.sizeSqft = [u.sizeMinSqft, u.sizeMaxSqft];
     for (const k of ["budgetMonthly", "budgetTotal", "headcount", "beds", "baths"] as const) if (u[k] != null) spec[k] = u[k]!;

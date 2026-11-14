@@ -18,6 +18,14 @@ describe("chatTurn", () => {
     expect(t.ready).toBe(false);
   });
 
+  it("treats a home search as having its use type even when the model leaves it blank", async () => {
+    const t = await chatTurn({ ...state, spec: { ...state.spec, useType: "" } }, "buy a 3 bedroom house, I use a wheelchair", fake({
+      reply: "How wide is the chair?", ready: false, quickReplies: [], action: "none",
+      update: { useType: null, mode: "home", city: null, sizeMinSqft: null, sizeMaxSqft: null, budgetMonthly: null, budgetTotal: null, headcount: null, beds: 3, baths: null, rooms: [], needs: { parking: null, wheelchair: true, chairWidthIn: null, groundFloor: null, heavyPower: null, esfr: null, driveInBays: null } },
+    }));
+    expect(t.state.spec).toMatchObject({ mode: "home", useType: "home", beds: 3, needs: { wheelchair: true } });
+  });
+
   it("refuses to start a search until a use type and city are known", async () => {
     const t = await chatTurn({ ...state, spec: { ...state.spec, city: undefined } }, "go", fake({
       reply: "Searching!", ready: true, quickReplies: [], action: "none",
