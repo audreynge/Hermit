@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, Grid2x2, Mail, MapPin, Sparkles } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, Mail, MapPin, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
@@ -9,7 +9,7 @@ const cityOf = (address: string) => address.split(", ").slice(-2).join(", ");
 export function BuildingArt({ kind }: { kind?: string }) {
   const home = kind === "home";
   return (
-    <svg viewBox="0 0 172 160" role="img" aria-label="Illustration (no photo on record)" style={{ width: "100%", height: "100%", borderRadius: 14, background: "linear-gradient(#cdeefa, #eaf8fd)" }}>
+    <svg viewBox="0 0 172 160" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Illustration (no photo on record)" style={{ width: "100%", height: "100%", borderRadius: 14, background: "linear-gradient(#cdeefa, #eaf8fd)" }}>
       <circle cx="140" cy="30" r="14" fill="#ffd9a0" />
       <rect x="0" y="122" width="172" height="38" fill="#cfe9b8" />
       {home ? (
@@ -31,29 +31,69 @@ export function Thumb({ report }: { report: ShellReport }) {
   return <img className="thumb" src={`/api/asset/${report.inside.sid}`} alt={`Inside ${report.name.split(" · ")[0]}`} onError={() => setFailed(true)} />;
 }
 
-export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, onDetails, onSave, onView }: {
-  report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean;
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+// Zillow-style headline: the asking price when the listing has one, otherwise the size.
+function headline(r: ShellReport, area?: number): { text: string; priced: boolean } | null {
+  const l = r.listing;
+  if (l?.askingRate) return { text: `${money(l.askingRate)}/sf/yr`, priced: true };
+  if (l?.price) return { text: l.kind === "lease" ? `${money(l.price)}/mo` : money(l.price), priced: true };
+  return area ? { text: `${Math.round(area).toLocaleString()} sq ft`, priced: false } : null;
+}
+
+// Listing evidence first (never claim "listed" without it), then measured vs record-only.
+function status(r: ShellReport) {
+  const evidence = r.badge === "scan-verified" ? { label: "measured", cls: "verified" } : { label: "record only", cls: "record" };
+  const listed = r.listing?.status === "active" ? { label: r.listing.kind === "sale" ? "For sale" : "For lease", cls: "listed" } : null;
+  return { listed, evidence };
+}
+
+function facts(r: ShellReport, area: number | undefined, priced: boolean): string[] {
+  const out: string[] = [];
+  if (area && priced) out.push(`${Math.round(area).toLocaleString()} sq ft`);
+  out.push(`${r.matchScore}% match`);
+  const a = r.fit?.assignment ?? [];
+  if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
+  const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/^(\d+) recorded stalls/)?.[1];
+  if (stalls) out.push(`${stalls} parking`);
+  return out;
+}
+
+export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEmail, onDetails, onSave, onView }: {
+  report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean; index?: number;
   onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void;
 }) {
   const area = areaOf(report);
+  const head = headline(report, area);
+  const { listed, evidence } = status(report);
   return (
     <article className="space" data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
-      <Thumb report={report} />
-      <div style={{ minWidth: 0 }}>
+      <div className="space-photo">
+        <Thumb report={report} />
+        {index !== undefined && <span className="space-pin" aria-hidden="true">{index + 1}</span>}
+        <span className="space-badges">
+          {listed && <span className={`badge-src ${listed.cls}`}>{listed.label}</span>}
+          <span className={`badge-src ${evidence.cls}`}>{evidence.label}</span>
+        </span>
+        <button type="button" className="space-save" aria-pressed={saved} onClick={(e) => { e.stopPropagation(); onSave(); }}>
+          {saved ? <BookmarkCheck aria-hidden="true" /> : <Bookmark aria-hidden="true" />} {saved ? "Saved" : "Save"}
+        </button>
+      </div>
+      <div className="space-body">
+        <div className="space-top">
+          {head && <p className="space-head num">{head.text}</p>}
+          <span className="fit-badge">{report.rank === 1 && <Sparkles aria-hidden="true" />}{report.matchScore}% Fit</span>
+        </div>
+        <p className="space-facts num">{facts(report, area, !!head?.priced).join(" · ")}</p>
         <h3 id={`sp-${report.shellId}`}>
-          <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} style={{ all: "unset", cursor: "pointer" }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
         </h3>
-        <span className="fit-badge">{report.rank === 1 && <Sparkles aria-hidden="true" />}{report.matchScore}% Fit</span>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
-        {area && <div className="meta"><Grid2x2 aria-hidden="true" /> <span className="num">{Math.round(area).toLocaleString()} sq ft</span> <span className={`badge-src ${report.badge === "scan-verified" ? "verified" : "record"}`}>{report.badge === "scan-verified" ? "measured" : "record only"}</span></div>}
         <ul>{highlights(report, spec).map((h) => <li key={h}><Check aria-hidden="true" /> {h}</li>)}</ul>
         <div className="space-actions">
           <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> Email manager</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onDetails(); }}><FileText aria-hidden="true" /> Full report</button>
-          <button type="button" className="btn small" aria-pressed={saved} onClick={(e) => { e.stopPropagation(); onSave(); }}>
-            {saved ? <BookmarkCheck aria-hidden="true" /> : <Bookmark aria-hidden="true" />} {saved ? "Saved" : "Save"}
-          </button>
         </div>
       </div>
     </article>

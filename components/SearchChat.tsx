@@ -1,6 +1,6 @@
 "use client";
 import {
-  Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
+  Accessibility, ArrowUpDown, Check, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
   ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, TriangleAlert, User, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -26,6 +26,7 @@ import { PropertyViewer } from "./PropertyViewer";
 import { RegulationList } from "./Regulations";
 import type { Finding } from "@/lib/regs/research";
 import { SpaceCard } from "./SpaceCard";
+import { ResultsMap } from "./ResultsMap";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
@@ -494,14 +495,15 @@ export function SearchChat() {
             <h2 id="matches-title"><Layers aria-hidden="true" /> Matching Spaces</h2>
             <span className="muted" role="status">{searching ? "Searching…" : showResults ? `${visibleReports.length} result${visibleReports.length === 1 ? "" : "s"}` : ""}</span>
           </div>
+          {showResults && visibleReports.length > 0 && <ResultsMap reports={visibleReports} selected={selected} onSelect={(i) => { setSelected(i); setTour(null); document.getElementById(`sp-${visibleReports[i].shellId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }} />}
           <div className="results-list">
             {!showResults && (
-              <div style={{ padding: "40px 20px", textAlign: "center" }} className="muted">
+              <div style={{ padding: "40px 20px", textAlign: "center", gridColumn: "1 / -1" }} className="muted">
                 {searching ? "Hermit is checking spaces. Matches will appear here." : "Tell Hermit about your space and the best matches will show up here, each with the evidence behind it."}
               </div>
             )}
             {showResults && spec && visibleReports.map((r, i) => (
-              <SpaceCard key={r.shellId} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
+              <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
                 onSelect={() => { setSelected(i); setTour(null); }}
                 onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)} />
             ))}
@@ -584,10 +586,16 @@ function MultiCard({ card, onSubmit }: { card: Card; onSubmit: (text: string) =>
   const toggle = (label: string) => setPicked((p) => (p.includes(label) ? p.filter((x) => x !== label) : [...p, label]));
   return (
     <div className="multi-card" role="group" aria-label="Choose all that apply">
-      {card.options.map((o) => (
-        <button key={o.value} type="button" className="chip-toggle" aria-pressed={picked.includes(o.label)} onClick={() => toggle(o.label)}>{o.label}</button>
-      ))}
-      <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      <div className="multi-options">
+        {card.options.map((o) => {
+          const on = picked.includes(o.label);
+          return <button key={o.value} type="button" className="chip-toggle" aria-pressed={on} onClick={() => toggle(o.label)}>{on ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}{o.label}</button>;
+        })}
+      </div>
+      <div className="multi-foot">
+        <span className="muted" aria-live="polite">{picked.length ? `${picked.length} selected` : "Tap all that apply"}</span>
+        <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      </div>
     </div>
   );
 }
