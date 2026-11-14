@@ -10,7 +10,7 @@ type Hit = { shellId: string; sid: string; name: string; address: string; sqft?:
 const SCALES: [number, string][] = [[0.75, "Smaller"], [1, "As drawn"], [1.25, "Larger"], [1.5, "Much larger"]];
 const CITIES: [City, string][] = [["houston", "Houston"], ["los_angeles", "Los Angeles"]];
 
-// Live geometry-only preview while drawing; "Analyze & match" runs the full agent with rules, costs and reports.
+// Live geometry-only preview while drawing; "Use this layout" runs the full agent with rules, costs and reports.
 export function SimilarScans({ layout, mode, city, onCity }: { layout: LayoutBlock[]; mode: Mode; city: City; onCity: (c: City) => void }) {
   // Hits keep the exact layout they were scored against: pairs[].mine indexes into it, not into later edits.
   const [res, setRes] = useState<{ layout: LayoutBlock[]; hits: Hit[] } | null>(null);
@@ -72,7 +72,7 @@ export function SimilarScans({ layout, mode, city, onCity }: { layout: LayoutBlo
           <div className="actions" style={{ marginTop: 14 }}>
             <a className="btn" href={`https://my.matterport.com/show/?m=${open.sid}&play=1&qs=1&brand=0`} target="_blank" rel="noreferrer">Open Matterport tour <ExternalLink aria-hidden="true" /></a>
           </div>
-          <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>A scan on record is not proof the space is available. Run Analyze &amp; match for zoning, code and cost screening.</p>
+          <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>A scan on record is not proof the space is available. Use this layout and search to screen zoning, code and costs.</p>
         </Modal>
       )}
     </section>

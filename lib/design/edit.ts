@@ -60,6 +60,8 @@ export function resolveEdit(target: "layout" | "fitout", ops: unknown[], ctx: Ed
 }
 
 const money = (n: number) => `$${Math.round(n / 1000)}k`;
+/** "$6k–$18k", or "none" for a zero range (not "$0k–$0k"). */
+const workRange = ([lo, hi]: readonly number[]) => (hi ? `${money(lo)}–${money(hi)}` : "none");
 
 /** Deterministic summary of what changed, so numbers in the chat come from code, never from the model. */
 export function describeOutcome(o: EditOutcome, before: number): string {
@@ -69,7 +71,7 @@ export function describeOutcome(o: EditOutcome, before: number): string {
     if (n) lines.push(`Updated your layout (${n} change${n > 1 ? "s" : ""}). It now has ${o.blocks.filter((b) => b.kind !== "object").length} rooms, about ${Math.round(o.blocks.filter((b) => b.kind !== "object").reduce((s, b) => s + b.w * b.h, 0)).toLocaleString()} sq ft.`);
   } else {
     const d = o.evaluation.diff;
-    if (o.ops.length > before) lines.push(`Proposed changes: fit ${d.fit[0]} → ${d.fit[1]}, known work ${money(d.cost[1][0])}–${money(d.cost[1][1])} (was ${money(d.cost[0][0])}–${money(d.cost[0][1])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
+    if (o.ops.length > before) lines.push(`Proposed changes: fit ${d.fit[0]} → ${d.fit[1]}, known work ${workRange(d.cost[1])} (was ${workRange(d.cost[0])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
     if (d.hardFailsCleared.length) lines.push(`Clears: ${d.hardFailsCleared.join("; ")}.`);
   }
   lines.push(...o.notes);

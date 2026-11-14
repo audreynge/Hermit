@@ -109,7 +109,8 @@ export function SearchChat() {
   const [resultsReady, setResultsReady] = useState(false);
   const [owner, setOwner] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  // Opened after mount (?design=draw): the sheet portals to <body>, which does not exist during server rendering.
+  const [drawing, setDrawing] = useState(false);
   // Design edits: the drawn layout chat edits apply to, its undo history, and proposed changes per scanned space.
   const [layout, setLayout] = useState<Block[] | null>(null);
   const [layoutId, setLayoutId] = useState<string | null>(null);
@@ -186,9 +187,12 @@ export function SearchChat() {
     const s = summarizeResults(reports, spec, { considered, dropped: events.filter((e) => e.type === "drop").length });
     const quick = reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"];
     push(bot([...s.paragraphs, s.followUp], quick));
-    const next = { ...chat, phase: "results" as const };
+    const next = { ...chat, ...(replay ? { spec } : {}), phase: "results" as const };
     setChat(next);
     if (!replay) void persist({ messages: [{ role: "bot", kind: "text", payload: { paragraphs: [...s.paragraphs, s.followUp], quick } }], state: next, lastRunId: runId });
+    // A replay has no conversation; open one behind the scenes so follow-ups (compare, email, edits) reach the server.
+    else if (!conv.current) opening.current = postJSON<ChatResponse>("/api/chat", { open: true, spec })
+      .then(async (r) => { conv.current = r.conversationId; await persist({ state: next, lastRunId: runId }); }).catch(() => {});
     setResultsReady(true);
   }, [finished, spec, reports, events, runKey, runId, replay, chat]);
 
@@ -251,7 +255,8 @@ export function SearchChat() {
     const last = id ? fitouts[id]?.at(-1) : undefined;
     if (!id || !last) return push(bot(["There's no proposed change to keep yet."]));
     setFitouts((all) => ({ ...all, [id]: [...all[id].slice(0, -1), { ...last, kept: true }] }));
-    push(bot(["Kept. The open questions from these changes are now in the email draft for this space."]));
+    const asks = last.report.unknowns.some((u) => u.topic === "proposed change" && last.report.draftMessage.includes(u.question));
+    push(bot([asks ? "Kept. The open questions from these changes are now in the email draft for this space." : "Kept. These changes raise no new questions for the landlord, so the email draft is unchanged."]));
   };
 
   const openNew = useCallback((draft: Draft, userText?: string) => (opening.current = (async () => {
@@ -268,6 +273,7 @@ export function SearchChat() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    if (params.get("design") === "draw") setDrawing(true);
     fetch("/api/saved").then((r) => (r.ok ? r.json() : [])).then((rows: { report: ShellReport; spec: RequirementSpec; savedAt: string }[]) =>
       setSaved(Object.fromEntries(rows.map((x) => [x.report.shellId, x])))).catch(() => {});
     if (replay) {

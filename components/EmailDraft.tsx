@@ -7,6 +7,7 @@ import { Modal } from "./Modal";
 
 export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: () => void }) {
   const d = draftEmail(report);
+  const who = report.listing?.kind === "sale" ? "listing agent" : "property manager";
   const [to, setTo] = useState(d.to);
   const [subject, setSubject] = useState(d.subject);
   const [body, setBody] = useState(d.body);
@@ -21,11 +22,11 @@ export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: 
     }
   };
   return (
-    <Modal title="Email the property manager" onClose={onClose}>
+    <Modal title={`Email the ${who}`} onClose={onClose}>
       <p className="muted" style={{ marginBottom: 14 }}>
         Drafted from this space&apos;s report{report.listing?.contact?.name ? ` for ${report.listing.contact.name}${report.listing.contact.company ? ` at ${report.listing.contact.company.replace(/\.$/, "")}` : ""}` : ""}. Edit anything; Hermit never sends it for you.
       </p>
-      <label>To<input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Property manager's email" /></label>
+      <label>To<input value={to} onChange={(e) => setTo(e.target.value)} placeholder={`${who[0].toUpperCase()}${who.slice(1)}'s email`} /></label>
       <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
       <label>Message<textarea value={body} onChange={(e) => setBody(e.target.value)} /></label>
       <div className="actions">
