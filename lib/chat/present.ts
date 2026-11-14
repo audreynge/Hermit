@@ -33,10 +33,13 @@ export function accessLine(r: ShellReport, spec: RequirementSpec): { text: strin
   const of = (rule: string, status: string) => r.rules.filter((x) => x.rule === rule && x.status === status);
   const rooms = (hits: ShellReport["rules"]) => hits.map((h) => h.detail.split(":")[0].toLowerCase()).join(", ");
   const narrow = of("door_width", "fail"), hinges = of("door_hinges", "warn");
+  if (of("front_door", "fail").length) return { text: "Front door too narrow for the chair", ok: false };
   if (narrow.length) return { text: `${plural(narrow.length, "door")} too narrow for the chair (${rooms(narrow)})`, ok: false };
+  const upstairs = of("other_floor", "fail");
+  if (upstairs.length) return { text: `${rooms(upstairs).replace(/^./, (c) => c.toUpperCase())} on another floor: needs a stair lift`, ok: false };
   if (hinges.length) return { text: `Chair fits with offset hinges on ${plural(hinges.length, "door")} (${rooms(hinges)})`, ok: false };
   if (of("wheelchair_route", "pass").length) return { text: "Wheelchair reaches every main room", ok: true };
-  if (of("door_width", "unknown").length) return { text: "Door widths not measured yet: ask the landlord", ok: false };
+  if (of("door_width", "unknown").length || of("front_door", "unknown").length) return { text: "Door widths not measured yet: ask the landlord", ok: false };
   return null;
 }
 

@@ -46,6 +46,8 @@ describe("highlights", () => {
     expect(with_(hit("door_width", "fail", "Bathroom: x"))).toHaveLength(3);
     expect(highlights(report({ rules: [hit("door_width", "fail", "Bathroom: x")] }), spec)[0]).not.toMatch(/door/); // not asked for
     expect(accessLine(report({ rules: [hit("wheelchair_route", "pass", "ok")] }), wc)?.ok).toBe(true);
+    expect(with_(hit("front_door", "fail", "Front door: ~22 in clear"), hit("door_width", "fail", "Bathroom: x"))[0]).toBe("Front door too narrow for the chair");
+    expect(with_(hit("other_floor", "fail", "Bedroom, bathroom (40 sf): on another floor"))[0]).toBe("Bedroom, bathroom (40 sf) on another floor: needs a stair lift");
     expect(accessLine(report({ rules: [hit("door_hinges", "warn", "Office: x")] }), wc)?.ok).toBe(false); // shown with a warning icon, not a check
   });
 

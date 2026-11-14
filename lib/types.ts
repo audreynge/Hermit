@@ -80,12 +80,15 @@ export type RoomGraph = {
   classification?: string;
   totalAreaSqft: number;
   rooms: Room[];
-  edges: { a: string; b: string; kind: "door" | "possible"; widthIn?: number; at?: { x: number; y: number } }[]; // widthIn/at: widest measured opening
-  entryRoomIds?: string[]; // rooms with a door on an edge no other room shares
+  edges: ({ a: string; b: string; kind: "door" | "possible" } & DoorMeasure)[];
+  entries?: ({ roomId: string } & DoorMeasure)[]; // outside doors: a door on an edge no other room shares
   objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;
 };
+
+// The widest real opening on a wall: width in inches, open = a cased opening with no door leaf, at = its centre.
+export type DoorMeasure = { widthIn?: number; open?: true; at?: { x: number; y: number } };
 
 export type AccessRoom = {
   roomId: string;
@@ -93,9 +96,12 @@ export type AccessRoom = {
   status: "reachable" | "blocked" | "unknown";
   reason: string | null;
   turnCircleIn?: number; // bathrooms: largest clear circle, walls only
-  stopDoor?: { from: string; clearIn: number }; // blocked: the widest door in that still stops the chair
+  stopDoor?: { from: string; clearIn: number }; // blocked: the widest door in that still stops the chair; from "outside" = the front door
+  otherFloor?: true; // blocked because it is on a floor the chair can't get to
 };
-export type Access = { chairIn: [number, number]; asScanned: AccessRoom[]; hinges: AccessRoom[] };
+export type AccessEntry = { status: "fits" | "blocked" | "unknown"; clearIn?: number; roomId?: string; at?: { x: number; y: number } };
+export type AccessScenario = { entry: AccessEntry; rooms: AccessRoom[] };
+export type Access = { chairIn: [number, number]; asScanned: AccessRoom[]; hinges: AccessRoom[]; entry: AccessEntry; hingesEntry: AccessEntry };
 
 export type Listing = {
   listingId: number;

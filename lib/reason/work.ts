@@ -42,6 +42,8 @@ export function estimateWork(spec: RequirementSpec, shell: Shell, fit: FitResult
   const count = (rule: string, status: RuleHit["status"]) => rules.filter((r) => r.rule === rule && r.status === status).length;
   if (count("door_hinges", "warn")) items.push(row("offset_hinges", count("door_hinges", "warn"), "code"));
   if (count("door_width", "fail")) items.push(row("widen_door", count("door_width", "fail"), "code"));
+  if (failed("front_door")) items.push(row("widen_entry_door", 1, "code"));
+  if (failed("other_floor")) items.push(row("stair_lift", 1, "code"));
   if (failed("turning_space")) items.push(row("ada_restroom", 1, "code"));
 
   const tiAllowance = spec.tiPerSqft && shell.sqft ? spec.tiPerSqft * shell.sqft : undefined;

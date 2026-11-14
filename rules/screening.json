@@ -48,6 +48,8 @@
     "hvac_ton": { "low": 2500, "high": 5000, "weeksLow": 3, "weeksHigh": 8, "label": "Added HVAC capacity (per ton)" },
     "ramp": { "low": 5000, "high": 25000, "weeksLow": 2, "weeksHigh": 5, "label": "Step-free entry / ramp" },
     "offset_hinges": { "low": 100, "high": 400, "weeksLow": 0, "weeksHigh": 1, "label": "Offset (swing-clear) door hinges" },
-    "widen_door": { "low": 1500, "high": 4500, "weeksLow": 1, "weeksHigh": 2, "label": "Widen interior door to 32 in clear" }
+    "widen_door": { "low": 1500, "high": 4500, "weeksLow": 1, "weeksHigh": 2, "label": "Widen interior door to 32 in clear" },
+    "widen_entry_door": { "low": 2500, "high": 7000, "weeksLow": 1, "weeksHigh": 3, "label": "Widen entry door to 32 in clear (exterior door, frame and threshold)" },
+    "stair_lift": { "low": 4000, "high": 15000, "weeksLow": 1, "weeksHigh": 4, "label": "Stair lift or platform lift to the upper floor" }
   }
 }

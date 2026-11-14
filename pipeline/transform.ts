@@ -1,13 +1,13 @@
 import { ringFromEdges, type Pt } from "../lib/geometry/polygon";
 import { normalizeRoomLabel } from "../lib/reason/labels";
-import type { City, Listing, Mode, Room, RoomGraph, Shell } from "../lib/types";
+import type { City, DoorMeasure, Listing, Mode, Room, RoomGraph, Shell } from "../lib/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
 type Enums = Record<string, Record<string, string>>;
 
 export function roomGraphFromModel(m: Any): RoomGraph {
-  const edgeOwners = new Map<string, { rooms: string[]; door: boolean; widthIn?: number; at?: Pt }>();
+  const edgeOwners = new Map<string, { rooms: string[]; door: boolean } & DoorMeasure>();
   const rooms: Room[] = [];
   for (const r of m.rooms ?? []) {
     const metric = r.dimensions?.units === "metric";
@@ -25,6 +25,8 @@ export function roomGraphFromModel(m: Any): RoomGraph {
         const w = (d.width ?? 0) / 0.0254;
         if (w < 18 || w <= (o.widthIn ?? 0)) continue;
         o.widthIn = w;
+        // Matterport "opening" = a cased opening with no door leaf, so none of its width is lost to a door.
+        if (/^opening$/i.test(d.type)) o.open = true; else delete o.open;
         // Door centre along its wall; the wall's midpoint when the scan gives no position.
         const t = typeof d.relativeCenter === "number" ? d.relativeCenter : 0.5;
         if (v0 && v1) o.at = { x: v0.x + (v1.x - v0.x) * t, y: v0.y + (v1.y - v0.y) * t };
@@ -45,19 +47,21 @@ export function roomGraphFromModel(m: Any): RoomGraph {
   }
   const keep = new Set(rooms.map((r) => r.id));
   const links: RoomGraph["edges"] = [];
-  const entry = new Set<string>();
-  for (const { rooms: owners, door, widthIn, at } of edgeOwners.values()) {
+  const entries = new Map<string, NonNullable<RoomGraph["entries"]>[number]>();
+  const measure = ({ widthIn, open, at }: DoorMeasure): DoorMeasure => ({ ...(widthIn ? { widthIn } : {}), ...(open ? { open } : {}), ...(at ? { at } : {}) });
+  for (const { rooms: owners, door, ...m } of edgeOwners.values()) {
     const [a, b] = owners;
-    if (!b && door && keep.has(a)) entry.add(a);
+    // An outside door: keep the widest one per room (a unit can have a front door and a patio door).
+    if (!b && door && keep.has(a) && (m.widthIn ?? 0) >= (entries.get(a)?.widthIn ?? 0)) entries.set(a, { roomId: a, ...measure(m) });
     if (!b || a === b || !keep.has(a) || !keep.has(b)) continue;
     const key = [a, b].sort().join("|");
     const existing = links.find((l) => [l.a, l.b].sort().join("|") === key);
     if (existing) {
       if (door) existing.kind = "door";
-      if (widthIn && widthIn > (existing.widthIn ?? 0)) Object.assign(existing, { widthIn, ...(at ? { at } : {}) });
+      if (m.widthIn && m.widthIn > (existing.widthIn ?? 0)) { delete existing.open; Object.assign(existing, measure(m)); }
       continue;
     }
-    links.push({ a, b, kind: door ? "door" : "possible", ...(widthIn ? { widthIn } : {}), ...(at ? { at } : {}) });
+    links.push({ a, b, kind: door ? "door" : "possible", ...measure(m) });
   }
   return {
     sid: m.id,
@@ -66,7 +70,7 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0),
     rooms,
     edges: links,
-    entryRoomIds: [...entry],
+    entries: [...entries.values()],
     objects: (m.objectAnnotations ?? []).map((o: Any) => ({ label: String(o.label).toLowerCase(), roomId: o.room?.id ?? null, confidence: o.confidence ?? 0 })),
     panoCount: m.panoLocations?.length ?? 0,
     floorCount: m.floors?.length ?? 1,

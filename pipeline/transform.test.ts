@@ -61,7 +61,7 @@ describe("roomGraphFromModel", () => {
     };
     const g = roomGraphFromModel(m);
     expect(g.edges).toEqual([{ a: "a", b: "b", kind: "door", widthIn: expect.closeTo(32, 1), at: { x: 1, y: 0 } }]); // 0.1 m sliver ignored
-    expect(g.entryRoomIds).toEqual(["a"]);
+    expect(g.entries).toEqual([{ roomId: "a", widthIn: expect.closeTo(35.4, 1), at: { x: 1, y: 0 } }]);
   });
 });
 

@@ -25,6 +25,7 @@ const QUESTIONS: Record<string, string> = {
   parking: "How many parking stalls are allocated to this space?",
   accessibility: "Is there a step-free entry and an accessible restroom on this floor?",
   door_width: "What is the clear width of each door into the bedrooms and bathroom?",
+  front_door: "What is the clear width of the front door, and is the entry step-free?",
   turning_space: "Is there a 60 in clear turning circle in the bathroom once fixtures are in place?",
   hvac: "What cooling capacity (tons) serves the suite, and how old is the equipment?",
   availability: "Is the space currently available, and from what date?",
@@ -46,7 +47,7 @@ export function finalScore(fit: FitResult, rules: RuleHit[], searchScore: number
 // A door the scan says is too narrow becomes a specific ask: confirm the width, allow the fix.
 function doorQuestions(rules: RuleHit[]) {
   return rules
-    .filter((r) => (r.rule === "door_width" && r.status === "fail") || r.rule === "door_hinges")
+    .filter((r) => ((r.rule === "door_width" || r.rule === "front_door") && r.status === "fail") || r.rule === "door_hinges")
     .map((r) => {
       const room = r.detail.split(":")[0].toLowerCase();
       const clear = r.detail.match(/~([\d.]+) in clear/)?.[1];
