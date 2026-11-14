@@ -1,12 +1,13 @@
 "use client";
 import {
-  Archive, Armchair, Columns2, ConciergeBell, CookingPot, FilePlus2, Layers, Monitor, Redo2, Save, SquarePlus,
+  Archive, Armchair, Columns2, ConciergeBell, CookingPot, FilePlus2, Layers, Maximize, Monitor, Redo2, Save, SquarePlus,
   Stethoscope, Toilet, Trash2, Undo2, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadLayouts, putLayout, removeLayout, type SavedLayout } from "@/lib/client/layouts";
 import { drop, KEYS, load, save } from "@/lib/client/store";
 import { OBJECT_TYPES, ROOM_TYPES } from "@/lib/design/rooms";
+import { BASE_Z, fit, pan, toFeet, zoomAt, type Camera } from "@/lib/geometry/camera";
 import type { Block } from "@/lib/spec/parse";
 
 type Item = Block & { kind: "room" | "object" };
@@ -43,18 +44,22 @@ const TEMPLATE: Item[] = [
   { id: "o16", kind: "object", label: "door", x: 37, y: 30, w: 3, h: 3 },
   { id: "o17", kind: "object", label: "shelf", x: 49.5, y: 27.5, w: 5.5, h: 8 },
 ];
-const PX = 14;
 
 export function LayoutStudio() {
   const [items, setItems] = useState<Item[]>(TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);
   const [future, setFuture] = useState<Item[][]>([]);
   const [sel, setSel] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(100);
   const [snap, setSnap] = useState(true);
-  const drag = useRef<{ id: string; dx: number; dy: number; mode: "move" | "resize"; before: Item[] } | null>(null);
+  const [cam, setCam] = useState<Camera>({ x: 0, y: 0, z: BASE_Z });
+  const [view, setView] = useState({ w: 0, h: 0 });
+  const drag = useRef<
+    | { mode: "move" | "resize"; id: string; dx: number; dy: number; before: Item[] }
+    | { mode: "pan"; sx: number; sy: number; from: Camera }
+    | null
+  >(null);
   const svg = useRef<SVGSVGElement>(null);
-  const scale = (PX * zoom) / 100;
+  const canvas = useRef<HTMLDivElement>(null);
 
   // Save only after the stored layout has loaded, or the template overwrites it (effects run twice in dev).
   const [loaded, setLoaded] = useState(false);
@@ -92,10 +97,11 @@ export function LayoutStudio() {
     commit([...items, { id, kind, label: type, x: q(Math.max(0, bx - s.w / 2)), y: q(Math.max(0, by - s.h / 2)), w: s.w, h: s.h }]);
     setSel(id);
   };
-  const toFt = (clientX: number, clientY: number) => {
-    const r = svg.current!.getBoundingClientRect();
-    return { x: (clientX - r.left) / scale, y: (clientY - r.top) / scale };
+  const local = (clientX: number, clientY: number) => {
+    const r = canvas.current!.getBoundingClientRect();
+    return { px: clientX - r.left, py: clientY - r.top };
   };
+  const toFt = (clientX: number, clientY: number) => { const { px, py } = local(clientX, clientY); return toFeet(cam, px, py); };
 
   const onKey = (e: React.KeyboardEvent, it: Item) => {
     const step = e.shiftKey ? 5 : 1;
@@ -115,9 +121,63 @@ export function LayoutStudio() {
     const same = rooms.filter((r) => r.label === it.label);
     return same.length > 1 ? `${base} ${same.indexOf(it) + 1}` : base;
   };
-  const W = Math.max(64, ...items.map((i) => i.x + i.w + 6)), H = Math.max(44, ...items.map((i) => i.y + i.h + 6));
   const bounds = rooms.length ? { x: Math.min(...rooms.map((r) => r.x)), y: Math.min(...rooms.map((r) => r.y)), x2: Math.max(...rooms.map((r) => r.x + r.w)), y2: Math.max(...rooms.map((r) => r.y + r.h)) } : null;
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
+  const savedItems = library.find((l) => l.id === openId)?.items;
+  const dirty = !savedItems || JSON.stringify(savedItems) !== JSON.stringify(items);
+
+  // Viewport: track its size, frame the layout once it's known, and take trackpad scroll/pinch for the canvas.
+  const frame = useCallback((its: Item[] = items) => {
+    const box = its.length ? { x: Math.min(...its.map((i) => i.x)), y: Math.min(...its.map((i) => i.y)), x2: Math.max(...its.map((i) => i.x + i.w)), y2: Math.max(...its.map((i) => i.y + i.h)) } : null;
+    const el = canvas.current;
+    if (el) setCam(fit(box, el.clientWidth, el.clientHeight));
+  }, [items]);
+  const framed = useRef(false);
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setView({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => { if (loaded && view.w && !framed.current) { framed.current = true; frame(); } }, [loaded, view.w, frame]);
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault(); // keep the page (and browser zoom) still while the pointer is over the plan
+      const r = el.getBoundingClientRect();
+      const k = e.deltaMode === 1 ? 16 : 1;
+      // Trackpad pinch arrives as ctrl+wheel in Chrome/Firefox; Cmd/Ctrl+scroll zooms with a mouse.
+      if (e.ctrlKey || e.metaKey) setCam((c) => zoomAt(c, Math.exp(-e.deltaY * k * 0.01), e.clientX - r.left, e.clientY - r.top));
+      else setCam((c) => pan(c, e.deltaX * k, e.deltaY * k));
+    };
+    // Safari reports trackpad pinch as gesture events instead.
+    type Gesture = Event & { scale: number; clientX: number; clientY: number };
+    let last = 1;
+    const onStart = (e: Event) => { e.preventDefault(); last = 1; };
+    const onChange = (e: Event) => {
+      e.preventDefault();
+      const g = e as Gesture, r = el.getBoundingClientRect();
+      setCam((c) => zoomAt(c, g.scale / last, g.clientX - r.left, g.clientY - r.top));
+      last = g.scale;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("gesturestart", onStart);
+    el.addEventListener("gesturechange", onChange);
+    return () => { el.removeEventListener("wheel", onWheel); el.removeEventListener("gesturestart", onStart); el.removeEventListener("gesturechange", onChange); };
+  }, []);
+  const zoomBy = (f: number) => setCam((c) => zoomAt(c, f, view.w / 2, view.h / 2));
+  const onCanvasKey = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return; // a focused room handles its own keys
+    const step = e.shiftKey ? 200 : 40;
+    const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (moves[e.key]) { e.preventDefault(); setCam((c) => pan(c, ...moves[e.key])); }
+    else if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25); }
+    else if (e.key === "-") { e.preventDefault(); zoomBy(0.8); }
+    else if (e.key === "0") { e.preventDefault(); frame(); }
+  };
+  const pct = Math.round((cam.z / BASE_Z) * 100);
 
   const store = () => {
     const id = putLayout({ id: openId ?? undefined, name, items });
@@ -128,11 +188,11 @@ export function LayoutStudio() {
     setStatus(`Saved \u201c${saved.name}\u201d. Pick it under Layout when you search.`);
   };
   const open = (l: SavedLayout) => {
-    setItems(l.items as Item[]); setPast([]); setFuture([]); setSel(null);
+    setItems(l.items as Item[]); setPast([]); setFuture([]); setSel(null); frame(l.items as Item[]);
     setOpenId(l.id); setName(l.name); save(KEYS.layoutOpen, l.id); setStatus(`Opened \u201c${l.name}\u201d.`);
   };
   const startNew = () => {
-    setItems(TEMPLATE); setPast([]); setFuture([]); setSel(null);
+    setItems(TEMPLATE); setPast([]); setFuture([]); setSel(null); frame(TEMPLATE);
     setOpenId(null); setName(""); drop(KEYS.layoutOpen); setStatus("Started a new layout.");
   };
   const remove = (l: SavedLayout) => {
@@ -167,37 +227,51 @@ export function LayoutStudio() {
         </aside>
 
         <section className="card canvas-card" aria-label="Layout canvas">
+          <div className="toolbar file-bar">
+            <label className="sr-only" htmlFor="layout-name">Layout name</label>
+            <input id="layout-name" className="control" placeholder="Untitled layout" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+            <button type="button" className="btn primary" onClick={store} disabled={!rooms.length || (!!openId && !dirty && name === library.find((l) => l.id === openId)?.name)}>
+              <Save aria-hidden="true" /> {!openId ? "Save layout" : dirty || name !== library.find((l) => l.id === openId)?.name ? "Save changes" : "Saved"}
+            </button>
+            <button type="button" className="btn" onClick={startNew}><FilePlus2 aria-hidden="true" /> New layout</button>
+            <p className="muted file-status" role="status">{status}</p>
+          </div>
           <div className="toolbar">
             <button type="button" className="btn" onClick={undo} disabled={!past.length}><Undo2 aria-hidden="true" /> Undo</button>
             <button type="button" className="btn" onClick={redo} disabled={!future.length}><Redo2 aria-hidden="true" /> Redo</button>
             <span className="sep" aria-hidden="true" />
             <div className="zoom">
-              <button type="button" onClick={() => setZoom((z) => Math.max(50, z - 25))} aria-label="Zoom out"><ZoomOut aria-hidden="true" /></button>
-              <label className="sr-only" htmlFor="zoom">Zoom</label>
-              <select id="zoom" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
-                {[50, 75, 100, 125, 150, 200].map((z) => <option key={z} value={z}>{z}%</option>)}
-              </select>
-              <button type="button" onClick={() => setZoom((z) => Math.min(200, z + 25))} aria-label="Zoom in"><ZoomIn aria-hidden="true" /></button>
+              <button type="button" onClick={() => zoomBy(0.8)} aria-label="Zoom out"><ZoomOut aria-hidden="true" /></button>
+              <button type="button" className="pct" onClick={() => setCam((c) => zoomAt(c, BASE_Z / c.z, view.w / 2, view.h / 2))} aria-label={`Zoom ${pct}%, reset to 100%`}>{pct}%</button>
+              <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in"><ZoomIn aria-hidden="true" /></button>
             </div>
+            <button type="button" className="btn" onClick={() => frame()}><Maximize aria-hidden="true" /> Fit</button>
             <span className="sep" aria-hidden="true" />
             <button type="button" className="snap" role="switch" aria-checked={snap} onClick={() => setSnap((s) => !s)}>
               Snap to grid <span className="switch" aria-hidden="true" />
             </button>
           </div>
-          <p className="sr-only" id="canvas-help">Each room and object is a button. Arrow keys move it (Shift for 5 ft), plus and minus resize, Delete removes. You can also drag with a mouse or finger.</p>
-          <div className="canvas" style={{ backgroundSize: `${scale * 2}px ${scale * 2}px` }}
+          <p className="sr-only" id="canvas-help">Each room and object is a button. Arrow keys move it (Shift for 5 ft), plus and minus resize, Delete removes. You can also drag with a mouse or finger. To look around: scroll or drag empty space to move, pinch or Ctrl+scroll to zoom. With the plan itself focused, arrow keys move the view, plus and minus zoom, and 0 fits the layout.</p>
+          <div className="canvas" ref={canvas} style={{ backgroundSize: `${cam.z * 2}px ${cam.z * 2}px`, backgroundPosition: `${-cam.x * cam.z}px ${-cam.y * cam.z}px` }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); const t = e.dataTransfer.getData("text/x-hermit"); if (!t) return; const p = toFt(e.clientX, e.clientY); add(t, p.x, p.y); }}>
-            <svg ref={svg} className="plan" width={W * scale} height={H * scale} viewBox={`0 0 ${W} ${H}`} role="application" aria-describedby="canvas-help"
+            <svg ref={svg} className="plan" width="100%" height="100%" viewBox={`${cam.x} ${cam.y} ${Math.max(1, view.w) / cam.z} ${Math.max(1, view.h) / cam.z}`} preserveAspectRatio="xMinYMin meet"
+              role="application" aria-describedby="canvas-help" tabIndex={0} onKeyDown={onCanvasKey}
               aria-label={`Floor plan: ${rooms.length} rooms, ${objects.length} objects, about ${area.toLocaleString()} square feet`}
               onPointerMove={(e) => {
                 const d = drag.current;
                 if (!d) return;
+                if (d.mode === "pan") { setCam({ ...d.from, x: d.from.x - (e.clientX - d.sx) / d.from.z, y: d.from.y - (e.clientY - d.sy) / d.from.z }); return; }
                 const p = toFt(e.clientX, e.clientY);
                 setItems((xs) => xs.map((x) => (x.id !== d.id ? x : d.mode === "move" ? { ...x, x: Math.max(0, q(p.x - d.dx)), y: Math.max(0, q(p.y - d.dy)) } : { ...x, w: Math.max(3, q(p.x - x.x)), h: Math.max(3, q(p.y - x.y)) })));
               }}
-              onPointerUp={() => { const d = drag.current; if (d) { setPast((p) => [...p.slice(-49), d.before]); setFuture([]); } drag.current = null; }}
-              onPointerDown={(e) => { if (e.target === svg.current) setSel(null); }}>
+              onPointerUp={() => { const d = drag.current; if (d && d.mode !== "pan") { setPast((p) => [...p.slice(-49), d.before]); setFuture([]); } drag.current = null; }}
+              onPointerDown={(e) => {
+                if (e.target !== svg.current) return;
+                setSel(null);
+                svg.current.setPointerCapture?.(e.pointerId);
+                drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, from: cam };
+              }}>
               {bounds && <rect x={bounds.x - 0.4} y={bounds.y - 0.4} width={bounds.x2 - bounds.x + 0.8} height={bounds.y2 - bounds.y + 0.8} rx={1.4} fill="none" stroke="#6b4a3a" strokeWidth={0.9} />}
               {[...rooms, ...objects].map((it) => {
                 const isSel = sel === it.id;
@@ -208,14 +282,14 @@ export function LayoutStudio() {
                 return (
                   <g key={it.id} tabIndex={0} role="button" aria-pressed={isSel} aria-label={`${room ? nameOf(it) : spec(it.label)?.label ?? it.label}, ${it.w} by ${it.h} feet`}
                     onFocus={() => setSel(it.id)} onKeyDown={(e) => onKey(e, it)} style={{ cursor: "grab", outline: "none" }}
-                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); const p = toFt(e.clientX, e.clientY); drag.current = { id: it.id, dx: p.x - it.x, dy: p.y - it.y, mode: "move", before: items }; setSel(it.id); }}>
+                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); const p = toFt(e.clientX, e.clientY); drag.current = { mode: "move", id: it.id, dx: p.x - it.x, dy: p.y - it.y, before: items }; setSel(it.id); }}>
                     {room ? (
                       <>
                         <rect x={it.x} y={it.y} width={it.w} height={it.h} rx={0.6} fill={FILL[it.label] ?? "#f7efe9"} stroke={isSel ? "#f26a4b" : "#6b4a3a"} strokeWidth={isSel ? 0.45 : 0.3} />
                         {Icon && <g transform={`translate(${it.x + it.w / 2 - 1.2}, ${ly - 4.7}) scale(0.1)`} color="#d9573c"><Icon width={24} height={24} strokeWidth={2} /></g>}
                         <text x={it.x + it.w / 2} y={ly} textAnchor="middle" fontSize={1.45} fontWeight={800} fill="#3b2320">{nameOf(it)}</text>
                         {isSel && <rect x={it.x + it.w - 1.2} y={it.y + it.h - 1.2} width={1.6} height={1.6} rx={0.3} fill="#f26a4b" style={{ cursor: "nwse-resize" }}
-                          onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { id: it.id, dx: 0, dy: 0, mode: "resize", before: items }; }} />}
+                          onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { mode: "resize", id: it.id, dx: 0, dy: 0, before: items }; }} />}
                       </>
                     ) : (
                       <g transform={`translate(${it.x}, ${it.y})`}>
@@ -227,18 +301,12 @@ export function LayoutStudio() {
                 );
               })}
             </svg>
+            <p className="canvas-hint" aria-hidden="true">Scroll to move · pinch to zoom · drag empty space to pan</p>
           </div>
         </section>
       </div>
       <section className="card panel layout-library" aria-labelledby="library-title">
         <h2 id="library-title">Your layouts</h2>
-        <div className="layout-save">
-          <label className="field-label" htmlFor="layout-name">Layout name</label>
-          <input id="layout-name" className="control" placeholder="e.g., Clinic with 3 exam rooms" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
-          <button type="button" className="cta" onClick={store} disabled={!rooms.length}><Save aria-hidden="true" /> {openId ? "Save changes" : "Save layout"}</button>
-          <button type="button" className="btn" onClick={startNew}><FilePlus2 aria-hidden="true" /> New layout</button>
-        </div>
-        <p className="muted" role="status">{status}</p>
         {library.length ? (
           <ul className="layout-list">
             {library.map((l) => (
@@ -249,7 +317,7 @@ export function LayoutStudio() {
               </li>
             ))}
           </ul>
-        ) : <p className="muted">No saved layouts yet. Save this one to use it when you search.</p>}
+        ) : <p className="muted">No saved layouts yet. Name this one above and save it to use it when you search.</p>}
       </section>
     </>
   );

@@ -195,9 +195,12 @@ test.describe("layout studio", () => {
     await page.getByRole("button", { name: "Add Sink" }).dragTo(page.locator(".canvas"), { targetPosition: { x: 200, y: 200 } });
     await expect(canvas).toHaveAttribute("aria-label", new RegExp(`${before + 1} objects`));
 
-    await page.getByLabel("Zoom", { exact: true }).selectOption("150");
-    await page.getByRole("button", { name: "Zoom out" }).click();
-    await expect(page.getByLabel("Zoom", { exact: true })).toHaveValue("125");
+    const pct = async () => Number((await page.getByRole("button", { name: /^Zoom \d+%/ }).innerText()).replace("%", ""));
+    const start = await pct();
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    expect(await pct()).toBeGreaterThan(start);
+    await page.getByRole("button", { name: /^Zoom \d+%/ }).click();
+    expect(await pct()).toBe(100);
     const snap = page.getByRole("switch", { name: /Snap to grid/ });
     await snap.click();
     await expect(snap).toHaveAttribute("aria-checked", "false");
@@ -213,6 +216,78 @@ test.describe("layout studio", () => {
     await expect(conversation(page)).toContainText("2 exam rooms with sinks");
     await quick(page, "Houston").click();
     await waitForResults(page);
+  });
+});
+
+test.describe("layout studio navigation", () => {
+  test("trackpad scroll pans, pinch zooms the plan not the page, empty-space drag pans, rooms still drag accurately", async ({ page }) => {
+    await fresh(page, "/layout");
+    const plan = page.getByRole("application");
+    const vb = async () => (await plan.getAttribute("viewBox"))!.split(" ").map(Number);
+    const pct = async () => Number((await page.getByRole("button", { name: /^Zoom \d+%/ }).innerText()).replace("%", ""));
+    await expect.poll(async () => (await vb())[2]).toBeGreaterThan(1); // sized and framed
+    await page.locator(".canvas").evaluate((el) => el.scrollIntoView({ block: "center" }));
+    const box = (await page.locator(".canvas").boundingBox())!;
+
+    // Two-finger scroll moves the view, not the page.
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const [x0, y0] = await vb();
+    const scrollY = await page.evaluate(() => window.scrollY);
+    await page.mouse.wheel(120, 200);
+    await expect.poll(async () => (await vb())[1]).toBeGreaterThan(y0);
+    expect((await vb())[0]).toBeGreaterThan(x0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+
+    // Pinch (ctrl+wheel) zooms the plan out, down below the old 50% floor.
+    const before = await pct();
+    await page.keyboard.down("Control");
+    for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 100);
+    await page.keyboard.up("Control");
+    await expect.poll(pct).toBeLessThan(before);
+    await expect.poll(pct).toBeLessThan(50);
+
+    // Drag on empty space pans.
+    await page.getByRole("button", { name: "Fit" }).click();
+    const [fx] = await vb();
+    await page.locator(".canvas").evaluate((el) => el.scrollIntoView({ block: "center" }));
+    const c = (await page.locator(".canvas").boundingBox())!; // clicking Fit may have scrolled the page
+    await page.mouse.move(c.x + 12, c.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 112, c.y + 12, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await vb())[0]).toBeLessThan(fx);
+
+    // After panning and zooming, dragging a room lands where the pointer goes.
+    const z = 14 * (await pct()) / 100;
+    const storage = page.locator('g[aria-label^="Storage"] rect').first();
+    const sx = Number(await storage.getAttribute("x"));
+    const r = (await storage.boundingBox())!;
+    await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(r.x + r.width / 2 + 10 * z, r.y + r.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => Number(await storage.getAttribute("x"))).toBe(sx + 10);
+
+    // Keyboard: with the plan focused, arrows pan and 0 fits.
+    await plan.focus();
+    const [kx] = await vb();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await vb())[0]).toBeGreaterThan(kx);
+    await axe(page);
+  });
+
+  test("Save and New are matching toolbar buttons; Save reflects unsaved changes", async ({ page }) => {
+    await fresh(page, "/layout");
+    const save = page.getByRole("button", { name: /^Save/ });
+    const fresh_ = page.getByRole("button", { name: "New layout" });
+    const [a, b] = [(await save.boundingBox())!, (await fresh_.boundingBox())!];
+    expect(Math.abs(a.height - b.height)).toBeLessThan(1);
+    await page.getByLabel("Layout name").fill("Clinic A");
+    await save.click();
+    await expect(save).toHaveText(/Saved/);
+    await expect(save).toBeDisabled();
+    await page.getByRole("button", { name: "Add Office" }).click();
+    await expect(save).toHaveText(/Save changes/);
   });
 });
 

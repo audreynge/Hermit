@@ -28,7 +28,7 @@ npm run demo           # records the dental-clinic demo replay
 
 - `/`: a short survey (city, lease/buy, use, size, budget, accessibility, requirement chips, move-in timing).
 - `/search`: a chat with Hermit. It asks only for what's missing (at most 3 questions, each with tap-to-answer chips), shows its checks as they run ("Checking local zoning laws", "Measuring rooms in 3D scans"…), then lists matching spaces with a % fit, three reasons, Inside/Above/Fit evidence, a full report, Save, and an editable email to the property manager (copy or open in your mail app; never sent automatically). Follow-ups: compare layouts, refine size/location/budget, draft an email. `/search?replay=demo` replays a recorded run offline.
-- `/layout`: drag-and-drop room blocks and objects (a sink in an exam room becomes a fixture requirement), with undo/redo, zoom and snap. Save named layouts here (kept on this device), then pick one under "Layout" on the search form; asking the chat to change it updates the saved layout.
+- `/layout`: drag-and-drop room blocks and objects (a sink in an exam room becomes a fixture requirement), with undo/redo and snap. Two-finger scroll or drag empty space to move around, pinch or Ctrl+scroll to zoom (10-400%), Fit to frame the layout. Save named layouts here (kept on this device), then pick one under "Layout" on the search form; asking the chat to change it updates the saved layout.
 - `/saved`: bookmarked spaces, stored in this browser.
 
 ## Planner
