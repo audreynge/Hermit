@@ -1,6 +1,6 @@
 import { ringFromEdges, type Pt } from "../lib/geometry/polygon";
 import { normalizeRoomLabel } from "../lib/reason/labels";
-import type { City, Listing, Mode, Parcel, Room, RoomGraph, Shell } from "../lib/types";
+import type { City, DoorMeasure, Listing, Mode, Parcel, Room, RoomGraph, Shell } from "../lib/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -10,7 +10,7 @@ type Enums = Record<string, Record<string, string>>;
 export const isPlaceholderContact = (name?: string) => !name?.trim() || /research in progress/i.test(name);
 
 export function roomGraphFromModel(m: Any): RoomGraph {
-  const edgeOwners = new Map<string, { rooms: string[]; door: boolean }>();
+  const edgeOwners = new Map<string, { rooms: string[]; door: boolean } & DoorMeasure>();
   const rooms: Room[] = [];
   for (const r of m.rooms ?? []) {
     const metric = r.dimensions?.units === "metric";
@@ -19,8 +19,21 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     const edges = r.boundary?.edges ?? [];
     for (const e of edges) {
       const o = edgeOwners.get(e.id) ?? { rooms: [], door: false };
+      const doors = (e.openings ?? []).filter((x: Any) => /door|opening/i.test(x.type));
       o.rooms.push(r.id);
-      o.door ||= (e.openings ?? []).some((x: Any) => /door|opening/i.test(x.type));
+      o.door ||= doors.length > 0;
+      // Opening widths are metres; slivers under 18 in are scan noise, not doors.
+      const [v0, v1] = (e.vertices ?? []).map((v: Any) => v.position as Pt);
+      for (const d of doors) {
+        const w = (d.width ?? 0) / 0.0254;
+        if (w < 18 || w <= (o.widthIn ?? 0)) continue;
+        o.widthIn = w;
+        // Matterport "opening" = a cased opening with no door leaf, so none of its width is lost to a door.
+        if (/^opening$/i.test(d.type)) o.open = true; else delete o.open;
+        // Door centre along its wall; the wall's midpoint when the scan gives no position.
+        const t = typeof d.relativeCenter === "number" ? d.relativeCenter : 0.5;
+        if (v0 && v1) o.at = { x: v0.x + (v1.x - v0.x) * t, y: v0.y + (v1.y - v0.y) * t };
+      }
       edgeOwners.set(e.id, o);
     }
     const segs: Pt[][] = edges.map((e: Any) => (e.vertices ?? []).map((v: Any) => v.position));
@@ -37,13 +50,21 @@ export function roomGraphFromModel(m: Any): RoomGraph {
   }
   const keep = new Set(rooms.map((r) => r.id));
   const links: RoomGraph["edges"] = [];
-  for (const { rooms: owners, door } of edgeOwners.values()) {
+  const entries = new Map<string, NonNullable<RoomGraph["entries"]>[number]>();
+  const measure = ({ widthIn, open, at }: DoorMeasure): DoorMeasure => ({ ...(widthIn ? { widthIn } : {}), ...(open ? { open } : {}), ...(at ? { at } : {}) });
+  for (const { rooms: owners, door, ...m } of edgeOwners.values()) {
     const [a, b] = owners;
+    // An outside door: keep the widest one per room (a unit can have a front door and a patio door).
+    if (!b && door && keep.has(a) && (m.widthIn ?? 0) >= (entries.get(a)?.widthIn ?? 0)) entries.set(a, { roomId: a, ...measure(m) });
     if (!b || a === b || !keep.has(a) || !keep.has(b)) continue;
     const key = [a, b].sort().join("|");
     const existing = links.find((l) => [l.a, l.b].sort().join("|") === key);
-    if (existing) { if (door) existing.kind = "door"; continue; }
-    links.push({ a, b, kind: door ? "door" : "possible" });
+    if (existing) {
+      if (door) existing.kind = "door";
+      if (m.widthIn && m.widthIn > (existing.widthIn ?? 0)) { delete existing.open; Object.assign(existing, measure(m)); }
+      continue;
+    }
+    links.push({ a, b, kind: door ? "door" : "possible", ...measure(m) });
   }
   const panos: NonNullable<RoomGraph["panos"]> = (m.panoLocations ?? []).filter((p: Any) => p.position).map((p: Any) => ({ id: p.id, label: p.label ?? "", x: p.position.x, y: p.position.y }));
   // Nearest sweep to each room's centroid, so the tour can open on the evidence.
@@ -61,6 +82,7 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0),
     rooms,
     edges: links,
+    entries: [...entries.values()],
     objects: (m.objectAnnotations ?? []).map((o: Any) => ({ label: String(o.label).toLowerCase(), roomId: o.room?.id ?? null, confidence: o.confidence ?? 0 })),
     panoCount: m.panoLocations?.length ?? 0,
     floorCount: m.floors?.length ?? 1,

@@ -15,9 +15,14 @@ function rect(id: string, label: string, x: number, y: number, w: number, h: num
   return { id, label, rawTags: [label], areaSqft: w * h * M2, polygon: [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }], floorId: "f1" };
 }
 
-function graph(sid: string, name: string, rooms: Room[], objects: RoomGraph["objects"] = []): RoomGraph {
-  const edges: RoomGraph["edges"] = rooms.slice(1).map((r, i) => ({ a: rooms[i].id, b: r.id, kind: "door" }));
-  return { sid, name, totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0), rooms, edges, objects, panoCount: 20, floorCount: 1 };
+// doorWidthsIn[i] is the door between rooms[i] and rooms[i + 1]; the first room has a 36 in front door.
+function graph(sid: string, name: string, rooms: Room[], objects: RoomGraph["objects"] = [], doorWidthsIn?: number[]): RoomGraph {
+  const edges: RoomGraph["edges"] = rooms.slice(1).map((r, i) => ({ a: rooms[i].id, b: r.id, kind: "door", ...(doorWidthsIn ? { widthIn: doorWidthsIn[i] } : {}) }));
+  if (doorWidthsIn) rooms = rooms.map((r, i) => ({ ...r, sweeps: [{ id: `p${i}`, index: i * 3 }] })); // tour stops for "show this door"
+  return {
+    sid, name, totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0), rooms, edges, objects, panoCount: 20, floorCount: 1,
+    ...(doorWidthsIn ? { entries: [{ roomId: rooms[0].id, widthIn: 36 }] } : {}),
+  };
 }
 
 const base = (o: Partial<Shell> & Pick<Shell, "id" | "name" | "mode" | "city">): Shell => ({
@@ -45,7 +50,7 @@ const graphs: RoomGraph[] = [
   graph("SAMPLEMED2", "Sample Office Suite 400", [rect("a", "office", 0, 0, 6, 5), rect("b", "office", 6, 0, 6, 5), rect("c", "other", 0, 5, 12, 12)]),
   graph("SAMPLEMED3", "Sample Clinic Shell 105", [rect("a", "office", 0, 0, 10, 10), rect("b", "office", 10, 0, 10, 10)]),
   graph("SAMPLEWH1", "Sample Distribution Center", [rect("wh", "open", 0, 0, 60, 33), rect("of", "office", 60, 0, 8, 8)]),
-  graph("SAMPLEHOME1", "101 Sample Lane", [rect("l", "living", 0, 0, 6, 5), rect("k", "kitchen", 6, 0, 4, 4), rect("b1", "bedroom", 0, 5, 4, 4), rect("b2", "bedroom", 4, 5, 4, 4), rect("b3", "office", 8, 5, 3, 3.5), rect("ba", "bathroom", 10, 0, 2.5, 3)]),
+  graph("SAMPLEHOME1", "101 Sample Lane", [rect("l", "living", 0, 0, 6, 5), rect("k", "kitchen", 6, 0, 4, 4), rect("b1", "bedroom", 0, 5, 4, 4), rect("b2", "bedroom", 4, 5, 4, 4), rect("b3", "office", 8, 5, 3, 3.5), rect("ba", "bathroom", 10, 0, 2.5, 3)], [], [36, 34, 34, 28.5, 26]),
   graph("SAMPLEHOME2", "202 Sample Court", [rect("l", "living", 0, 0, 7, 6), rect("k", "kitchen", 7, 0, 4, 4), rect("b1", "bedroom", 0, 6, 4, 4), rect("b2", "bedroom", 4, 6, 4, 4), rect("b3", "bedroom", 8, 6, 4, 4), rect("b4", "bedroom", 12, 6, 4, 4)]),
 ];
 

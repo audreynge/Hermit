@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromLayout, parseText } from "./parse";
+import { fromLayout, parseText, parseChairWidth } from "./parse";
 
 const room = (spec: ReturnType<typeof parseText>, label: string) => spec.rooms.find((r) => r.label === label);
 
@@ -82,5 +82,16 @@ describe("fromLayout", () => {
     expect(exam.adjacentTo).toContain("exam room");
     expect(s.rooms.find((r) => r.label === "storage")?.adjacentTo ?? []).toEqual([]);
     expect(s.sizeSqft?.[0]).toBe(265);
+  });
+  it("reads the chair width from free text and sanity-checks it", () => {
+    expect(parseText("3 bed home in Houston for my 26 inch wheelchair").needs).toMatchObject({ wheelchair: true, chairWidthIn: 26 });
+    expect(parseText("my chair is 25.5 in wide").needs.chairWidthIn).toBe(25.5);
+    expect(parseText("I use a power chair").needs.chairWidthIn).toBe(27);
+    expect(parseText("a 60 inch wheelchair").needs.chairWidthIn).toBeUndefined();
+    expect(parseText("2,000-3,000 sq ft, wheelchair accessible").needs.chairWidthIn).toBeUndefined();
+    expect(parseChairWidth("Manual (~25 in)", true)).toBe(25);
+    expect(parseChairWidth("26", true)).toBe(26);
+    expect(parseChairWidth("26")).toBeUndefined(); // a bare number only counts as an answer to the chair question
+    expect(parseChairWidth("I'll measure later", true)).toBeUndefined();
   });
 });

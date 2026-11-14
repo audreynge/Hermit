@@ -1,4 +1,5 @@
 import type { Verdict } from "../crew";
+import { chairFor, checkAccess } from "../reason/access";
 import type { Finding } from "../regs/research";
 import { useCategory } from "../reason/rules";
 import { triangulate } from "../reason/triangulate";
@@ -31,6 +32,9 @@ const QUESTIONS: Record<string, string> = {
   zoning: "Are there deed restrictions or zoning conditions that would limit our use?",
   parking: "How many parking stalls are allocated to this space?",
   accessibility: "Is there a step-free entry and an accessible restroom on this floor?",
+  door_width: "What is the clear width of each door into the bedrooms and bathroom?",
+  front_door: "What is the clear width of the front door, and is the entry step-free?",
+  turning_space: "Is there a 60 in clear turning circle in the bathroom once fixtures are in place?",
   hvac: "What cooling capacity (tons) serves the suite, and how old is the equipment?",
   availability: "Is the space currently available, and from what date?",
   onsite_parking: "How many on-site parking spaces come with the space?",
@@ -87,6 +91,18 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
 
 export const total = (lines: ScoreLine[]) => Math.max(0, Math.min(100, lines.reduce((s, l) => s + l.earned, 0)));
 
+// A door the scan says is too narrow becomes a specific ask: confirm the width, allow the fix.
+function doorQuestions(rules: RuleHit[]) {
+  return rules
+    .filter((r) => ((r.rule === "door_width" || r.rule === "front_door") && r.status === "fail") || r.rule === "door_hinges")
+    .map((r) => {
+      const room = r.detail.split(":")[0].toLowerCase();
+      const clear = r.detail.match(/~([\d.]+) in clear/)?.[1];
+      const fix = r.rule === "door_hinges" ? "would you allow swing-clear (offset) hinges on it" : "would you allow it to be widened";
+      return { topic: "door", question: `The ${room} door looks ${clear ? `about ${clear} in clear` : "narrow"} in the 3D tour. Can you confirm its clear width, and ${fix}?` };
+    });
+}
+
 export function regulationHits(regs: Finding[]): RuleHit[] {
   const seen = new Map<string, number>();
   return regs.map((f) => {
@@ -114,9 +130,11 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ...rules.flatMap((r) => r.evidence),
   ].filter((s, i, a) => a.findIndex((x) => x.ref === s.ref) === i);
 
-  const raw = rules
+  const access = spec.needs.wheelchair && graph ? checkAccess(graph, chairFor(spec.needs)) : null;
+  const doors = doorQuestions(rules);
+  const raw = [...doors, ...rules
     .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
-    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
+    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }))];
   for (const f of regs) if (f.certainty === "applies") raw.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   for (const u of fit.unknowns) raw.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
   const musts = mustHaves(spec);
@@ -126,7 +144,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) raw.push({ topic: "scan detail", question: x.question });
   // Proposed-change and must-have questions lead (and are never cut from the draft); duplicates go.
   const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
-  const priority = (u: { topic: string }) => (u.topic === "proposed change" ? 0 : mustTopics.has(u.topic) ? 1 : 2);
+  const priority = (u: { topic: string }) => (u.topic === "proposed change" || u.topic === "door" ? 0 : mustTopics.has(u.topic) ? 1 : 2);
   for (const h of pack.hidden) if (!raw.some((u) => u.question.startsWith(h))) raw.push({ topic: "behind the walls", question: `${h}: what's in place today?` });
   const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
 
@@ -146,7 +164,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   const place = spec.mode === "home" ? `the home at ${shell.address}` : shell.address.startsWith(nm) ? shell.address : `${nm} at ${shell.address}`;
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, Math.max(5, unknowns.filter((u) => priority(u) < 2).length)).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${place} looks promising${matched ? `: ${matched} of the ${fit.assignment.length} rooms I need already look built` : ""}.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${place} looks promising${matched ? `: ${matched} of the ${fit.assignment.length} rooms I need already look built` : ""}.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -169,6 +187,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     inside: shell.sid ? { sid: shell.sid, sweepId: evidenceSweep(e) } : undefined,
     above: shell.lat != null && shell.lon != null ? { lat: shell.lat, lon: shell.lon, provider: "Esri World Imagery", overlays: [{ kind: "pin", lat: shell.lat, lon: shell.lon, label: shell.name }] } : undefined,
     floorplan: graph ?? undefined,
+    ...(access ? { access } : {}),
     draftMessage,
     badge: graph ? "scan-verified" : "record-only",
     sources,

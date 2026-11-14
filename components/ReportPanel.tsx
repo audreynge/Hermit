@@ -38,8 +38,8 @@ export function ReportPanel({ report, runId, printable = false, onParcel }: { re
       <table>
         <thead><tr><th scope="col">Check</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>
         <tbody>
-          {report.rules.filter((r) => !r.rule.startsWith("reg_")).map((r) => (
-            <tr key={r.rule}>
+          {report.rules.filter((r) => !r.rule.startsWith("reg_")).map((r, i) => (
+            <tr key={`${r.rule}-${i}`}>
               <th scope="row" style={{ fontWeight: 600 }}>{r.rule.replace(/_/g, " ")}</th>
               <td className={`status-${r.status}`}><span aria-hidden="true">{ICON[r.status]} </span><strong>{r.status}</strong><br /><span style={{ color: "var(--ink)" }}>{r.detail}</span></td>
               <td>{r.evidence.map((e) => <div key={e.ref} className="muted">{e.source}: {e.ref}</div>)}<a href={r.citation} target="_blank" rel="noreferrer">source</a></td>

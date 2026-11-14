@@ -1,10 +1,10 @@
 import { useCategory } from "../reason/rules";
-import { parseText, USE_NOUN } from "../spec/parse";
+import { CHAIR_TYPE_IN, parseChairWidth, parseText, USE_NOUN } from "../spec/parse";
 import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
 import { an } from "../text";
 
-export type Slot = "use" | "city" | "size" | "rooms" | "musts";
+export type Slot = "use" | "city" | "size" | "rooms" | "musts" | "chair";
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
 export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations"; fallback?: "deterministic"; fallbackWhy?: string; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
@@ -68,6 +68,7 @@ export function missing(spec: Draft, asked: Slot[]): Slot | null {
   const hasRooms = spec.rooms.length > 0 || spec.beds != null || spec.headcount || (spec.mode === "enterprise" && Object.values(spec.needs).some(Boolean));
   if (!hasRooms && !asked.includes("rooms")) return "rooms";
   if (!asked.includes("musts") && !Object.values(spec.needs).some(Boolean)) return "musts";
+  if (spec.needs.wheelchair && spec.needs.chairWidthIn == null && !asked.includes("chair")) return "chair";
   return null;
 }
 
@@ -77,6 +78,10 @@ export function question(slot: Slot, spec: Draft): { q: string; quick: string[];
   if (slot === "musts") return { q: "Anything you can't do without? Tap all that apply, or skip.", quick: ["None of these"], card: MUSTS };
   if (slot === "use") return { q: "What kind of space are you looking for, and what will you use it for?", quick: USE_OPTIONS.map((u) => u.label) };
   if (slot === "city") return { q: "Which city should I search: Houston or Los Angeles?", quick: ["Houston", "Los Angeles"] };
+  if (slot === "chair") return {
+    q: "How wide is the wheelchair at its widest point? I'll check every door against it. A measured number is best; a type works too.",
+    quick: [`Manual (~${CHAIR_TYPE_IN.manual} in)`, `Power (~${CHAIR_TYPE_IN.power} in)`, "I'll measure later"],
+  };
   if (slot === "size") return { q: "Roughly how much space do you need? A range is fine.", quick: SIZE_OPTIONS.slice(0, 4).map((s) => s.label) };
   const u = QUESTIONS[useKey(spec)] ?? QUESTIONS.office;
   return { q: u.q, quick: u.quick };
@@ -91,6 +96,7 @@ export function describe(spec: Draft): string {
   if (rooms.length) parts.push(`with ${rooms.length > 1 ? `${rooms.slice(0, -1).join(", ")} and ${rooms.at(-1)}` : rooms[0]}`);
   if (spec.budgetMonthly) parts.push(`under $${spec.budgetMonthly.toLocaleString()}/month`);
   if (spec.budgetTotal) parts.push(`under $${spec.budgetTotal.toLocaleString()}`);
+  if (spec.needs.wheelchair) parts.push(spec.needs.chairWidthIn ? `wheelchair accessible for a ${spec.needs.chairWidthIn} in chair` : "wheelchair accessible");
   return parts.join(", ");
 }
 
@@ -129,6 +135,8 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   if (prefs.length !== (next.preferences ?? []).length) set("preferences", prefs);
   if (/\b(buy|buying|purchase|purchasing|own)\b/.test(t)) set("transaction", "buy");
   else if (/\b(lease|leasing|rent|renting)\b/.test(t)) set("transaction", "lease");
+  const chair = awaiting === "chair" ? parseChairWidth(text, true) : undefined;
+  if (chair) set("needs", { ...next.needs, wheelchair: true, chairWidthIn: chair });
 
   const rooms = [...p.rooms];
   for (const [re, label] of BARE_ROOMS) if (re.test(t) && !rooms.some((r) => r.label === label)) rooms.push({ label, count: 1, hard: false });
@@ -150,7 +158,8 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
 
 export function ask(state: ChatState, lead: string, force = false): Turn {
   const slot = missing(state.spec, state.asked);
-  const budgetLeft = force || state.asked.length >= MAX_QUESTIONS;
+  // The chair width is a one-time follow-up to a must-have the user just picked, so it may go past the cap.
+  const budgetLeft = force || (state.asked.length >= MAX_QUESTIONS && slot !== "chair");
   if (!slot || budgetLeft) {
     const spec = { ...state.spec, city: state.spec.city ?? "houston", useType: state.spec.useType || "office" };
     const assumed = !state.spec.city ? " I'll start with Houston; say the word if you'd rather search Los Angeles." : "";
@@ -188,7 +197,7 @@ export function converse(state: ChatState, text: string): Turn {
   }
 
   // "Just search" means search now: defaults fill anything still missing (ask() picks Houston/office and says so).
-  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts"])] }, "", true);
+  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts", "chair"])] }, "", true);
   // One message that answers everything at once searches right away (wireframe 2); must-haves are asked only in Q&A mode.
   const oneShot = missing(state.spec, state.asked) === "use" && missing(spec, state.asked) === "musts";
   return ask({ ...state, spec, asked: oneShot ? [...state.asked, "musts"] : state.asked }, changed ? "Got it. " : "No problem. ");

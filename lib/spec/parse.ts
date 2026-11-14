@@ -1,4 +1,4 @@
-import type { City, Mode, RequirementSpec, RoomReq } from "../types";
+import { isChairWidth, type City, type Mode, type RequirementSpec, type RoomReq } from "../types";
 
 type Defaults = { city?: City; mode?: Mode; useType?: string };
 
@@ -89,11 +89,28 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   if (stalls) spec.needs.parkingStalls = Number(stalls[1]);
   if (/ground floor|ground-level|street level/.test(t)) spec.needs.groundFloor = true;
   if (/wheelchair|\bada\b|accessible/.test(t)) spec.needs.wheelchair = true;
+  const chair = parseChairWidth(t);
+  if (chair) Object.assign(spec.needs, { wheelchair: true, chairWidthIn: chair });
   if (/step-free|no stairs|stepless/.test(t)) spec.needs.stepFree = true;
   if (/patio|outdoor|yard|terrace/.test(t)) spec.needs.outdoorArea = true;
   if (/restaurant|cafe|bakery|commercial kitchen/.test(t)) spec.needs.kitchen = true;
 
   return spec;
+}
+
+export const CHAIR_TYPE_IN = { manual: 25, power: 27 } as const; // typical widths when the user names a type, not a number
+
+// "26 inch wheelchair", "my chair is 25.5 in wide", "power chair". With bare, a lone number or type
+// counts too (the user is answering "how wide is the chair?").
+export function parseChairWidth(text: string, bare = false): number | undefined {
+  const t = text.toLowerCase();
+  const n = t.match(/(\d{2}(?:\.\d)?)\s*(?:"|''|-?\s*in\b|-?\s*inch(?:es)?)\s*(?:wide\s+)?(?:\w+\s+){0,2}?(?:wheel)?chair/)?.[1]
+    ?? t.match(/chair\b[^.\d]{0,25}?(\d{2}(?:\.\d)?)\s*(?:"|''|in\b|inch)/)?.[1]
+    ?? (bare ? t.match(/^\D*?(\d{2}(?:\.\d)?)\s*(?:"|in\b|inch(?:es)?)?\s*(?:wide)?\s*$/)?.[1] : undefined);
+  if (n && isChairWidth(Number(n))) return Number(n);
+  if (/\b(power|electric|motori[sz]ed)\s+(?:wheel)?chair/.test(t) || (bare && /\bpower\b/.test(t))) return CHAIR_TYPE_IN.power;
+  if (/\bmanual\s+(?:wheel)?chair/.test(t) || (bare && /\bmanual\b/.test(t))) return CHAIR_TYPE_IN.manual;
+  return undefined;
 }
 
 export type Block = { id: string; label: string; kind?: "room" | "object"; x: number; y: number; w: number; h: number };

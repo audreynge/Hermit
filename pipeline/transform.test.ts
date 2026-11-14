@@ -50,6 +50,19 @@ describe("roomGraphFromModel", () => {
     expect(g.floorCount).toBe(1);
     expect(g.classification).toBe("workspace");
   });
+
+  it("records the widest real door width in inches and finds the entry room", () => {
+    const w = (id: string, widths: number[]) => ({ id, type: "wall", openings: widths.map((width) => ({ type: "door", width, relativeCenter: 0.25 })), vertices: [{ position: { x: 0, y: 0 } }, { position: { x: 4, y: 0 } }] });
+    const m = {
+      id: "W", rooms: [
+        { id: "a", tags: ["living"], dimensions: { areaFloor: 100, units: "imperial" }, boundary: { edges: [w("front", [0.9]), w("s", [0.1, 0.8128])] } },
+        { id: "b", tags: ["bedroom"], dimensions: { areaFloor: 100, units: "imperial" }, boundary: { edges: [w("s", [0.1, 0.8128])] } },
+      ],
+    };
+    const g = roomGraphFromModel(m);
+    expect(g.edges).toEqual([{ a: "a", b: "b", kind: "door", widthIn: expect.closeTo(32, 1), at: { x: 1, y: 0 } }]); // 0.1 m sliver ignored
+    expect(g.entries).toEqual([{ roomId: "a", widthIn: expect.closeTo(35.4, 1), at: { x: 1, y: 0 } }]);
+  });
 });
 
 describe("sweeps", () => {

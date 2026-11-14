@@ -1,6 +1,7 @@
 import table from "../../rules/screening.json";
 import { normalizeZone } from "../regs/zones";
-import type { Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
+import type { Access, AccessRoom, Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
+import { chairFor, checkAccess } from "./access";
 
 export type UseKey = keyof typeof table.uses;
 const src = (k: keyof typeof table.sources) => table.sources[k].url;
@@ -29,6 +30,65 @@ const costar = (shell: Shell, field: string, confidence = 0.9): Evidence => ({
 const hit = (rule: string, status: RuleStatus, detail: string, citation: string, evidence: Evidence[] = []): RuleHit => ({
   rule, status, detail, citation, evidence,
 });
+
+const ESSENTIAL = new Set(["bedroom", "bathroom", "kitchen", "living", "office"]);
+const TURN_IN = 60; // ADA §304.3.1 turning circle
+
+// Door-by-door verdicts from the route check in ./access. Clear widths are scan estimates.
+function wheelchairRoute(g: RoomGraph, a: Access, measured: boolean): RuleHit[] {
+  const area = new Map(g.rooms.map((r) => [r.id, r.areaSqft]));
+  const dup = (label: string) => a.asScanned.filter((r) => r.label === label).length > 1;
+  // Two bathrooms both "blocked" reads as a typo; the floor area tells them apart.
+  const name = (r: AccessRoom) => `${r.label[0].toUpperCase()}${r.label.slice(1)}${dup(r.label) ? ` (${Math.round(area.get(r.roomId) ?? 0)} sf)` : ""}`;
+  const afterHinges = new Map(a.hinges.map((r) => [r.roomId, r]));
+  const chair = measured ? `your ${a.chairIn[0]} in chair` : `a ${a.chairIn[0]} in chair (typical power chair; your width wasn't given)`;
+  const ev = (r: AccessRoom): Evidence => ({ source: "matterport", ref: `${g.sid}/${r.roomId} (${r.label})`, confidence: 0.7 });
+  const frontEv: Evidence = { source: "matterport", ref: `${g.sid}/${a.entry.roomId ?? "entry"} (outside door)`, confidence: 0.7 };
+  const hits: RuleHit[] = [];
+
+  // The front door comes first: if it stops the chair, every room behind it is out of reach for that one reason.
+  if (a.entry.status === "blocked") {
+    const reason = `Front door: the widest outside door is ~${a.entry.clearIn!.toFixed(1)} in clear, ${(a.chairIn[0] - a.entry.clearIn!).toFixed(1)} in short of ${chair}`;
+    hits.push(a.hingesEntry.status === "fits"
+      ? hit("door_hinges", "warn", `${reason}. Offset (swing-clear) hinges would let it in.`, src("ada"), [frontEv])
+      : hit("front_door", "fail", `${reason}.`, src("ada"), [frontEv]));
+    if (a.hingesEntry.status !== "fits") return hits;
+  } else if (a.entry.status === "unknown") {
+    hits.push(hit("front_door", "unknown", "Front door: the scan has no measured outside door.", src("ada"), [frontEv]));
+  }
+
+  const rooms = a.asScanned.filter((r) => ESSENTIAL.has(r.label));
+  const upstairs = rooms.filter((r) => r.otherFloor);
+  if (upstairs.length)
+    hits.push(hit("other_floor", "fail", `${upstairs.map(name).join(", ")}: on another floor; the scan shows no elevator or stair lift.`, src("ada"), upstairs.map(ev)));
+
+  for (const r of rooms.filter((x) => x.status === "blocked" && !x.otherFloor)) {
+    const fixed = afterHinges.get(r.roomId);
+    if (r.stopDoor?.from === "outside") {
+      // Behind the front door: hinges on it got the chair in, so only an inside door that still stops it matters.
+      if (fixed?.status === "blocked" && !fixed.otherFloor) hits.push(hit("door_width", "fail", `${name(r)}: ${fixed.reason}.`, src("ada"), [ev(r)]));
+      continue;
+    }
+    hits.push(fixed?.status === "reachable"
+      ? hit("door_hinges", "warn", `${name(r)}: ${r.reason}. Offset (swing-clear) hinges would let ${chair} in.`, src("ada"), [ev(r)])
+      : hit("door_width", "fail", `${name(r)}: ${r.reason}.`, src("ada"), [ev(r)]));
+  }
+  const unknown = rooms.filter((x) => x.status === "unknown");
+  if (unknown.length)
+    hits.push(hit("door_width", "unknown", `No measured door into ${unknown.map(name).join(", ")}${unknown.some((r) => /open plan/.test(r.reason ?? "")) ? " (some look open plan; check in the 3D tour)" : ""}.`, src("ada"), unknown.map(ev)));
+  if (rooms.length && rooms.every((x) => x.status === "reachable") && a.entry.status === "fits")
+    hits.push(hit("wheelchair_route", "pass", `${chair[0].toUpperCase()}${chair.slice(1)} gets through the front door and reaches every main room (clear widths estimated from the scan).`, src("ada"), rooms.map(ev)));
+
+  const baths = a.asScanned.filter((r) => r.turnCircleIn != null);
+  if (baths.length) {
+    const best = baths.reduce((x, y) => (y.turnCircleIn! > x.turnCircleIn! ? y : x));
+    const d = best.turnCircleIn!;
+    hits.push(d < TURN_IN
+      ? hit("turning_space", "fail", `Largest clear circle in any bathroom is ${d} in, under the ${TURN_IN} in turning space, before fixtures are counted.`, src("ada"), [ev(best)])
+      : hit("turning_space", "warn", `${name(best)} has a ${d} in clear circle between walls; fixtures are not measured and will reduce it.`, src("ada"), [ev(best)]));
+  }
+  return hits;
+}
 
 export type RuleExtras = { parcelZone?: { zone: string; source: string; apn: string } | null };
 
@@ -117,6 +177,9 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
       hits.push(hit("accessibility", "warn", "Vertical access looks available; entry thresholds, door widths (32\" clear) and restroom turning space not verified.", src("ada"), ev));
     else hits.push(hit("accessibility", "unknown", "Floor level and elevator access not recorded.", src("ada"), ev));
   }
+  const access = n.wheelchair && graph ? checkAccess(graph, chairFor(n)) : null;
+  if (access) hits.push(...wheelchairRoute(graph!, access, n.chairWidthIn != null));
+  else if (n.wheelchair && graph) hits.push(hit("door_width", "unknown", "The scan has no measured door widths, so the wheelchair route can't be checked.", src("ada"), [{ source: "matterport", ref: graph.sid, confidence: 0.5 }]));
 
   if (area && use !== "home") {
     const [lo, hi] = u.sfPerTon;

@@ -1,7 +1,7 @@
 "use client";
 import {
   Accessibility, ArrowUpDown, Check, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
-  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, TriangleAlert, User, X, Zap,
+  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, TriangleAlert, User, Volume2, VolumeX, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -455,6 +455,7 @@ export function SearchChat() {
                       <>
                         <div className="bubble">{m.paragraphs.slice(0, m.paragraphs.length > 2 ? -1 : undefined).map((p, i) => <p key={i}>{p}</p>)}</div>
                         {m.paragraphs.length > 2 && <div className="bubble"><p>{m.paragraphs.at(-1)}</p></div>}
+                        <Speak text={m.paragraphs.join(" ")} />
                         {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered by built-in rules, not AI ({m.fallback}).</p>}
                         {m.card && m === lastQuick && !running && owner && <MultiCard card={m.card} onSubmit={send} />}
                         {m.quick && m === lastQuick && !running && owner && (
@@ -609,5 +610,42 @@ function MultiCard({ card, onSubmit }: { card: Card; onSubmit: (text: string) =>
         <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
       </div>
     </div>
+  );
+}
+
+// One clip at a time across all messages; starting a new one stops the previous.
+let stopCurrent: (() => void) | null = null;
+
+function Speak({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "loading" | "playing" | "error">("idle");
+  const stop = useRef<(() => void) | null>(null);
+  useEffect(() => () => stop.current?.(), []);
+  const toggle = async () => {
+    if (state === "loading" || state === "playing") { stop.current?.(); return; }
+    stopCurrent?.();
+    setState("loading");
+    const ctl = new AbortController();
+    let audio: HTMLAudioElement | null = null, url = "";
+    const end = () => { ctl.abort(); audio?.pause(); if (url) URL.revokeObjectURL(url); if (stopCurrent === end) stopCurrent = null; setState((s) => (s === "error" ? s : "idle")); };
+    stop.current = stopCurrent = end;
+    try {
+      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.slice(0, 2500) }), signal: ctl.signal });
+      if (!r.ok) throw new Error(String(r.status));
+      url = URL.createObjectURL(await r.blob());
+      audio = new Audio(url);
+      audio.onended = end;
+      await audio.play();
+      setState("playing");
+    } catch (e) {
+      if (ctl.signal.aborted) return;
+      end(); setState("error");
+    }
+  };
+  const label = state === "playing" ? "Stop reading" : state === "loading" ? "Loading audio, click to cancel" : state === "error" ? "Audio unavailable, try again" : "Read aloud";
+  return (
+    <button type="button" className="speak" onClick={toggle} aria-label={label} title={label} aria-pressed={state === "playing"}>
+      {state === "playing" || state === "loading" ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+      <span>{state === "playing" ? "Stop" : state === "loading" ? "Loading…" : state === "error" ? "Retry" : "Listen"}</span>
+    </button>
   );
 }

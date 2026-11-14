@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import type { FitoutDiff } from "@/lib/design/fitout";
-import type { RoomGraph, ShellReport } from "@/lib/types";
+import { doorClearIn } from "@/lib/reason/access";
+import type { Access, AccessRoom, RoomGraph, ShellReport } from "@/lib/types";
 import { M_TO_FT, PAIR_COLORS, Plan3D, rectPoly, roomHeight, type Solid } from "./Plan3D";
 
 const W = 640, MAX_H = 460, PAD = 28;
@@ -30,19 +31,105 @@ export function labelPoint(p: Pt[]): Pt & { r: number } {
   }
   return best;
 }
-type View = "plan" | "3d" | "compare";
+type View = "plan" | "3d" | "compare" | "access";
+
+// Wheelchair view: tints carry the verdict, and every room also says it in words.
+type AccessState = "reachable" | "hinges" | "blocked" | "unknown";
+const ACCESS: Record<AccessState, { fill: string; label: string; legend: string }> = {
+  reachable: { fill: "#dcefe2", label: "reachable", legend: "chair reaches it" },
+  hinges: { fill: "url(#hinge-hatch)", label: "with hinges", legend: "reachable once offset hinges go on" },
+  blocked: { fill: "#f6d3cc", label: "blocked", legend: "a door stops the chair" },
+  unknown: { fill: "#ededed", label: "not measured", legend: "door width not measured" },
+};
+const HATCH_CSS = "repeating-linear-gradient(45deg, #9fcfae 0 3px, #eef7f0 3px 8px)";
+type AccessView = { a: Access; hinges: boolean };
+
+// As scanned, a room offset hinges would fix is still blocked: that is the point of the toggle.
+function accessState(id: string, { a, hinges }: AccessView): AccessState {
+  const scanned = a.asScanned.find((r) => r.roomId === id)?.status ?? "unknown";
+  if (!hinges) return scanned;
+  const fixed = a.hinges.find((r) => r.roomId === id)?.status ?? "unknown";
+  return scanned === "blocked" && fixed === "reachable" ? "hinges" : fixed;
+}
+
+const centroid = (p: Pt[]): Pt => ({ x: p.reduce((s, v) => s + v.x, 0) / p.length, y: p.reduce((s, v) => s + v.y, 0) / p.length });
+// Fallback door spot when the scan gave no door position: the point on the room's wall closest to the neighbour.
+function nearestOnBoundary(poly: Pt[], to: Pt): Pt {
+  let best = poly[0], d = Infinity;
+  poly.forEach((b, i) => {
+    const a = poly[(i + poly.length - 1) % poly.length];
+    const t = Math.max(0, Math.min(1, ((to.x - a.x) * (b.x - a.x) + (to.y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1)));
+    const p = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+    if (Math.hypot(p.x - to.x, p.y - to.y) < d) [best, d] = [p, Math.hypot(p.x - to.x, p.y - to.y)];
+  });
+  return best;
+}
+
+// A door's spot on the plan: its measured centre, else the point on room a's wall nearest room b.
+function doorSpot(g: RoomGraph, a: string, b: string, at?: Pt): Pt | null {
+  if (at) return at;
+  const ra = g.rooms.find((x) => x.id === a), rb = g.rooms.find((x) => x.id === b);
+  if (!ra || ra.polygon.length < 3) return null;
+  return nearestOnBoundary(ra.polygon, centroid(rb?.polygon.length ? rb.polygon : ra.polygon));
+}
+
+// Every measured door on the plan with its clear width for this case; red when the chair can't pass.
+function doorLabels(g: RoomGraph, { a, hinges }: AccessView, shown: Set<string>) {
+  const chairW = a.chairIn[0];
+  const inner = g.edges.filter((e) => e.kind === "door" && e.widthIn != null && shown.has(e.a) && shown.has(e.b))
+    .map((e) => ({ key: `${e.a}|${e.b}`, at: doorSpot(g, e.a, e.b, e.at), clear: doorClearIn(e, hinges) }));
+  const outside = (g.entries ?? []).filter((d) => d.widthIn != null && shown.has(d.roomId))
+    .map((d) => ({ key: `out|${d.roomId}`, at: d.at ?? null, clear: doorClearIn(d, hinges) }));
+  return [...inner, ...outside].flatMap((d) => (d.at ? [{ ...d, at: d.at, tooNarrow: d.clear < chairW }] : []));
+}
+
+// Rooms a door stops the chair at, with the tour sweep to open: the room the chair is stuck in, looking at the door.
+function blockedStops(g: RoomGraph, rooms: AccessRoom[]) {
+  const sweep = (id?: string) => g.rooms.find((x) => x.id === id)?.sweeps?.[0]?.index;
+  return rooms.filter((r) => r.status === "blocked" && r.stopDoor).flatMap((r) => {
+    const index = sweep(r.stopDoor!.from === "outside" ? r.roomId : r.stopDoor!.from) ?? sweep(r.roomId);
+    return index == null ? [] : [{ roomId: r.roomId, label: r.stopDoor!.from === "outside" ? "front" : r.label, index, clearIn: r.stopDoor!.clearIn }];
+  }).filter((s, i, all) => all.findIndex((x) => x.label === s.label && x.index === s.index) === i);
+}
+
+function AccessPlan({ report, g, measuredRooms, a, onShowInTour }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; a: Access; onShowInTour?: (sweepIndex: number) => void }) {
+  const [hinges, setHinges] = useState(false);
+  const fixable = a.asScanned.some((r) => r.status === "blocked" && a.hinges.find((x) => x.roomId === r.roomId)?.status === "reachable");
+  const stops = onShowInTour ? blockedStops(g, hinges ? a.hinges : a.asScanned) : [];
+  return (
+    <>
+      {fixable && (
+        <div className="view-switch" role="group" aria-label="Door scenario" style={{ marginTop: 8 }}>
+          <button type="button" aria-pressed={!hinges} onClick={() => setHinges(false)}>As scanned</button>
+          <button type="button" aria-pressed={hinges} onClick={() => setHinges(true)}>With offset hinges</button>
+        </div>
+      )}
+      <Plan2D report={report} g={g} measuredRooms={measuredRooms} access={{ a, hinges }} />
+      {stops.length > 0 && (
+        <nav aria-label="Doors that stop the chair" className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {stops.map((s) => (
+            <button key={`${s.roomId}-${s.index}`} type="button" className="btn small" onClick={() => onShowInTour!(s.index)}>
+              Show the {s.label} door ({s.clearIn} in) in the 3D tour
+            </button>
+          ))}
+        </nav>
+      )}
+    </>
+  );
+}
 const k$ = (n: number) => `$${Math.round(n / 1000)}k`;
 const range = ([lo, hi]: readonly number[]) => (hi ? `${k$(lo)}–${k$(hi)}` : "none");
 export type Proposal = { report: ShellReport; diff: FitoutDiff; kept: boolean };
 
-export function FitView({ report: measured, proposal, onKeep, onUndo }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void }) {
+export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTour }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void; onShowInTour?: (sweepIndex: number) => void }) {
   const report = proposal?.report ?? measured;
   const sim = report.similarity?.layout?.length ? report.similarity : undefined;
   const [picked, setView] = useState<View>(sim ? "compare" : "plan");
   const view: View = picked === "compare" && !sim ? "plan" : picked; // the report can change under a kept view
   const g = report.floorplan;
   if (!g) return <p className="muted" style={{ padding: 16 }}>Record-only candidate: there is no room scan to lay the requirements onto.</p>;
-  const views: [View, string][] = [["plan", "2D plan"], ["3d", "3D model"], ...(sim ? [["compare", "vs. your design"] as [View, string]] : [])];
+  const access = measured.access; // computed on the measured scan, not on a proposed edit
+  const views: [View, string][] = [["plan", "2D plan"], ["3d", "3D model"], ...(sim ? [["compare", "vs. your design"] as [View, string]] : []), ...(access ? [["access", "Wheelchair access"] as [View, string]] : [])];
   return (
     <div style={{ padding: 12 }}>
       <div className="view-switch" role="group" aria-label="Fit view">
@@ -50,6 +137,7 @@ export function FitView({ report: measured, proposal, onKeep, onUndo }: { report
       </div>
       {proposal && <ProposalStrip p={proposal} onKeep={onKeep} onUndo={onUndo} />}
       {view === "plan" && <Plan2D report={report} g={g} measuredRooms={measured.floorplan?.rooms.length} />}
+      {view === "access" && access && <AccessPlan report={report} g={g} measuredRooms={measured.floorplan?.rooms.length} a={access} onShowInTour={onShowInTour} />}
       {view === "3d" && <Scan3D report={report} g={g} />}
       {view === "compare" && sim && <LayoutCompare name={report.name.split(" · ")[0]} g={g} sim={sim} />}
     </div>
@@ -121,7 +209,7 @@ function ProposalStrip({ p, onKeep, onUndo }: { p: Proposal; onKeep?: () => void
   );
 }
 
-function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGraph; measuredRooms?: number }) {
+function Plan2D({ report, g, measuredRooms, access }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; access?: AccessView }) {
   const byRoom = new Map(report.fit.assignment.filter((a) => a.roomId).map((a) => [a.roomId!, tidy(a.req)]));
   const unmatched = report.fit.assignment.filter((a) => !a.roomId).map((a) => tidy(a.req));
   const floors = [...new Set(g.rooms.map((r) => r.floorId))];
@@ -132,7 +220,20 @@ function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGrap
   const withPoly = rooms.filter((r) => shapes(r).length);
   const proposed = rooms.filter((r) => r.proposed);
 
-  const legend = (
+  const state = (id: string) => accessState(id, access!);
+  const states = access ? withPoly.map((r) => state(r.id)) : [];
+  const count = (s: AccessState) => states.filter((x) => x === s).length;
+  const labels = access ? doorLabels(g, access, new Set(withPoly.map((r) => r.id))) : [];
+  const chair = access ? `${access.a.chairIn[0]} in chair` : "";
+
+  const legend = access ? (
+    <ul className="plan-legend">
+      {(Object.keys(ACCESS) as AccessState[]).map((s) => (
+        <li key={s}><span className="sw" aria-hidden="true" style={{ background: s === "hinges" ? HATCH_CSS : ACCESS[s].fill }} /> {ACCESS[s].legend} ({count(s)})</li>
+      ))}
+      {labels.length > 0 && <li><span className="sw" aria-hidden="true" style={{ background: labels.some((d) => d.tooNarrow) ? "var(--fail)" : INK, borderRadius: 7 }} /> doors, with clear width in inches{labels.some((d) => d.tooNarrow) ? "; red = too narrow for the chair" : ""}</li>}
+    </ul>
+  ) : (
     <ul className="plan-legend">
       <li><span className="sw match" aria-hidden="true" /> matched to your requirement</li>
       <li><span className="sw" aria-hidden="true" /> measured room, not needed</li>
@@ -177,23 +278,33 @@ function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGrap
 
   return (
     <figure className="plan">
-      <div className="plan-scroll"><svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Floor plan of ${g.name}: ${byRoom.size} rooms matched, ${unmatched.length} to build${proposed.length ? `; proposed changes to ${proposed.map((r) => r.label).join(", ")}` : ""}`}>
+      <div className="plan-scroll"><svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={access
+        ? `Wheelchair route on ${g.name} for a ${chair}: ${count("reachable")} rooms reachable, ${count("hinges")} fit with offset hinges, ${count("blocked")} blocked, ${count("unknown")} not measured`
+        : `Floor plan of ${g.name}: ${byRoom.size} rooms matched, ${unmatched.length} to build${proposed.length ? `; proposed changes to ${proposed.map((r) => r.label).join(", ")}` : ""}`}>
+        <defs>
+          <pattern id="hinge-hatch" width={8} height={8} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={8} height={8} fill="#eef7f0" />
+            <line x1={0} y1={0} x2={0} y2={8} stroke="#9fcfae" strokeWidth={3} />
+          </pattern>
+        </defs>
         <rect width={W} height={H} fill="#fff" />
         {withPoly.map((r) => {
           const req = byRoom.get(r.id);
           const main = shapes(r)[0];
           const { x: cx, y: cy, r: room } = labelPoint(main.map((p) => ({ x: tx(p.x), y: ty(p.y) })));
-          const name = `${(req ?? r.label).toUpperCase()}${r.proposed ? "*" : ""}`;
+          const name = `${(access ? r.label : req ?? r.label).toUpperCase()}${r.proposed ? "*" : ""}`;
+          const fill = access ? ACCESS[state(r.id)].fill : req ? MATCH : "#fff";
+          const line2 = access ? ACCESS[state(r.id)].label.toUpperCase() : `${Math.round(r.areaSqft)} SF`;
           const fits = room * 2 > name.length * 6.2 + 4 && room > 15;
           return (
             <g key={r.id}>
               {shapes(r).map((poly, i) => (
-                <polygon key={i} points={poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ")} fill={req ? MATCH : "#fff"} stroke={INK} strokeWidth={2.5} strokeLinejoin="miter" strokeDasharray={r.proposed ? "7 4" : undefined} />
+                <polygon key={i} points={poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ")} fill={fill} stroke={INK} strokeWidth={2.5} strokeLinejoin="miter" strokeDasharray={r.proposed ? "7 4" : undefined} />
               ))}
               {fits ? (
                 <text x={cx} y={cy - 2} textAnchor="middle" fontSize={9.5} letterSpacing={0.6} fill={req ? INK : MUTED} fontWeight={req ? 700 : 500}>
                   {name}
-                  <tspan x={cx} dy={13} fontSize={9} fontWeight={400} fill={MUTED} letterSpacing={0} className="num">{Math.round(r.areaSqft)} SF</tspan>
+                  <tspan x={cx} dy={13} fontSize={9} fontWeight={access ? 700 : 400} fill={access ? INK : MUTED} letterSpacing={0} className={access ? undefined : "num"}>{line2}</tspan>
                 </text>
               ) : room > 9 && (
                 <text x={cx} y={cy + 3} textAnchor="middle" fontSize={8.5} fill={MUTED} className="num">{Math.round(r.areaSqft)}</text>
@@ -201,6 +312,12 @@ function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGrap
             </g>
           );
         })}
+        {labels.map((d) => (
+          <g key={d.key}>
+            <circle cx={tx(d.at.x)} cy={ty(d.at.y)} r={d.tooNarrow ? 6 : 4} fill={d.tooNarrow ? "var(--fail)" : INK} stroke="#fff" strokeWidth={2} />
+            <text x={tx(d.at.x) + 8} y={ty(d.at.y) - 7} fontSize={10} fontWeight={700} fill={d.tooNarrow ? "var(--fail)" : INK} stroke="#fff" strokeWidth={3} paintOrder="stroke" className="num">{d.clear}&quot;</text>
+          </g>
+        ))}
         {barPx > 0 && (
           <g transform={`translate(${PAD}, ${H - 18})`} fontSize={9} fill={INK}>
             <rect width={barPx / 2} height={4} fill={INK} />
@@ -211,6 +328,7 @@ function Plan2D({ report, g, measuredRooms }: { report: ShellReport; g: RoomGrap
         )}
       </svg></div>
       <figcaption>
+        {access && `Route for a ${chair} from the entry through measured doors${access.hinges ? ", with offset hinges on every hinged door" : ""}. Clear widths are estimates (opening minus about 2 in for a hinged door); confirm with a tape. · `}
         {proposed.length > 0 && "* proposed change, not measured · "}Matterport scan {g.sid} · {measuredRooms ?? g.rooms.length} measured rooms · {Math.round(g.totalAreaSqft).toLocaleString()} sf net{floors.length > 1 ? ` · largest of ${floors.length} floors shown` : ""}
       </figcaption>
       {legend}
