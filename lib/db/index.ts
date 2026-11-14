@@ -11,7 +11,9 @@ let gen = 0;
 export const generation = () => gen;
 export const bumpGeneration = () => { gen++; };
 
-export const dbFile = () => process.env.HERMIT_DB ?? path.join(dataDir(), "hermit.db");
+// Vercel's deploy bundle is read-only; /tmp is the only writable path there.
+// ponytail: /tmp is per-instance and wiped on cold start, so chats and saves are not durable on Vercel; move to a hosted DB if they must persist.
+export const dbFile = () => process.env.HERMIT_DB ?? path.join(process.env.VERCEL ? "/tmp" : dataDir(), "hermit.db");
 
 export function db(): DatabaseSync {
   const file = dbFile();
