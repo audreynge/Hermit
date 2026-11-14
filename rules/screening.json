@@ -1,0 +1,50 @@
+{
+  "version": "hermit-screening-2026-11",
+  "note": "Screening assumptions only. Not a code determination; verify with the jurisdiction and licensed professionals.",
+  "sources": {
+    "ada": { "title": "2010 ADA Standards for Accessible Design (§206 routes, §404 doors, §603 toilet rooms)", "url": "https://www.ada.gov/law-and-regs/design-standards/2010-stds/" },
+    "lamc_zoning": { "title": "Los Angeles Municipal Code Ch. 1 (zones, §12.10–12.24)", "url": "https://codelibrary.amlegal.com/codes/los_angelesca/latest/lamc/0-0-0-1" },
+    "lamc_parking": { "title": "Los Angeles Municipal Code §12.21 A.4 (parking)", "url": "https://codelibrary.amlegal.com/codes/los_angelesca/latest/lamc/0-0-0-1" },
+    "ab2097": { "title": "California AB 2097 (2022): no minimum parking near major transit", "url": "https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202120220AB2097" },
+    "houston_parking": { "title": "Houston Code of Ordinances Ch. 26, Art. VIII (off-street parking)", "url": "https://library.municode.com/tx/houston/codes/code_of_ordinances?nodeId=COOR_CH26PAVEHO" },
+    "houston_zoning": { "title": "Houston has no zoning ordinance; deed restrictions apply (Planning & Development)", "url": "https://www.houstontx.gov/planning/DevelopRegs/" },
+    "ladbs": { "title": "LADBS plan check and permitting", "url": "https://dbs.lacity.gov/services/plan-check-permitting" },
+    "houston_permits": { "title": "Houston Permitting Center", "url": "https://www.houstonpermittingcenter.org/" },
+    "ashrae_rule": { "title": "HVAC sizing rule of thumb (sf per ton by occupancy); screening only, Manual N/ASHRAE load calc required", "url": "https://www.energy.gov/energysaver/central-air-conditioning" },
+    "nfpa13": { "title": "NFPA 13: Standard for the Installation of Sprinkler Systems (ESFR for high-piled storage)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-13-standard-development/13" },
+    "nfpa70": { "title": "NFPA 70 National Electrical Code (service sizing)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70" },
+    "costar_kit": { "title": "CoStar hackathon kit record fields (listingStatus, electric, driveInBays, bedsMax); private kit, cited by field", "url": "https://www.costar.com/" },
+    "costs": { "title": "Hermit cost table v2026-11: broad screening ranges, not bids", "url": "https://github.com/audreynge/hackprinceton-fall26/blob/main/rules/screening.json" }
+  },
+  "uses": {
+    "office": { "match": ["office", "creative", "loft", "coworking", "agency", "studio"], "zone": "commercial", "parkingPer1000": { "los_angeles": 2, "houston": 2.5 }, "sfPerTon": [300, 400], "permit": "tenant improvement" },
+    "medical": { "match": ["medical", "dental", "dentist", "clinic", "doctor", "physical therapy", "chiropract", "veterinar", "exam"], "zone": "commercial", "parkingPer1000": { "los_angeles": 5, "houston": 4 }, "sfPerTon": [250, 300], "permit": "tenant improvement + health review" },
+    "salon": { "match": ["salon", "barber", "spa", "nail", "beauty"], "zone": "commercial", "parkingPer1000": { "los_angeles": 4, "houston": 4 }, "sfPerTon": [250, 300], "permit": "tenant improvement + cosmetology board" },
+    "retail": { "match": ["retail", "store", "shop", "boutique", "showroom", "gallery"], "zone": "commercial", "parkingPer1000": { "los_angeles": 4, "houston": 4 }, "sfPerTon": [250, 350], "permit": "tenant improvement" },
+    "restaurant": { "match": ["restaurant", "cafe", "coffee", "bakery", "kitchen", "food", "bar", "eatery"], "zone": "commercial", "parkingPer1000": { "los_angeles": 10, "houston": 8 }, "sfPerTon": [150, 250], "permit": "tenant improvement + health + grease interceptor" },
+    "fitness": { "match": ["gym", "fitness", "yoga", "pilates", "dance", "martial"], "zone": "commercial", "parkingPer1000": { "los_angeles": 5, "houston": 5 }, "sfPerTon": [200, 300], "permit": "tenant improvement (assembly occupancy)" },
+    "warehouse": { "match": ["warehouse", "distribution", "logistics", "storage", "fulfillment"], "zone": "industrial", "parkingPer1000": { "los_angeles": 0.5, "houston": 0.5 }, "sfPerTon": [800, 1500], "permit": "industrial TI" },
+    "manufacturing": { "match": ["manufactur", "fabricat", "machine shop", "brewery", "production", "workshop", "lab"], "zone": "industrial", "parkingPer1000": { "los_angeles": 1, "houston": 1 }, "sfPerTon": [400, 700], "permit": "industrial TI + possible hazmat review" },
+    "home": { "match": ["home", "house", "apartment", "condo", "family", "live"], "zone": "residential", "parkingPer1000": { "los_angeles": 0, "houston": 0 }, "sfPerTon": [500, 600], "permit": "residential remodel" }
+  },
+  "laZonePrefixes": {
+    "residential": ["R", "RD", "RE", "RS", "RA", "RU", "RZ", "RW", "RAS", "LAR", "LARD", "LARE", "LARS"],
+    "commercial": ["C", "CR", "CM", "LAC", "LACM", "LACR"],
+    "industrial": ["M", "MR", "LAM", "LAMR", "LAMR1", "LAMR2"]
+  },
+  "permitWeeks": { "los_angeles": [6, 16], "houston": [2, 8] },
+  "costs": {
+    "build_room": { "low": 6000, "high": 18000, "weeksLow": 2, "weeksHigh": 4, "label": "New partitioned room (framing, drywall, door, electrical)" },
+    "divide_room": { "low": 4000, "high": 10000, "weeksLow": 1, "weeksHigh": 3, "label": "Demising wall + door" },
+    "bathroom": { "low": 25000, "high": 60000, "weeksLow": 4, "weeksHigh": 8, "label": "New restroom with plumbing tie-in" },
+    "ada_restroom": { "low": 15000, "high": 40000, "weeksLow": 3, "weeksHigh": 6, "label": "Accessible restroom alteration" },
+    "kitchen": { "low": 15000, "high": 45000, "weeksLow": 3, "weeksHigh": 6, "label": "Breakroom/kitchenette with sink" },
+    "commercial_kitchen": { "low": 120000, "high": 350000, "weeksLow": 10, "weeksHigh": 20, "label": "Commercial kitchen with hood and grease interceptor" },
+    "add_fixture": { "low": 2500, "high": 9000, "weeksLow": 1, "weeksHigh": 2, "label": "Add sink or plumbing fixture" },
+    "electrical_upgrade": { "low": 30000, "high": 150000, "weeksLow": 8, "weeksHigh": 26, "label": "Service upgrade / three-phase (utility + switchgear lead time)" },
+    "esfr_retrofit_psf": { "low": 3, "high": 6, "weeksLow": 6, "weeksHigh": 12, "label": "ESFR sprinkler retrofit (per sf)" },
+    "drive_in_door": { "low": 15000, "high": 40000, "weeksLow": 4, "weeksHigh": 8, "label": "New grade-level drive-in door" },
+    "hvac_ton": { "low": 2500, "high": 5000, "weeksLow": 3, "weeksHigh": 8, "label": "Added HVAC capacity (per ton)" },
+    "ramp": { "low": 5000, "high": 25000, "weeksLow": 2, "weeksHigh": 5, "label": "Step-free entry / ramp" }
+  }
+}
