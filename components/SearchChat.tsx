@@ -1,7 +1,7 @@
 "use client";
 import {
-  Accessibility, ArrowUpDown, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
-  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, User, X, Zap,
+  Accessibility, ArrowUpDown, Check, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
+  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, TriangleAlert, User, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,14 +22,16 @@ import { loadLayouts, putLayout } from "@/lib/client/layouts";
 import { KEYS, load, save } from "@/lib/client/store";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
+import { isBuying, ParcelInfo } from "./ParcelInfo";
 import { PropertyViewer } from "./PropertyViewer";
 import { RegulationList } from "./Regulations";
 import type { Finding } from "@/lib/regs/research";
 import { SpaceCard } from "./SpaceCard";
+import { ResultsMap } from "./ResultsMap";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
-  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: boolean }
+  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card; fallback?: string }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
   | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] }
@@ -39,11 +41,11 @@ type Fitout = Proposal & { ops: FitoutOp[] };
 type Design =
   | { kind: "layout"; blocks: Block[]; applied: number; rejected: unknown[] }
   | { kind: "fitout"; shellId: string; ops: FitoutOp[]; report: ShellReport; diff: FitoutDiff; rejected: unknown[] };
-const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open (the layout|in layout studio)$/i };
+const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open (the layout|in layout studio)$/i, parcel: /\b(parcel|apn)\b/i, parcelAsk: /^(what|what's|whats|how (big|much|large)|when)\b.*\b(lot|property tax(es)?|taxes|assess(ed|ment)|last (sold|sale)|sold)\b/i };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string; design?: Design } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; fallback?: string; fallbackWhy?: string; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string; design?: Design } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn; design?: Design };
 
@@ -61,13 +63,13 @@ function fromStoredOne(r: StoredRow): Msg | null {
     ? { id: uid(), role: "user", text: r.payload.summary ?? "Here's my layout.", design: { kind: "layout", blocks: r.payload.blocks ?? [] } }
     : { id: uid(), role: "user", text: `Uploaded ${r.payload.name ?? "a floor plan"}`, design: { kind: "upload", name: r.payload.name ?? "floor plan" } };
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
-  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card, fallback: !!r.payload.fallback };
+  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card, fallback: r.payload.fallback ? r.payload.fallbackWhy ?? "the AI provider was unavailable" : undefined };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
   if (r.kind === "regulations" && r.payload.findings) return { id: uid(), role: "bot", kind: "regulations", findings: r.payload.findings };
   return null;
 }
 
-const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bolt: Zap, flame: Flame, car: Car, accessible: Accessibility, tag: Tag, ruler: Ruler, layout: LayoutGrid, dollar: DollarSign, x: CircleX, eye: Eye, sort: ArrowUpDown, doc: FileText };
+const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bolt: Zap, flame: Flame, car: Car, accessible: Accessibility, tag: Tag, ruler: Ruler, layout: LayoutGrid, dollar: DollarSign, x: CircleX, eye: Eye, sort: ArrowUpDown, doc: FileText, check: CircleCheck, alert: TriangleAlert };
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EMPTY_DRAFT: Draft = { mode: "business", useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" };
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -101,6 +103,7 @@ export function SearchChat() {
   const [tour, setTour] = useState<string | null>(null);
   const [emailFor, setEmailFor] = useState<ShellReport | null>(null);
   const [detailsFor, setDetailsFor] = useState<ShellReport | null>(null);
+  const [parcelFor, setParcelFor] = useState<ShellReport | null>(null);
   const [viewing, setViewing] = useState<ShellReport | null>(null);
   const [saved, setSaved] = useState<Saved>({});
   const [input, setInput] = useState("");
@@ -109,7 +112,8 @@ export function SearchChat() {
   const [resultsReady, setResultsReady] = useState(false);
   const [owner, setOwner] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  // Opened after mount (?design=draw): the sheet portals to <body>, which does not exist during server rendering.
+  const [drawing, setDrawing] = useState(false);
   // Design edits: the drawn layout chat edits apply to, its undo history, and proposed changes per scanned space.
   const [layout, setLayout] = useState<Block[] | null>(null);
   const [layoutId, setLayoutId] = useState<string | null>(null);
@@ -186,9 +190,12 @@ export function SearchChat() {
     const s = summarizeResults(reports, spec, { considered, dropped: events.filter((e) => e.type === "drop").length });
     const quick = reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"];
     push(bot([...s.paragraphs, s.followUp], quick));
-    const next = { ...chat, phase: "results" as const };
+    const next = { ...chat, ...(replay ? { spec } : {}), phase: "results" as const };
     setChat(next);
     if (!replay) void persist({ messages: [{ role: "bot", kind: "text", payload: { paragraphs: [...s.paragraphs, s.followUp], quick } }], state: next, lastRunId: runId });
+    // A replay has no conversation; open one behind the scenes so follow-ups (compare, email, edits) reach the server.
+    else if (!conv.current) opening.current = postJSON<ChatResponse>("/api/chat", { open: true, spec })
+      .then(async (r) => { conv.current = r.conversationId; await persist({ state: next, lastRunId: runId }); }).catch(() => {});
     setResultsReady(true);
   }, [finished, spec, reports, events, runKey, runId, replay, chat]);
 
@@ -217,7 +224,7 @@ export function SearchChat() {
       push(bot([turn.reply], turn.quickReplies));
       return;
     }
-    push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: !!turn.fallback } as Msg);
+    push({ ...bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card), fallback: turn.fallback ? turn.fallbackWhy ?? "the AI provider was unavailable" : undefined } as Msg);
     if (turn.action === "compare" && reports.length) {
       push({ id: uid(), role: "bot", kind: "compare", reports });
       void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
@@ -251,7 +258,8 @@ export function SearchChat() {
     const last = id ? fitouts[id]?.at(-1) : undefined;
     if (!id || !last) return push(bot(["There's no proposed change to keep yet."]));
     setFitouts((all) => ({ ...all, [id]: [...all[id].slice(0, -1), { ...last, kept: true }] }));
-    push(bot(["Kept. The open questions from these changes are now in the email draft for this space."]));
+    const asks = last.report.unknowns.some((u) => u.topic === "proposed change" && last.report.draftMessage.includes(u.question));
+    push(bot([asks ? "Kept. The open questions from these changes are now in the email draft for this space." : "Kept. These changes raise no new questions for the landlord, so the email draft is unchanged."]));
   };
 
   const openNew = useCallback((draft: Draft, userText?: string) => (opening.current = (async () => {
@@ -268,6 +276,7 @@ export function SearchChat() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    if (params.get("design") === "draw") setDrawing(true);
     fetch("/api/saved").then((r) => (r.ok ? r.json() : [])).then((rows: { report: ShellReport; spec: RequirementSpec; savedAt: string }[]) =>
       setSaved(Object.fromEntries(rows.map((x) => [x.report.shellId, x])))).catch(() => {});
     if (replay) {
@@ -342,6 +351,13 @@ export function SearchChat() {
     const refocus = () => inputRef.current?.focus({ preventScroll: true });
     if (COMMANDS.undo.test(t)) return void (undo(), refocus());
     if (COMMANDS.keep.test(t)) return void (keep(), refocus());
+    // Parcel questions about the selected space open the same pop-up as the card button; record facts, no LLM.
+    const sel = reports[selected];
+    if (sel && (COMMANDS.parcel.test(t) || COMMANDS.parcelAsk.test(t))) {
+      if (!isBuying(spec, sel)) return void (push(bot(["Parcel records show when you're buying, and this space is a lease. You can ask the landlord about the lot, taxes or APN in your email."])), refocus());
+      setParcelFor(sel);
+      return void push(bot([`Here are the parcel records for ${sel.name.split(" · ")[0]}. Anything missing is marked "Not on record".`]));
+    }
     if (COMMANDS.search.test(t)) {
       refocus();
       const s = chat.spec;
@@ -439,7 +455,7 @@ export function SearchChat() {
                       <>
                         <div className="bubble">{m.paragraphs.slice(0, m.paragraphs.length > 2 ? -1 : undefined).map((p, i) => <p key={i}>{p}</p>)}</div>
                         {m.paragraphs.length > 2 && <div className="bubble"><p>{m.paragraphs.at(-1)}</p></div>}
-                        {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered without Claude (it was unavailable).</p>}
+                        {m.fallback && <p className="muted" style={{ fontSize: 13 }}>Answered by built-in rules, not AI ({m.fallback}).</p>}
                         {m.card && m === lastQuick && !running && owner && <MultiCard card={m.card} onSubmit={send} />}
                         {m.quick && m === lastQuick && !running && owner && (
                           <div className="quick" role="group" aria-label="Suggested replies">{m.quick.map((q) => <button key={q} type="button" onClick={() => send(q)}>{q}</button>)}</div>
@@ -488,16 +504,18 @@ export function SearchChat() {
             <h2 id="matches-title"><Layers aria-hidden="true" /> Matching Spaces</h2>
             <span className="muted" role="status">{searching ? "Searching…" : showResults ? `${visibleReports.length} result${visibleReports.length === 1 ? "" : "s"}` : ""}</span>
           </div>
+          {showResults && visibleReports.length > 0 && <ResultsMap reports={visibleReports} selected={selected} onSelect={(i) => { setSelected(i); setTour(null); document.getElementById(`sp-${visibleReports[i].shellId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }} />}
           <div className="results-list">
             {!showResults && (
-              <div style={{ padding: "40px 20px", textAlign: "center" }} className="muted">
+              <div style={{ padding: "40px 20px", textAlign: "center", gridColumn: "1 / -1" }} className="muted">
                 {searching ? "Hermit is checking spaces. Matches will appear here." : "Tell Hermit about your space and the best matches will show up here, each with the evidence behind it."}
               </div>
             )}
             {showResults && spec && visibleReports.map((r, i) => (
-              <SpaceCard key={r.shellId} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
+              <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
                 onSelect={() => { setSelected(i); setTour(null); }}
-                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)} />
+                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)}
+                onParcel={isBuying(spec, r) ? () => setParcelFor(r) : undefined} />
             ))}
           </div>
         </section>
@@ -531,7 +549,9 @@ export function SearchChat() {
       {viewing && <PropertyViewer report={viewing} onClose={() => setViewing(null)} />}
       {drawing && <DesignSheet onDone={applyDrawing} onClose={() => setDrawing(false)} />}
       {emailFor && <EmailDraft report={fitouts[emailFor.shellId]?.at(-1)?.kept ? fitouts[emailFor.shellId].at(-1)!.report : emailFor} onClose={() => setEmailFor(null)} />}
-      {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}
+      {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId}
+        onParcel={isBuying(spec, detailsFor) ? () => { const r = detailsFor; setDetailsFor(null); setParcelFor(r); } : undefined} /></Modal>}
+      {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </>
   );
 }
@@ -578,10 +598,16 @@ function MultiCard({ card, onSubmit }: { card: Card; onSubmit: (text: string) =>
   const toggle = (label: string) => setPicked((p) => (p.includes(label) ? p.filter((x) => x !== label) : [...p, label]));
   return (
     <div className="multi-card" role="group" aria-label="Choose all that apply">
-      {card.options.map((o) => (
-        <button key={o.value} type="button" className="chip-toggle" aria-pressed={picked.includes(o.label)} onClick={() => toggle(o.label)}>{o.label}</button>
-      ))}
-      <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      <div className="multi-options">
+        {card.options.map((o) => {
+          const on = picked.includes(o.label);
+          return <button key={o.value} type="button" className="chip-toggle" aria-pressed={on} onClick={() => toggle(o.label)}>{on ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}{o.label}</button>;
+        })}
+      </div>
+      <div className="multi-foot">
+        <span className="muted" aria-live="polite">{picked.length ? `${picked.length} selected` : "Tap all that apply"}</span>
+        <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
+      </div>
     </div>
   );
 }

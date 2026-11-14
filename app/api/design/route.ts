@@ -41,9 +41,10 @@ export async function POST(req: Request) {
       saveDesign(conv.id, "upload", { name: file.name, extraction: x });
       turn = applyDesign(conv.state, x);
     } catch (e) {
+      console.warn(`[hermit] floor-plan upload failed (${e instanceof Error ? e.message : e})`);
       const noKey = /key/i.test(String(e));
       turn = {
-        reply: noKey ? "Reading uploaded plans needs the Claude API key, which isn't set up here yet. You can draw the layout instead." : "I couldn't read that file. Try a clearer image or a one-page PDF, or draw the layout instead.",
+        reply: noKey ? "Reading uploaded plans needs an AI provider key (Claude or Gemini), which isn't set up here yet. You can draw the layout instead." : "I couldn't read that file. Try a clearer image or a one-page PDF, or draw the layout instead.",
         state: conv.state, ready: false, quickReplies: ["Draw a layout"],
       };
     }

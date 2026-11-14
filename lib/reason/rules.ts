@@ -92,10 +92,11 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     else hits.push(hit("parking", shell.parkingSpaces >= required ? "pass" : "warn", `${shell.parkingSpaces} recorded stalls vs ~${required} screening need (${per1000}/1,000 sf).${laNote}`, cite, ev));
   }
 
-  if (n.parking) {
+  if (n.parking || n.parkingStalls) {
     const ev = [costar(shell, "parking.totalSpaces")];
+    const want = Math.max(1, n.parkingStalls ?? 0);
     if (shell.parkingSpaces == null) hits.push(hit("onsite_parking", "unknown", "On-site parking count is not recorded.", src("costar_kit"), ev));
-    else hits.push(hit("onsite_parking", shell.parkingSpaces > 0 ? "pass" : "fail", `${shell.parkingSpaces} on-site stalls recorded.`, src("costar_kit"), ev));
+    else hits.push(hit("onsite_parking", shell.parkingSpaces >= want ? "pass" : "fail", `${shell.parkingSpaces} on-site stalls recorded${n.parkingStalls ? `; ${n.parkingStalls} needed` : ""}.`, src("costar_kit"), ev));
   }
 
   if (n.groundFloor) {

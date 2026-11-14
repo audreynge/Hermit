@@ -67,10 +67,10 @@ test.describe("chat onboarding", () => {
     const n = await cards(page).count();
     expect(n).toBeGreaterThan(0);
     expect(n).toBeLessThanOrEqual(5);
-    await expect(cards(page).first().locator(".fit-badge")).toContainText(/\d+% Fit/);
+    await expect(cards(page).first().locator(".space-facts")).toContainText(/sq ft/);
     await expect(cards(page).first().locator("li")).toHaveCount(3);
     const trace = page.getByRole("region", { name: "Agent trace" });
-    await expect(trace).toContainText(/Searched \d+ candidates/);
+    await expect(trace).toContainText(/Found [\d,]+ spaces? that pass your filters/);
     await expect(trace).toContainText(/Ranked \d+ matching space/);
     await trace.getByText("See every step").click();
     await expect(page.getByLabel("Full agent trace")).toContainText("search_shells");
@@ -321,7 +321,7 @@ test.describe("designs in the chat", () => {
     await fresh(page);
     await expect(conversation(page)).toContainText(/what kind of space/i);
     await page.locator('input[type="file"]').setInputFiles({ name: "plan.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") });
-    await expect(conversation(page)).toContainText("needs the Claude API key");
+    await expect(conversation(page)).toContainText("needs an AI provider key");
     await quick(page, "Draw a layout").click();
     await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeVisible();
   });
@@ -528,8 +528,8 @@ test.describe("dream layout", () => {
     await expect(page.locator(".similar")).toContainText("scaled to 125%");
 
     await matches.first().click();
-    const dialog = page.getByRole("dialog").filter({ hasText: "layout similarity" });
-    await expect(dialog).toContainText("layout similarity");
+    const dialog = page.getByRole("dialog").filter({ hasText: "Your design" });
+    await expect(dialog).toContainText("Your design");
     await expect(dialog.getByRole("img", { name: /Matched scan .* in 3D/ })).toBeVisible();
     await axe(page);
     await page.keyboard.press("Escape");

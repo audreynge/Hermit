@@ -75,7 +75,7 @@ const TEMPLATES: Record<string, { label: string; items: Item[] }> = {
   ] },
   blank: { label: "Blank canvas", items: [] },
 };
-export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: { onDone: (items: Block[]) => void; doneLabel?: string }) {
+export function LayoutStudio({ onDone, doneLabel = "Use this layout" }: { onDone: (items: Block[]) => void; doneLabel?: string }) {
   const [items, setItems] = useState<Item[]>(TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);
   const [future, setFuture] = useState<Item[][]>([]);

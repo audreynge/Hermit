@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { MODEL } from "../agent/model";
+import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
 import { ask, type ChatState, type Slot, type Turn } from "../chat/converse";
 import { fromLayout, type Block } from "../spec/parse";
 import type { Draft } from "../spec/survey";
@@ -88,9 +89,15 @@ export function layoutSummary(blocks: Block[]): string {
 const PROMPT = `This should be a floor plan of a commercial space or home. Set isFloorPlan false if it is not a floor plan, sketch or plan drawing.
 List each kind of room with how many there are, the approximate area of one room in square feet (null if no scale or dimensions are shown), and plumbing fixtures shown (sink, toilet, shower, hood). Use short labels like "exam room", "office", "reception", "bathroom", "storage", "kitchen", "conference". Give the total area if it is written or can be read from dimensions, else null. Do not invent rooms that are not drawn.`;
 
-export async function extractFloorPlan(file: UploadFile, client?: Pick<Anthropic, "messages"> | null): Promise<FloorPlanExtraction> {
+export async function extractFloorPlan(file: UploadFile, client?: Pick<Anthropic, "messages"> | null, gemini?: GeminiClient | null): Promise<FloorPlanExtraction> {
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-  if (!c) throw new Error("Reading uploaded plans needs the Claude API key");
+  const g = c ? null : gemini !== undefined ? gemini : await geminiClient();
+  if (g) {
+    const out = FloorPlanSchema.safeParse(await geminiJson(g, PROMPT, [{ inlineData: { mimeType: file.mediaType, data: file.base64 } }, { text: PROMPT }], z.toJSONSchema(FloorPlanSchema)));
+    if (!out.success) throw new Error("Gemini couldn't read that floor plan");
+    return out.data;
+  }
+  if (!c) throw new Error("Reading uploaded plans needs an AI provider key (ANTHROPIC_API_KEY or GEMINI_API_KEY)");
   const block = file.mediaType === "application/pdf"
     ? { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: file.base64 } }
     : { type: "image" as const, source: { type: "base64" as const, media_type: file.mediaType, data: file.base64 } };

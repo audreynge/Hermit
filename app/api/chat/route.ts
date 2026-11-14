@@ -23,7 +23,7 @@ const Body = z.union([
 ]);
 
 const EDIT_WORDS = /\b(turn|convert|merge|combine|split|divide|knock|wall|add an? \w+ (to|in)|use the)\b/i;
-const botMsg = (t: Turn, design?: unknown): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card, fallback: t.fallback, ...(design ? { design } : {}) } });
+const botMsg = (t: Turn, design?: unknown): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card, fallback: t.fallback, fallbackWhy: t.fallbackWhy, ...(design ? { design } : {}) } });
 
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     if ("error" in f) fitoutNote = f.error;
     else ctx.fitout = f;
   }
-  const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch(() => null);
+  const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch((e) => (console.warn(`[hermit] Gemini unavailable (${e instanceof Error ? e.message : e})`), null));
   const openai = process.env.ANTHROPIC_API_KEY || gemini ? null : await openaiClient(isLoopback(req)).catch(() => null);
   let turn = await chatTurn(conv.state, b.text, undefined, { openai, gemini, ctx });
   let design: unknown;

@@ -29,6 +29,8 @@ describe("searchShells", () => {
     expect(ids).not.toContain("home");
     expect(ids).not.toContain("proposed");
     expect(ids).not.toContain("tiny");
+    expect(searchShells(spec({ sizeSqft: [2000, 3000] }), [s("short", { sqft: 1650 })]).results).toHaveLength(0);
+    expect(searchShells(spec({ sizeSqft: [2000, 3000] }), [s("near", { sqft: 1800 })]).results[0].reasons.join(" ")).toMatch(/below the 2,000 sf minimum/);
   });
 
   it("ranks a scanned like-for-like space with an active listing first", () => {
@@ -38,10 +40,11 @@ describe("searchShells", () => {
     expect(r.findIndex((x) => x.shell.id === "medical-record")).toBeGreaterThan(r.findIndex((x) => x.shell.id === "office-scan") - 2);
   });
 
-  it("counts what it rejected and caps results", () => {
+  it("counts what it rejected and keeps every match (no cap unless asked)", () => {
     const many = Array.from({ length: 80 }, (_, i) => s(`o${i}`, { sid: `s${i}` }));
     const out = searchShells(spec(), [...many, s("la2", { city: "los_angeles" })]);
-    expect(out.results).toHaveLength(50);
+    expect(out.results).toHaveLength(80);
+    expect(searchShells(spec(), many, 50).results).toHaveLength(50);
     expect(out.rejected).toBe(1);
   });
 

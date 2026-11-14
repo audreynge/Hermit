@@ -1,6 +1,7 @@
 import type { Finding } from "../regs/research";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
+import { mustHaves } from "./verify";
 
 export type Evaluation = {
   shell: Shell;
@@ -67,13 +68,19 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ...rules.flatMap((r) => r.evidence),
   ].filter((s, i, a) => a.findIndex((x) => x.ref === s.ref) === i);
 
-  const unknowns = rules
+  const raw = rules
     .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
     .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
-  for (const f of regs) if (f.certainty === "applies") unknowns.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
-  for (const u of fit.unknowns) unknowns.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
-  unknowns.push(...(e.extraUnknowns ?? []));
-  for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) unknowns.push({ topic: "scan detail", question: x.question });
+  for (const f of regs) if (f.certainty === "applies") raw.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
+  for (const u of fit.unknowns) raw.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
+  const musts = mustHaves(spec);
+  for (const m of musts) if (!rules.some((r) => r.rule === m.rule)) raw.push({ topic: m.rule.replace(/_/g, " "), question: `Can you confirm the space has ${m.need}?` });
+  raw.push(...(e.extraUnknowns ?? []));
+  for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) raw.push({ topic: "scan detail", question: x.question });
+  // Proposed-change and must-have questions lead (and are never cut from the draft); duplicates go.
+  const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
+  const priority = (u: { topic: string }) => (u.topic === "proposed change" ? 0 : mustTopics.has(u.topic) ? 1 : 2);
+  const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
 
   const matched = fit.assignment.filter((a) => a.roomId).length;
   const fails = e.rules.filter((r) => r.status === "fail");
@@ -87,9 +94,11 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ? `${rooms}${unclear} Expect ${cost}, ${work.weeksToOpen[0]}–${work.weeksToOpen[1]} weeks to open.`
     : `Record-only: no room scan, so room fit is not verified. Expect ${cost} once measured.`;
 
+  const nm = displayName(shell.name);
+  const place = spec.mode === "home" ? `the home at ${shell.address}` : shell.address.startsWith(nm) ? shell.address : `${nm} at ${shell.address}`;
   const contact = shell.listing?.contact?.name?.split(" ")[0];
-  const asks = unknowns.slice(0, 4).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for ${an(spec.useType)} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const asks = unknowns.slice(0, Math.max(4, unknowns.filter((u) => priority(u) < 2).length)).map((u) => `- ${u.question}`).join("\n");
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${place} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -101,7 +110,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     matchScore: Math.max(0, Math.min(100, e.finalScore)),
     sqft: shell.sqft,
     useTags: shell.useTags,
-    reasons: e.searchReasons.slice(0, 3),
+    reasons: e.searchReasons,
     fit,
     rules,
     work: work.items,

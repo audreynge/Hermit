@@ -32,6 +32,7 @@ export function labelPoint(p: Pt[]): Pt & { r: number } {
 }
 type View = "plan" | "3d" | "compare";
 const k$ = (n: number) => `$${Math.round(n / 1000)}k`;
+const range = ([lo, hi]: readonly number[]) => (hi ? `${k$(lo)}–${k$(hi)}` : "none");
 export type Proposal = { report: ShellReport; diff: FitoutDiff; kept: boolean };
 
 export function FitView({ report: measured, proposal, onKeep, onUndo }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void }) {
@@ -91,13 +92,9 @@ export function LayoutCompare({ name, g, sim }: { name: string; g: RoomGraph; si
   }));
   const scan = scanSolids(g, (id) => { const t = theirs.get(id); return t ? { fill: t.c, label: t.l } : { fill: "#f3e9e2" }; });
   const unmatched = layout.filter((b, i) => !color.has(i) && !/hall|corridor/i.test(b.label)).map((b) => b.label);
-  const bars: [string, number | null][] = [["Room program", sim.breakdown.program], ["Adjacency kept", sim.breakdown.adjacency], ["Total size", sim.breakdown.size], ["Footprint shape", sim.breakdown.shape]];
   return (
     <figure style={{ margin: 0 }}>
-      <p style={{ margin: "0 0 4px" }}><strong className="num">{sim.score}%</strong> layout similarity{sim.scale !== 1 ? <> · your design scaled to <span className="num">{Math.round(sim.scale * 100)}%</span> of its drawn area</> : null}</p>
-      <div className="sim-bars">
-        {bars.map(([l, v]) => <div key={l}><strong className="num">{v == null ? "n/a" : `${v}%`}</strong>{l}{v != null && <meter min={0} max={100} value={v} aria-label={`${l} ${v}%`} />}</div>)}
-      </div>
+      {sim.scale !== 1 && <p className="muted" style={{ margin: "0 0 4px" }}>Your design scaled to <span className="num">{Math.round(sim.scale * 100)}%</span> of its drawn area</p>}
       <div className="compare3d">
         <div><h4>Your design</h4><Plan3D solids={mine} label="Your drawn layout in 3D" height={300} wallScale={0.5} /></div>
         <div><h4>{name} (measured)</h4>{scan.length ? <Plan3D solids={scan} label={`Matched scan ${g.sid} in 3D`} height={300} wallScale={0.5} /> : <p className="muted">No wall geometry in this scan.</p>}</div>
@@ -114,7 +111,7 @@ function ProposalStrip({ p, onKeep, onUndo }: { p: Proposal; onKeep?: () => void
   return (
     <div className="row" role="group" aria-label="Proposed changes" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--sand-2)", marginBottom: 8 }}>
       <span role="status" style={{ fontSize: "var(--t-sm)" }}>
-        <strong>Proposed{p.kept ? " (kept)" : ""}:</strong> fit {d.fit[0]} → {d.fit[1]} · known work {k$(d.cost[1][0])}–{k$(d.cost[1][1])} (was {k$(d.cost[0][0])}–{k$(d.cost[0][1])}) · {d.weeks[1][0]}–{d.weeks[1][1]} wks
+        <strong>Proposed{p.kept ? " (kept)" : ""}:</strong> fit {d.fit[0]} → {d.fit[1]} · known work {range(d.cost[1])} (was {range(d.cost[0])}) · {d.weeks[1][0]}–{d.weeks[1][1]} wks
       </span>
       <span className="row" style={{ gap: 6 }}>
         {!p.kept && onKeep && <button type="button" className="btn small" onClick={onKeep}>Keep</button>}

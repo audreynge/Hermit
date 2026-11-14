@@ -7,8 +7,9 @@ import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
 import { screeningFindings, type Finding, type RegQuery } from "../regs/research";
 import { similarScans } from "../similarity/layout";
-import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, Similarity, TraceEvent } from "../types";
+import type { Evidence, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
+import { auditInput, checkReport, mustHaves, type Auditor } from "./verify";
 
 export type AgentDeps = {
   shells: (spec: RequirementSpec) => Shell[];
@@ -16,7 +17,7 @@ export type AgentDeps = {
   zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
   research?: (q: RegQuery) => Promise<{ findings: Finding[]; fromCache: boolean }>;
 };
-export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000, researchMs: 20_000 };
+export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000, researchMs: 20_000, auditMs: 12_000 };
 
 let seq = 0;
 const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
@@ -34,13 +35,13 @@ export const ToolInputs = {
 export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  search_shells: "Retrieve the top 50 candidate spaces for the user's RequirementSpec from the local index (city, mode, size, prior use, scan evidence). Call first.",
+  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first.",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
-  screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags.",
-  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run.",
+  screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
+  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run. Must-have failures and missing required rooms are dropped automatically (dropped: true).",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
-  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated candidates in your chosen rank order.",
+  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated candidates in your chosen rank order. An independent verifier then re-checks every report against the must-haves and sources.",
   research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
@@ -55,6 +56,7 @@ export class Run {
   dropped = new Set<string>();
   similarity = new Map<string, Similarity>();
   reports: ShellReport[] | null = null;
+  audit: Auditor | null = null; // independent LLM verifier, set by the planner when a provider is available
   regulations: Finding[] = [];
   researched = false;
   private researchJob: Promise<{ findings: Finding[]; fromCache: boolean; timedOut?: boolean }> | null = null;
@@ -75,6 +77,7 @@ export class Run {
     const resultId = rid(name);
     const { result, summary } = await this.exec(name, args as never);
     this.emit({ type: "tool", id: rid("ev"), tool: name, args, resultId, summary, ms: Date.now() - t0 });
+    if (name === "submit_reports") await this.verify();
     return { resultId, ...result };
   }
 
@@ -105,8 +108,8 @@ export class Run {
     const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
     return {
-      result: { considered: out.considered, rejected: out.rejected, top: out.results.slice(0, 20).map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons.slice(0, 3), scan: !!c.shell.sid })) },
-      summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → top ${out.results.length} kept`,
+      result: { considered: out.considered, rejected: out.rejected, top: out.results.map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons, scan: !!c.shell.sid })) },
+      summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → ${out.results.length} kept`,
     };
   }
 
@@ -116,13 +119,13 @@ export class Run {
     for (const r of results) this.similarity.set(r.candidate.shell.id, r.sim);
     const ranked = results
       .map(({ candidate: c, sim }) => ({ ...c, score: Math.round(c.score * 0.4 + sim.score * 0.6), reasons: [`Layout ${sim.score}% similar to your drawing`, ...c.reasons] }))
-      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id)).slice(0, 50);
+      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id));
     const seen = new Set(ranked.map((c) => c.shell.id));
-    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))].slice(0, 50);
+    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))];
     const best = results[0];
     const at = scale === 1 ? "" : ` at ${Math.round(scale * 100)}% of the drawn area`;
     return {
-      result: { compared: results.length, scale, top: ranked.slice(0, 10).map((c) => ({ id: c.shell.id, similarity: this.similarity.get(c.shell.id)!.score, breakdown: this.similarity.get(c.shell.id)!.breakdown })) },
+      result: { compared: results.length, scale, top: ranked.map((c) => ({ id: c.shell.id, similarity: this.similarity.get(c.shell.id)!.score, breakdown: this.similarity.get(c.shell.id)!.breakdown })) },
       summary: `compared your ${rooms}-room layout${at} with ${results.length} scanned floor plans; most similar ${best ? `${best.sim.score}% (${best.candidate.shell.id})` : "none"}`,
     };
   }
@@ -151,10 +154,11 @@ export class Run {
       if (!c || this.dropped.has(id)) return [];
       const flags = checkRules(this.spec, c.shell);
       this.screened.set(id, { shell: c.shell, flags });
-      return [{ id, fails: flags.filter((f) => f.status === "fail").map((f) => `${f.rule}: ${f.detail}`), unknown: flags.filter((f) => f.status === "unknown").map((f) => f.rule) }];
+      return [{ id, dropped: this.enforce(id, flags), fails: flags.filter((f) => f.status === "fail").map((f) => `${f.rule}: ${f.detail}`), unknown: flags.filter((f) => f.status === "unknown").map((f) => f.rule) }];
     });
     const failing = rows.filter((r) => r.fails.length).length;
-    return { result: { rows }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict` };
+    const auto = rows.filter((r) => r.dropped).length;
+    return { result: { rows }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict${auto ? `; ${auto} dropped for a failed must-have` : ""}` };
   }
 
   private async evaluate(ids: string[]) {
@@ -183,6 +187,8 @@ export class Run {
       const base = finalScore(fit, rules, c.score, !!graph);
       const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: similarity ? Math.round(base * 0.5 + similarity.score * 0.5) : base, escalations: [], similarity };
       this.evaluated.set(id, e);
+      // A missing room is work to build, not a failed must-have; only a far-too-small measured area drops here.
+      this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")));
       return [this.row(e)];
     });
     return { result: { rows }, summary: `evaluated ${rows.length} (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
@@ -194,7 +200,7 @@ export class Run {
 
   private row(e: Evaluation) {
     return {
-      id: e.shell.id, score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
+      id: e.shell.id, dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
       hardFails: e.fit.hardFails, roomUnknowns: e.fit.unknowns, ruleFails: e.rules.filter((r) => r.status === "fail").map((r) => r.rule),
       unknowns: e.rules.filter((r) => r.status === "unknown").map((r) => r.rule),
       unverifiedFixtures: unverifiedFixtures(this.spec, e),
@@ -233,7 +239,19 @@ export class Run {
     return { result: { dropped: drops.map((d) => d.shellId) }, summary: `dropped ${drops.length}: ${drops.map((d) => d.shellId).join(", ")}` };
   }
 
+  // Code-enforced must-haves (every planner path): a recorded fail drops the candidate; unknown stays in, flagged, with a landlord question.
+  private enforce(id: string, rules: RuleHit[], hardFails: string[] = []) {
+    const must = mustHaves(this.spec);
+    const why = [
+      ...rules.filter((r) => r.status === "fail" && must.some((m) => m.rule === r.rule)).map((r) => `${r.rule}: ${r.detail} (must-have ${must.find((m) => m.rule === r.rule)!.need}; ${r.evidence.map((e) => `${e.source} ${e.ref}`).join(", ") || r.citation})`),
+      ...hardFails,
+    ];
+    if (why.length) this.dropOne(id, why.join("; "));
+    return why.length > 0;
+  }
+
   private dropOne(id: string, reason: string) {
+    if (this.dropped.has(id)) return;
     const e = this.evaluated.get(id);
     const s = this.screened.get(id);
     const evidence: Evidence[] = [
@@ -255,13 +273,53 @@ export class Run {
     this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1, this.regulations));
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
   }
+
+  // Verifier pass: deterministic re-check of every report (always), plus an independent LLM audit when a provider is set.
+  // Rule violations demote a report to the bottom; LLM findings only flag (code, not the model, decides what fails).
+  private async verify() {
+    const reports = this.reports!;
+    const t0 = Date.now();
+    for (const r of reports) r.verification = checkReport(this.spec, r);
+    let note = "";
+    if (this.audit && reports.length) {
+      try {
+        const out = await Promise.race([
+          this.audit.audit(auditInput(this.spec, reports)),
+          new Promise<never>((_, no) => setTimeout(() => no(new Error(`no answer in ${BUDGET.auditMs / 1000}s`)), BUDGET.auditMs)),
+        ]);
+        for (const a of out.reports ?? []) {
+          const v = reports.find((r) => r.shellId === a.shellId)?.verification;
+          if (!v) continue;
+          v.by.push(this.audit.name);
+          if (!a.ok && a.issues?.length) {
+            v.issues.push(...a.issues.map((i) => `${this.audit!.name} auditor: ${i}`));
+            if (v.status === "verified") v.status = "flagged";
+          }
+        }
+      } catch (e) {
+        note = `; ${this.audit.name} auditor unavailable`;
+        this.emit({ type: "error", id: rid("ev"), message: `${this.audit.name} verifier failed (${e instanceof Error ? e.message : e}); kept the rule-based verification.` });
+      }
+    }
+    const demoted = reports.filter((r) => r.verification!.status === "demoted");
+    if (demoted.length) {
+      this.reports = [...reports.filter((r) => !demoted.includes(r)), ...demoted].map((r, i) => ({ ...r, rank: i + 1 }));
+      this.emit({ type: "rerank", id: rid("ev"), order: this.reports.map((r) => r.shellId), reason: `Verifier moved ${demoted.map((r) => r.shellId).join(", ")} to the bottom: ${demoted[0].verification!.issues[0]}` });
+    }
+    const flagged = reports.filter((r) => r.verification!.status === "flagged").length;
+    const must = mustHaves(this.spec).length;
+    this.emit({
+      type: "tool", id: rid("ev"), tool: "verify_reports", args: { shellIds: reports.map((r) => r.shellId) }, resultId: rid("verify_reports"), ms: Date.now() - t0,
+      summary: `Verified ${reports.length} report${reports.length === 1 ? "" : "s"} against ${must} must-have${must === 1 ? "" : "s"}: ${demoted.length} demoted, ${flagged} flagged (${["rules", ...(this.audit && !note ? [this.audit.name] : [])].join(" + ")})${note}`,
+    });
+  }
 }
 
 // Last step when the budget is spent: evaluate any unevaluated picks inside the single submit call.
 export async function finalize(run: Run, ids: string[]) {
   const missing = ids.filter((id) => !run.evaluated.has(id));
   if (missing.length) await run.evaluateQuietly(missing);
-  return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id)) });
+  return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id) && !run.dropped.has(id)) });
 }
 
 const FIXTURE_WORDS = ["sink", "toilet", "shower", "bathtub", "tub", "hood", "drain", "range", "stove", "oven", "refrigerator", "dishwasher", "washer", "dryer"];

@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       };
       emit({ type: "run", id: "run", runId, replay: false });
       try {
-        const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch(() => null);
+        const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch((e) => (emit({ type: "error", id: "gemini", message: `Gemini unavailable (${e instanceof Error ? e.message : e}); planning deterministically.` }), null));
         const openai = process.env.ANTHROPIC_API_KEY || gemini ? null : await openaiClient(isLoopback(req)).catch(() => null);
         await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) }, { gemini, openai });
       } catch (e) {

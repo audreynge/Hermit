@@ -28,6 +28,13 @@ describe("highlights", () => {
     expect(h.join(" ")).toMatch(/on-site parking/i);
   });
 
+  it("only calls a space ready when little work is known and most rooms are there", () => {
+    const pricey = report({ costRange: [18000, 54000] });
+    expect(highlights(pricey, spec)[1]).toBe("Previously used as a clinic");
+    const a = report().fit.assignment.map((x, i) => (i < 2 ? x : { ...x, roomId: null }));
+    expect(highlights(report({ fit: { ...report().fit, assignment: a } }), spec)[1]).toBe("Previously used as a clinic");
+  });
+
   it("only mentions parking when the user asked about it", () => {
     const noParking = { ...spec, needs: {} };
     const r = report({ rules: [{ rule: "parking", status: "pass", detail: "40 recorded stalls", citation: "x", evidence: [] }] });
@@ -38,6 +45,8 @@ describe("highlights", () => {
   it("says when size is outside the range instead of pretending it fits", () => {
     const h = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 3000 } }), spec);
     expect(h[0]).toMatch(/3,000 sq ft.*1,200.1,800/);
+    const below = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 1155 } }), spec);
+    expect(below[0]).toBe("1,155 sq ft (you asked for 1,200–1,800)");
   });
 });
 
@@ -86,7 +95,7 @@ describe("summarizeResults", () => {
 describe("thinkingSteps", () => {
   const events: TraceEvent[] = [
     { type: "plan", id: "1", text: "plan" },
-    { type: "tool", id: "2", tool: "search_shells", args: {}, resultId: "r1", summary: "2659 indexed → 2291 rejected by hard filters → top 50 kept", ms: 3 },
+    { type: "tool", id: "2", tool: "search_shells", args: {}, resultId: "r1", summary: "2659 indexed → 2291 rejected by hard filters → 368 kept", ms: 3 },
     { type: "tool", id: "3", tool: "screen_sites", args: {}, resultId: "r2", summary: "screened 20", ms: 1 },
     { type: "drop", id: "4", shellId: "X", reason: "zoning: Zone R3 is residential", evidence: [] },
     { type: "tool", id: "5", tool: "evaluate_candidates", args: {}, resultId: "r3", summary: "evaluated 8", ms: 4 },
@@ -116,11 +125,11 @@ describe("thinkingSteps", () => {
 describe("traceSummary", () => {
   it("condenses the run into three steps with counts", () => {
     const ev: TraceEvent[] = [
-      { type: "tool", id: "1", tool: "search_shells", args: {}, resultId: "r", summary: "2659 indexed → 2291 rejected by hard filters → top 50 kept", ms: 1 },
+      { type: "tool", id: "1", tool: "search_shells", args: {}, resultId: "r", summary: "2659 indexed → 2291 rejected by hard filters → 368 kept", ms: 1 },
       { type: "tool", id: "2", tool: "evaluate_candidates", args: {}, resultId: "r", summary: "", ms: 1 },
       { type: "report", id: "3", reports: [report(), report()] },
     ];
-    expect(traceSummary(ev)).toEqual(["Searched 50 candidates", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
+    expect(traceSummary(ev)).toEqual(["Found 368 spaces that pass your filters", "Evaluated fit (layout, size, use)", "Ranked 2 matching spaces"]);
   });
 });
 

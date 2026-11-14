@@ -22,7 +22,11 @@ function roomsPhrase(spec: Pick<RequirementSpec, "rooms">): string {
 const READY: Record<string, string> = {
   medical: "Clinic-ready layout (minimal build-out)", salon: "Salon-ready layout (minimal build-out)", office: "Office-ready layout (minimal build-out)",
   retail: "Storefront-ready (minimal build-out)", restaurant: "Already built out as a restaurant", warehouse: "Already built for warehouse use",
-  fitness: "Already built as a fitness space", manufacturing: "Already built for light industrial use",
+  fitness: "Already built as a fitness space", manufacturing: "Already built for light industrial use", home: "Already laid out as a home",
+};
+const USED_AS: Record<string, string> = {
+  medical: "clinic", salon: "salon", office: "office", retail: "store", restaurant: "restaurant", warehouse: "warehouse",
+  fitness: "fitness space", manufacturing: "light industrial space", home: "home",
 };
 
 export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
@@ -32,14 +36,16 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   if (area && spec.sizeSqft) {
     const [lo, hi] = spec.sizeSqft;
     const rooms = roomsPhrase(spec);
-    out.push(area >= lo * 0.9 && area <= hi * 1.1
+    out.push(area >= lo && area <= hi * 1.1
       ? rooms ? `Right size for ${rooms}` : `Right size (${fmt(area)} sq ft)`
       : `${fmt(area)} sq ft (you asked for ${fmt(lo)}–${fmt(hi)})`);
   } else if (area) out.push(`${fmt(area)} sq ft`);
 
   const prior = r.reasons.find((x) => x.startsWith("Prior use matches"))?.match(/\((.+)\)/)?.[1];
   const matched = r.fit.assignment.filter((a) => a.roomId).length;
-  if (prior) out.push(READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)`);
+  // "Ready" needs scanned evidence: known work ≤ $10k and most requested rooms already there. Otherwise just the sourced prior use.
+  const ready = !!r.floorplan && r.costRange != null && r.costRange[1] <= 10000 && matched * 2 > r.fit.assignment.length;
+  if (prior) out.push(ready ? READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)` : `Previously used as ${an(USED_AS[prior] ?? `${prior} space`)}`);
   else if (r.fit.assignment.length) out.push(`${matched} of ${r.fit.assignment.length} rooms already built`);
 
   const wantsParking = !!(spec.needs.parking || spec.needs.parkingStalls);
@@ -84,7 +90,7 @@ export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, 
       `Got it! I searched ${fmt(stats.considered)} spaces in ${city}${size} would work well for ${an(spec.useType)}${rooms ? ` with ${rooms}` : ""}.`,
       `I found ${n} ${kind} match${n === 1 ? "" : "es"}, with ${shortName(top)} being the best fit (${top.matchScore}%)${list ? `: ${list}` : ""}.`,
     ],
-    followUp: "Would you like me to compare the layouts, adjust anything like size, location, or budget, or draft an email to the property manager?",
+    followUp: `Would you like me to compare the layouts, adjust anything like size, location, or budget, or draft an email to the ${spec.mode === "home" ? "listing agent" : "property manager"}?`,
   };
 }
 
@@ -113,12 +119,14 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       if (spec.rooms.length) add(`${e.id}-r`, "layout", "Matching your rooms to real floor plans");
       add(`${e.id}-c`, "dollar", "Estimating build-out costs");
     }
-    if (e.type === "drop") add(e.id, "x", `Ruled out ${e.shellId}: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
+    if (e.type === "drop") add(e.id, "x", `Ruled out a space: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
     if (e.type === "escalate") {
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];
       add(e.id, "eye", thing ? `Looking for ${an(thing)} in the scan` : "Double-checking a detail in the scan");
     }
     if (e.type === "rerank") add(e.id, "sort", "Re-ranking on measured evidence");
+    if (e.type === "tool" && e.tool === "verify_reports") add(e.id, "check", e.summary.replace(/ \((rules[^)]*)\)/, ""), /[1-9]\d* (demoted|flagged)|unavailable/.test(e.summary) ? "warn" : "info");
+    if (e.type === "error") add(e.id, "alert", e.message, "warn");
     if (e.type === "report") add(e.id, "doc", "Writing your shell reports");
   }
   return steps;
@@ -126,8 +134,8 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
 
 export function traceSummary(events: TraceEvent[]): string[] {
   const out: string[] = [];
-  const { kept } = searchCounts(events);
-  if (events.some((e) => e.type === "tool" && e.tool === "search_shells")) out.push(`Searched ${kept} candidates`);
+  const { kept, considered } = searchCounts(events);
+  if (events.some((e) => e.type === "tool" && e.tool === "search_shells")) out.push(`Found ${fmt(kept)} space${kept === 1 ? "" : "s"} that pass your filters`);
   const lay = events.find((e) => e.type === "tool" && e.tool === "match_layout") as Extract<TraceEvent, { type: "tool" }> | undefined;
   const n = lay?.summary.match(/with (\d+) scanned/)?.[1];
   if (n) out.push(`Matched your layout against ${n} floor plans`);
@@ -139,7 +147,7 @@ export function traceSummary(events: TraceEvent[]): string[] {
 
 export function draftEmail(r: ShellReport) {
   const to = r.listing?.contact?.email ?? "";
-  const subject = `Inquiry about ${shortName(r)} at ${r.address}`;
+  const subject = r.address.startsWith(shortName(r)) ? `Inquiry about ${r.address}` : `Inquiry about ${shortName(r)} at ${r.address}`;
   const body = r.draftMessage;
   return { to, subject, body, mailto: `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` };
 }

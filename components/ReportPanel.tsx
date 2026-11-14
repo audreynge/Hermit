@@ -5,11 +5,17 @@ import { RegulationList } from "./Regulations";
 const ICON: Record<RuleStatus, string> = { pass: "✓", fail: "✕", warn: "!", unknown: "?" };
 const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 1000).toLocaleString()}k` : `$${n}`);
 
-export function ReportPanel({ report, runId, printable = false }: { report: ShellReport; runId?: string | null; printable?: boolean }) {
+export function ReportPanel({ report, runId, printable = false, onParcel }: { report: ShellReport; runId?: string | null; printable?: boolean; onParcel?: () => void }) {
   return (
     <div className="report">
       <p className="muted">#{report.rank} · {report.address} · <span className={`badge-src ${report.badge === "scan-verified" ? "verified" : "record"}`}>{report.badge === "scan-verified" ? "measured from 3D scan" : "record only"}</span></p>
       <p style={{ marginTop: 10, fontSize: 17 }}><strong>{report.verdict}.</strong> {report.summary}</p>
+      {report.verification && (
+        <p className={report.verification.status === "verified" ? "status-pass" : report.verification.status === "demoted" ? "status-fail" : "status-warn"} style={{ fontSize: 14 }}>
+          <strong>{report.verification.status === "verified" ? "✓ Checked against your must-haves and sources" : report.verification.status === "demoted" ? "✕ Demoted by verifier" : "! Flagged by verifier"}</strong>
+          {" "}<span className="muted">({report.verification.by.join(" + ")}){report.verification.issues.length ? `: ${report.verification.issues.join("; ")}` : ""}</span>
+        </p>
+      )}
 
       <div className="stats">
         <div><div className="big num">{report.matchScore}%</div><div className="muted">match</div></div>
@@ -78,6 +84,7 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
         <summary>Sources ({report.sources.length})</summary>
         <ul>{report.sources.map((s) => <li key={s.ref}>{s.source}: {s.ref} <span className="muted">(confidence {s.confidence})</span></li>)}</ul>
       </details>
+      {!printable && onParcel && <p style={{ marginTop: 14 }}><button type="button" className="btn small parcel-map" onClick={onParcel}>Parcel info</button></p>}
       {!printable && runId && <p style={{ marginTop: 14 }}><Link href={`/shell/${report.shellId}?run=${runId}`}>Open printable report</Link></p>}
       <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Hermit is a screening tool. It doesn&apos;t inspect, certify code compliance or guarantee availability.</p>
     </div>

@@ -49,18 +49,23 @@ async function main() {
   const listings = new Map<number, unknown[]>();
   for await (const l of jsonl("commercial-listing-summary.jsonl")) listings.set(l.propertyId, [...(listings.get(l.propertyId) ?? []), l]);
 
+  const comps = new Map<number, unknown[]>();
+  for await (const c of jsonl("commercial-sale-comp.jsonl"))
+    for (const id of new Set<number>((c.entities ?? []).map((e: { propertyId: number }) => e.propertyId))) comps.set(id, [...(comps.get(id) ?? []), c]);
+
   const shells: Shell[] = [];
   for await (const p of jsonl("commercial-property.jsonl")) {
     const type = enums.PropertyType[p.propertyType];
     if (["Multifamily", "Hospitality"].includes(type)) continue;
     const ls = (listings.get(p.id) ?? []) as never[];
+    const cs = (comps.get(p.id) ?? []) as never[];
     const scans = (scansByProperty.get(String(p.id)) ?? [])
       .map((sid) => index.get(sid) ?? { sid, name: sid })
       .filter((s) => !AMENITY.test(s.name));
-    if (scans.length && type !== "Industrial" && type !== "Flex") for (const s of scans) shells.push(shellFromCommercial(p, s, ls, enums));
+    if (scans.length && type !== "Industrial" && type !== "Flex") for (const s of scans) shells.push(shellFromCommercial(p, s, ls, enums, cs));
     else {
       const best = [...scans].sort((a, b) => Number(b.room_count ?? 0) - Number(a.room_count ?? 0))[0];
-      shells.push(shellFromCommercial(p, best, ls, enums));
+      shells.push(shellFromCommercial(p, best, ls, enums, cs));
     }
   }
 
@@ -78,6 +83,7 @@ async function main() {
   fs.writeFileSync(path.join(OUT, "shells.json"), JSON.stringify(unique));
   const by = (k: (s: Shell) => string) => unique.reduce<Record<string, number>>((a, s) => ((a[k(s)] = (a[k(s)] ?? 0) + 1), a), {});
   console.log(`wrote ${unique.length} shells`, by((s) => s.mode), by((s) => (s.sid ? "scan" : "record-only")), by((s) => s.city));
+  console.log("parcel fields", unique.flatMap((s) => Object.keys(s.parcel ?? {})).reduce<Record<string, number>>((a, k) => ((a[k] = (a[k] ?? 0) + 1), a), {}));
 }
 
 main();

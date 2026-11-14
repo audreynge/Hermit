@@ -89,7 +89,7 @@ describe("deterministic agent", () => {
     expect(esc[0].question).toBe("Is there a sink in the exam rooms?");
   });
 
-  it("keeps a single fixable code gap as priced work and batches drops into one call", async () => {
+  it("drops a recorded must-have failure (even a fixable one) and batches drops into one call", async () => {
     const d = deps();
     const all = d.shells(spec);
     const shells = [
@@ -101,11 +101,10 @@ describe("deterministic agent", () => {
     const dropCalls = events.filter((e) => e.type === "tool" && e.tool === "drop_candidate");
     const drops = events.filter((e) => e.type === "drop").map((e) => (e as { shellId: string }).shellId);
     expect(drops).toEqual(expect.arrayContaining(["X0", "X9"]));
-    expect(drops).not.toContain("C");
+    expect(drops).toContain("C"); // heavy power is a selected must-have and C records none
     expect(dropCalls.length).toBeLessThanOrEqual(2);
     const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
-    const c = report.reports.find((r) => r.shellId === "C");
-    if (c) expect(c.work.some((w) => /service upgrade/i.test(w.item))).toBe(true);
+    expect(report.reports.map((r) => r.shellId)).not.toContain("C");
   });
 
   it("does not report an unrelated object as the fixture asked about", async () => {

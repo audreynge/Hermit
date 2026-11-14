@@ -3,6 +3,7 @@ import path from "node:path";
 import { db, dbFile, generation } from "../db";
 import { dataDir } from "../paths";
 import { importBundle } from "../../pipeline/import-db";
+import { isPlaceholderContact, tidyAddress } from "../../pipeline/transform";
 import type { City, Mode, RoomGraph, Shell } from "../types";
 
 export { dataDir };
@@ -20,7 +21,12 @@ function table() {
   const key = `${dbFile()}#${generation()}`;
   if (cache?.key !== key) {
     const rows = db().prepare("SELECT json FROM shells").all() as { json: string }[];
-    const shells: Shell[] = rows.map((r) => JSON.parse(r.json));
+    const shells: Shell[] = rows.map((r) => {
+      const s = JSON.parse(r.json) as Shell;
+      if (s.listing?.contact && isPlaceholderContact(s.listing.contact.name)) delete s.listing.contact;
+      if (s.address) s.address = tidyAddress(s.address);
+      return s;
+    });
     cache = { key, shells, byId: new Map(shells.map((s) => [s.id, s])) };
   }
   return cache;
