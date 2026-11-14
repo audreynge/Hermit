@@ -18,6 +18,7 @@ function rect(id: string, label: string, x: number, y: number, w: number, h: num
 // doorWidthsIn[i] is the door between rooms[i] and rooms[i + 1]; the first room has a 36 in front door.
 function graph(sid: string, name: string, rooms: Room[], objects: RoomGraph["objects"] = [], doorWidthsIn?: number[]): RoomGraph {
   const edges: RoomGraph["edges"] = rooms.slice(1).map((r, i) => ({ a: rooms[i].id, b: r.id, kind: "door", ...(doorWidthsIn ? { widthIn: doorWidthsIn[i] } : {}) }));
+  if (doorWidthsIn) rooms = rooms.map((r, i) => ({ ...r, sweeps: [{ id: `p${i}`, index: i * 3 }] })); // tour stops for "show this door"
   return {
     sid, name, totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0), rooms, edges, objects, panoCount: 20, floorCount: 1,
     ...(doorWidthsIn ? { entries: [{ roomId: rooms[0].id, widthIn: 36 }] } : {}),

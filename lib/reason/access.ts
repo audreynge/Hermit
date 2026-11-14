@@ -9,6 +9,8 @@ const M_TO_IN = 39.3701;
 
 // A hinged door loses ~2 in to its leaf and stop, which swing-clear hinges win back; a cased opening has no leaf.
 const clearIn = (d: DoorMeasure, gain: number) => d.widthIn! - (d.open ? 0 : DOOR_STOP_IN - gain);
+// The same estimate for drawing a door's label, as scanned or with swing-clear hinges.
+export const doorClearIn = (d: DoorMeasure, hinges: boolean) => round1(clearIn(d, hinges ? SWING_CLEAR_GAIN_IN : 0));
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const OPEN_PLAN = new Set(["living", "kitchen", "dining", "hallway", "other", "open"]);
 
