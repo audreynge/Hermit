@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, Mail, MapPin } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, Mail, MapPin } from "lucide-react";
 import { useState } from "react";
 import { areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
@@ -59,9 +59,9 @@ function facts(r: ShellReport, area: number | undefined, price?: string): string
   return out;
 }
 
-export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEmail, onDetails, onSave, onView }: {
+export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEmail, onDetails, onSave, onView, onParcel }: {
   report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean; index?: number;
-  onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void;
+  onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void; onParcel?: () => void;
 }) {
   const area = areaOf(report);
   const head = headline(report, area);
@@ -90,6 +90,7 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEm
           <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> Email manager</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onDetails(); }}><FileText aria-hidden="true" /> Full report</button>
+          {onParcel && <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onParcel(); }}><LandPlot aria-hidden="true" /> Parcel info</button>}
         </div>
       </div>
     </article>

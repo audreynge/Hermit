@@ -22,6 +22,7 @@ import { loadLayouts, putLayout } from "@/lib/client/layouts";
 import { KEYS, load, save } from "@/lib/client/store";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
+import { isBuying, ParcelInfo } from "./ParcelInfo";
 import { PropertyViewer } from "./PropertyViewer";
 import { RegulationList } from "./Regulations";
 import type { Finding } from "@/lib/regs/research";
@@ -40,7 +41,7 @@ type Fitout = Proposal & { ops: FitoutOp[] };
 type Design =
   | { kind: "layout"; blocks: Block[]; applied: number; rejected: unknown[] }
   | { kind: "fitout"; shellId: string; ops: FitoutOp[]; report: ShellReport; diff: FitoutDiff; rejected: unknown[] };
-const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open (the layout|in layout studio)$/i };
+const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the last change))?$/i, keep: /^keep( these changes| it)?$/i, studio: /^open (the layout|in layout studio)$/i, parcel: /\b(parcel|apn)\b/i, parcelAsk: /^(what|what's|whats|how (big|much|large)|when)\b.*\b(lot|property tax(es)?|taxes|assess(ed|ment)|last (sold|sale)|sold)\b/i };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
@@ -102,6 +103,7 @@ export function SearchChat() {
   const [tour, setTour] = useState<string | null>(null);
   const [emailFor, setEmailFor] = useState<ShellReport | null>(null);
   const [detailsFor, setDetailsFor] = useState<ShellReport | null>(null);
+  const [parcelFor, setParcelFor] = useState<ShellReport | null>(null);
   const [viewing, setViewing] = useState<ShellReport | null>(null);
   const [saved, setSaved] = useState<Saved>({});
   const [input, setInput] = useState("");
@@ -349,6 +351,13 @@ export function SearchChat() {
     const refocus = () => inputRef.current?.focus({ preventScroll: true });
     if (COMMANDS.undo.test(t)) return void (undo(), refocus());
     if (COMMANDS.keep.test(t)) return void (keep(), refocus());
+    // Parcel questions about the selected space open the same pop-up as the card button; record facts, no LLM.
+    const sel = reports[selected];
+    if (sel && (COMMANDS.parcel.test(t) || COMMANDS.parcelAsk.test(t))) {
+      if (!isBuying(spec, sel)) return void (push(bot(["Parcel records show when you're buying, and this space is a lease. You can ask the landlord about the lot, taxes or APN in your email."])), refocus());
+      setParcelFor(sel);
+      return void push(bot([`Here are the parcel records for ${sel.name.split(" · ")[0]}. Anything missing is marked "Not on record".`]));
+    }
     if (COMMANDS.search.test(t)) {
       refocus();
       const s = chat.spec;
@@ -505,7 +514,8 @@ export function SearchChat() {
             {showResults && spec && visibleReports.map((r, i) => (
               <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
                 onSelect={() => { setSelected(i); setTour(null); }}
-                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)} />
+                onEmail={() => setEmailFor(r)} onDetails={() => setDetailsFor(r)} onSave={() => toggleSave(r)} onView={() => setViewing(r)}
+                onParcel={isBuying(spec, r) ? () => setParcelFor(r) : undefined} />
             ))}
           </div>
         </section>
@@ -539,7 +549,9 @@ export function SearchChat() {
       {viewing && <PropertyViewer report={viewing} onClose={() => setViewing(null)} />}
       {drawing && <DesignSheet onDone={applyDrawing} onClose={() => setDrawing(false)} />}
       {emailFor && <EmailDraft report={fitouts[emailFor.shellId]?.at(-1)?.kept ? fitouts[emailFor.shellId].at(-1)!.report : emailFor} onClose={() => setEmailFor(null)} />}
-      {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId} /></Modal>}
+      {detailsFor && <Modal title={detailsFor.name.split(" · ")[0]} onClose={() => setDetailsFor(null)}><ReportPanel report={detailsFor} runId={runId}
+        onParcel={isBuying(spec, detailsFor) ? () => { const r = detailsFor; setDetailsFor(null); setParcelFor(r); } : undefined} /></Modal>}
+      {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </>
   );
 }

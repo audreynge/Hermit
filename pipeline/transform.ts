@@ -1,6 +1,6 @@
 import { ringFromEdges, type Pt } from "../lib/geometry/polygon";
 import { normalizeRoomLabel } from "../lib/reason/labels";
-import type { City, Listing, Mode, Room, RoomGraph, Shell } from "../lib/types";
+import type { City, Listing, Mode, Parcel, Room, RoomGraph, Shell } from "../lib/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -101,7 +101,62 @@ function listingFor(listings: Any[], suiteName?: string): { listing?: Listing; s
   };
 }
 
-export function shellFromCommercial(p: Any, scan: Any | undefined, listings: Any[], enums: Enums): Shell {
+const apnKey = (s: string) => String(s).replace(/[^0-9a-z]/gi, "").toLowerCase();
+// Drops empty values; a Parcel with no facts is left off the shell.
+const compact = (x: Parcel): Parcel | undefined => {
+  const out = Object.fromEntries(Object.entries(x).filter(([k, v]) => k === "sources" || (v != null && v !== "" && !(Array.isArray(v) && !v.length)))) as Parcel;
+  out.sources = Object.fromEntries(Object.entries(x.sources).filter(([k]) => k in out)) as Parcel["sources"];
+  return Object.keys(out).length > 1 ? out : undefined;
+};
+
+// Lot/APN from the property record; last sale and the newest assessment/tax row for this property's own APNs from its sale comps.
+export function parcelFromCommercial(p: Any, comps: Any[] = []): Parcel | undefined {
+  const apns: string[] = (p.parcelNumbers ?? []).filter(Boolean);
+  const unit = p.lotSizeMeasurementType; // MeasurementUnit: 1 = SquareFeet, 2 = Acres
+  const x: Parcel = { sources: {} };
+  if (apns.length) { x.apns = apns; x.sources.apns = "CommercialProperty.parcelNumbers"; }
+  if (p.lotSize && unit === 2) { x.lotAcres = p.lotSize; x.sources.lotAcres = "CommercialProperty.lotSize (Acres)"; }
+  if (p.lotSize && unit === 1) { x.lotSqft = p.lotSize; x.sources.lotSqft = "CommercialProperty.lotSize (SquareFeet)"; }
+  if (p.land?.currentUsageDescription) { x.landUse = p.land.currentUsageDescription; x.sources.landUse = "CommercialProperty.land.currentUsageDescription"; }
+
+  const sale = [...comps].filter((c) => c.soldDate).sort((a, b) => String(b.soldDate).localeCompare(String(a.soldDate)))[0];
+  if (sale) {
+    x.lastSaleDate = String(sale.soldDate).slice(0, 10);
+    x.sources.lastSaleDate = `CommercialSaleComp ${sale.id}.soldDate`;
+    const mine = (sale.entities ?? []).find((e: Any) => e.propertyId === p.id);
+    // A portfolio sale's soldForPrice covers every property in it; only use it when this property is the whole sale.
+    const price = mine?.allocatedPrice || ((sale.entities ?? []).length === 1 ? sale.soldForPrice : undefined);
+    if (price > 0) { x.lastSalePrice = price; x.sources.lastSalePrice = `CommercialSaleComp ${sale.id}.${mine?.allocatedPrice ? "entities.allocatedPrice" : "soldForPrice"}`; }
+  }
+  const own = new Set(apns.map(apnKey));
+  const rows = comps.flatMap((c) => (c.transferDocuments ?? []).flatMap((d: Any) => (d.assessments ?? []).map((a: Any) => ({ ...a, compId: c.id }))))
+    .filter((a: Any) => own.has(apnKey(a.parcelNumber ?? "")));
+  const assessed = rows.filter((a: Any) => a.assessment?.totalValue && a.assessmentYear).sort((a: Any, b: Any) => b.assessmentYear - a.assessmentYear)[0];
+  if (assessed) {
+    const at = `CommercialSaleComp ${assessed.compId}.transferDocuments.assessments (APN ${assessed.parcelNumber}, ${assessed.assessmentYear})`;
+    x.assessedTotal = assessed.assessment.totalValue; x.sources.assessedTotal = `${at}.assessment.totalValue`;
+    x.assessedLand = assessed.assessment.landValue ?? undefined; x.sources.assessedLand = `${at}.assessment.landValue`;
+    x.assessedImproved = assessed.assessment.improvedValue ?? undefined; x.sources.assessedImproved = `${at}.assessment.improvedValue`;
+    x.assessmentYear = assessed.assessmentYear; x.sources.assessmentYear = `${at}.assessmentYear`;
+  }
+  const tax = rows.filter((a: Any) => a.propertyTax && a.propertyTaxYear).sort((a: Any, b: Any) => b.propertyTaxYear - a.propertyTaxYear)[0];
+  if (tax) {
+    const at = `CommercialSaleComp ${tax.compId}.transferDocuments.assessments (APN ${tax.parcelNumber})`;
+    x.taxAmount = tax.propertyTax; x.sources.taxAmount = `${at}.propertyTax`;
+    x.taxYear = tax.propertyTaxYear; x.sources.taxYear = `${at}.propertyTaxYear`;
+  }
+  return compact(x);
+}
+
+export function parcelFromResidential(p: Any): Parcel | undefined {
+  const acres = p.lotSizeAcresMax ?? p.lotSizeAcresMin;
+  return compact({
+    lotAcres: acres ?? undefined, taxAmount: p.taxes ?? undefined, subdivision: p.subdivision ?? undefined,
+    sources: { lotAcres: `ResidentialListing.property.${p.lotSizeAcresMax != null ? "lotSizeAcresMax" : "lotSizeAcresMin"}`, taxAmount: "ResidentialListing.property.taxes (annual, as reported by the MLS)", subdivision: "ResidentialListing.property.subdivision" },
+  });
+}
+
+export function shellFromCommercial(p: Any, scan: Any | undefined, listings: Any[], enums: Enums, comps: Any[] = []): Shell {
   const type = enums.PropertyType?.[p.propertyType] ?? String(p.propertyType);
   const subtype = enums.PropertySubtype?.[p.propertySubtype] ?? "Unknown";
   const mode: Mode = type === "Industrial" || type === "Flex" ? "enterprise" : "business";
@@ -152,6 +207,7 @@ export function shellFromCommercial(p: Any, scan: Any | undefined, listings: Any
     listing,
     roomCount: scan?.room_count ? Number(scan.room_count) : undefined,
     panoCount: scan?.pano_count ? Number(scan.pano_count) : undefined,
+    parcel: parcelFromCommercial(p, comps),
   };
 }
 
@@ -191,5 +247,6 @@ export function shellFromResidential(r: Any): Shell {
       price: r.currentPrice ?? undefined,
       url: p.url ? `https://www.homes.com/property/${p.url}` : undefined,
     },
+    parcel: parcelFromResidential(p),
   };
 }
