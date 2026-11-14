@@ -526,3 +526,9 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .parcel-map { min-height: 44px; }
 .parcel-map svg { width: 16px; height: 16px; }
 @media (max-width: 520px) { .parcel-list > div { grid-template-columns: 1fr; gap: 2px; } }
+.speak { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.speak:hover, .speak[aria-pressed="true"] { background: var(--coral-wash-2); border-color: var(--coral-2); color: var(--coral-ink); }
+.speak svg { width: 16px; height: 16px; }
+.mic[data-state="recording"] { background: var(--coral-wash-2); border-color: var(--coral-2); color: var(--coral-ink); }
+.mic[data-state="transcribing"] svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
