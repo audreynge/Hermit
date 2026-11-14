@@ -1,7 +1,7 @@
 "use client";
 import {
   Accessibility, ArrowUpDown, Check, CircleCheck, CircleX, DollarSign, Eye, FileText, Flame, Gavel, Layers, LayoutGrid, Car,
-  ImageUp, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Tag, TriangleAlert, User, Volume2, VolumeX, X, Zap,
+  ImageUp, Loader, Mic as Mic2, PencilRuler, Plus, Ruler, Search, Send, SlidersHorizontal, Sofa, Sparkles, Square, Tag, TriangleAlert, User, Volume2, VolumeX, X, Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -496,6 +496,7 @@ export function SearchChat() {
             <Sparkles className="spark" aria-hidden="true" />
             <label htmlFor="ask" className="sr-only">Message Hermit</label>
             <input id="ask" ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Tell Hermit what you're looking for..." autoComplete="off" maxLength={2000} />
+            <Mic disabled={busy || running} onText={(t) => { setInput((v) => (v ? `${v} ${t}` : t).slice(0, 2000)); inputRef.current?.focus(); }} />
             <button className="send" type="submit" disabled={!input.trim() || busy || running} aria-label="Send"><Send aria-hidden="true" /></button>
           </form>}
         </section>
@@ -646,6 +647,40 @@ function Speak({ text }: { text: string }) {
     <button type="button" className="speak" onClick={toggle} aria-label={label} title={label} aria-pressed={state === "playing"}>
       {state === "playing" || state === "loading" ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
       <span>{state === "playing" ? "Stop" : state === "loading" ? "Loading…" : state === "error" ? "Retry" : "Listen"}</span>
+    </button>
+  );
+}
+
+function Mic({ disabled, onText }: { disabled: boolean; onText: (text: string) => void }) {
+  const [state, setState] = useState<"idle" | "recording" | "transcribing" | "error">("idle");
+  const rec = useRef<MediaRecorder | null>(null);
+  useEffect(() => () => { rec.current?.stream.getTracks().forEach((t) => t.stop()); }, []);
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const r = new MediaRecorder(stream), chunks: Blob[] = [];
+      r.ondataavailable = (e) => chunks.push(e.data);
+      r.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setState("transcribing");
+        try {
+          const fd = new FormData();
+          fd.append("audio", new Blob(chunks, { type: r.mimeType }));
+          const res = await fetch("/api/stt", { method: "POST", body: fd });
+          if (!res.ok) throw new Error(String(res.status));
+          const { text } = (await res.json()) as { text: string };
+          if (text) onText(text);
+          setState("idle");
+        } catch { setState("error"); }
+      };
+      rec.current = r; r.start(); setState("recording");
+    } catch { setState("error"); }
+  };
+  const label = state === "recording" ? "Stop recording and transcribe" : state === "transcribing" ? "Transcribing…" : state === "error" ? "Microphone or transcription failed, try again" : "Speak your message";
+  return (
+    <button type="button" className="icon-btn mic" data-state={state} aria-label={label} title={label} aria-pressed={state === "recording"}
+      disabled={disabled || state === "transcribing"} onClick={() => (state === "recording" ? rec.current?.stop() : void start())}>
+      {state === "recording" ? <Square aria-hidden="true" /> : state === "transcribing" ? <Loader aria-hidden="true" /> : <Mic2 aria-hidden="true" />}
     </button>
   );
 }
