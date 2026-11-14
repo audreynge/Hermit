@@ -257,8 +257,9 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .canvas { position: relative; overflow: hidden; overscroll-behavior: contain; border-radius: 12px; border: 1px solid var(--line); background-color: #fff; background-image: linear-gradient(#dce9f1 1px, transparent 1px), linear-gradient(90deg, #dce9f1 1px, transparent 1px); height: 620px; }
 .canvas svg.plan { display: block; touch-action: none; cursor: grab; }
 .canvas svg.plan:active { cursor: grabbing; }
-.canvas svg.plan:focus-visible { outline: 3px solid var(--coral); outline-offset: -3px; }
-.canvas-hint { position: absolute; left: 12px; bottom: 10px; margin: 0; padding: 4px 10px; border-radius: 999px; background: rgb(255 255 255 / 0.9); color: var(--ink-soft); font-size: 13px; pointer-events: none; }
+/* The ring goes on the rounded container: an outline on the svg gets clipped at the corners. Mouse clicks show none. */
+.canvas svg.plan:focus { outline: none; }
+.canvas:has(svg.plan:focus-visible) { outline: 3px solid var(--coral); outline-offset: 2px; }
 .layout-library { margin-top: 22px; display: grid; gap: 12px; }
 .file-bar { gap: 10px; }
 .file-bar .control { width: min(320px, 100%); min-height: 42px; padding: 0 14px; font-size: 16px; }

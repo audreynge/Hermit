@@ -301,7 +301,6 @@ export function LayoutStudio() {
                 );
               })}
             </svg>
-            <p className="canvas-hint" aria-hidden="true">Scroll to move · pinch to zoom · drag empty space to pan</p>
           </div>
         </section>
       </div>
