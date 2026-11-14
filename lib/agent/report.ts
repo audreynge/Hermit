@@ -1,3 +1,4 @@
+import type { Finding } from "../regs/research";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, WorkItem } from "../types";
 
 export type Evaluation = {
@@ -36,8 +37,25 @@ export function finalScore(fit: FitResult, rules: RuleHit[], searchScore: number
   return Math.max(0, Math.round(base - penalty));
 }
 
-export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number): ShellReport {
-  const { shell, graph, fit, rules, work } = e;
+export function regulationHits(regs: Finding[]): RuleHit[] {
+  const seen = new Map<string, number>();
+  return regs.map((f) => {
+    const n = (seen.get(f.topic) ?? 0) + 1;
+    seen.set(f.topic, n);
+    return {
+      rule: n > 1 ? `reg_${f.topic}_${n}` : `reg_${f.topic}`,
+      status: f.certainty === "applies" ? "warn" : "unknown",
+      detail: `${f.requirement} (${f.jurisdiction} rule, checked ${f.retrievedAt}; screening only, verify with the jurisdiction)`,
+      citation: f.url,
+      evidence: [{ source: f.jurisdiction, ref: f.citedText.slice(0, 160), confidence: 0.6 }],
+      reg: { topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty, retrievedAt: f.retrievedAt },
+    };
+  });
+}
+
+export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, regs: Finding[] = []): ShellReport {
+  const { shell, graph, fit, work } = e;
+  const rules = [...e.rules, ...regulationHits(regs)];
   const sources: Evidence[] = [
     ...(shell.propertyId ? [{ source: "costar", ref: `property ${shell.propertyId}`, confidence: 0.9 }] : []),
     ...(shell.homesListingId ? [{ source: "costar", ref: `residential listing ${shell.homesListingId}`, confidence: 0.9 }] : []),
@@ -47,13 +65,14 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
   ].filter((s, i, a) => a.findIndex((x) => x.ref === s.ref) === i);
 
   const unknowns = rules
-    .filter((r) => r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule]))
+    .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
     .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }));
+  for (const f of regs) if (f.certainty === "applies") unknowns.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   for (const u of fit.unknowns) unknowns.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) unknowns.push({ topic: "scan detail", question: x.question });
 
   const matched = fit.assignment.filter((a) => a.roomId).length;
-  const fails = rules.filter((r) => r.status === "fail");
+  const fails = e.rules.filter((r) => r.status === "fail");
   const verdict = fit.hardFails.length || fails.length ? "Conditional fit"
     : e.finalScore >= 70 ? "Strong fit" : e.finalScore >= 50 ? "Workable with changes" : "Long shot";
   const cost = work.costRange[1] ? `$${Math.round(work.costRange[0] / 1000)}k–$${Math.round(work.costRange[1] / 1000)}k of known work` : "no build-out identified so far";

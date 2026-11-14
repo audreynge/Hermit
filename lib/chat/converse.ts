@@ -6,7 +6,7 @@ import type { RoomReq } from "../types";
 export type Slot = "use" | "city" | "size" | "rooms" | "musts";
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations" };
 
 const MAX_QUESTIONS = 5;
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|none of these|find (it|them|spaces|shells))\b/i;
@@ -171,6 +171,9 @@ export function openChat(spec: Draft): Turn {
 export function converse(state: ChatState, text: string): Turn {
   const awaiting = state.asked.at(-1) ?? null;
   const { spec, changed } = mergeText(state.spec, text, awaiting);
+
+  if (state.spec.city && state.spec.useType && /\b(permits?|licen[cs]es?|regulations?|rules|legal(ly)?|allowed to|zoning laws?)\b/i.test(text))
+    return { reply: `Here are the rules I found for a ${state.spec.useType} in ${CITY(state.spec.city)}. Each links to the official source; treat them as a checklist to confirm, not legal advice.`, state, ready: false, quickReplies: [], action: "regulations" };
 
   if (state.phase === "results") {
     if (/compar/i.test(text)) return { reply: "Here's how the top matches compare side by side.", state, ready: false, quickReplies: [], action: "compare" };

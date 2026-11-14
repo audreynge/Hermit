@@ -11,7 +11,7 @@ const ChatOut = z.object({
   reply: z.string(),
   ready: z.boolean(),
   quickReplies: z.array(z.string()),
-  action: z.enum(["none", "compare", "email"]),
+  action: z.enum(["none", "compare", "email", "regulations"]),
   update: z.object({
     useType: z.string().nullable(), mode: z.enum(["home", "business", "enterprise"]).nullable(), city: z.enum(["houston", "los_angeles"]).nullable(),
     sizeMinSqft: n, sizeMaxSqft: n, budgetMonthly: n, budgetTotal: n, headcount: n, beds: n, baths: n,
@@ -23,7 +23,7 @@ const ChatOut = z.object({
 const SYSTEM = `You are Hermit, a friendly assistant that helps small businesses (and people looking for homes) find spaces in Houston or Los Angeles that are already built for what they need.
 Talk like a warm, concise human: one or two short sentences, then at most one question. Ask only for what is still missing to search well: what the space is for, the city, rough size, and the key rooms or equipment. Never ask more than three questions in total; if the user wants to search now, set ready true.
 In "update", put only what the user's latest message adds or changes, and use null for everything else. Never invent requirements.
-After results exist, set action "compare" when they want a comparison, "email" when they want to contact the property manager, and ready true when they change the search.
+After results exist, set action "compare" when they want a comparison, "email" when they want to contact the property manager, and ready true when they change the search. Set action "regulations" whenever they ask about permits, licenses, zoning or other rules.
 quickReplies: 2-4 short tap-to-answer suggestions for your question.`;
 
 type Client = Pick<Anthropic, "messages">;

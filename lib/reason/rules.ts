@@ -1,5 +1,5 @@
 import table from "../../rules/screening.json";
-import { normalizeZone } from "../regs/zoning";
+import { normalizeZone } from "../regs/zones";
 import type { Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
 
 export type UseKey = keyof typeof table.uses;

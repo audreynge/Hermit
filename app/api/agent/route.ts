@@ -2,6 +2,7 @@ import { runAgent } from "@/lib/agent/loop";
 import { listRuns, loadRun, newRunId, saveRun } from "@/lib/agent/replay";
 import { loadRoomGraph, searchCandidates } from "@/lib/query/load";
 import { lookupZoning } from "@/lib/regs/zoning";
+import { researchRegulations } from "@/lib/regs/research";
 import { RequirementSpec, type TraceEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
       };
       emit({ type: "run", id: "run", runId, replay: false });
       try {
-        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon) });
+        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) });
       } catch (e) {
         emit({ type: "error", id: "fatal", message: e instanceof Error ? e.message : String(e) });
       }

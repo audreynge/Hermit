@@ -38,6 +38,7 @@ async function deterministic(run: Run) {
   if (fresh) {
     run.emit({ type: "plan", id: newEventId(), text: `Search ${run.spec.city === "houston" ? "Houston" : "Los Angeles"} for a ${run.spec.useType}; screen 20 site records, measure up to ${BUDGET.roomGraphs} scans, verify uncertain fixtures, report the best 5.` });
     await run.call("search_shells", {});
+    if (run.canResearch && !run.overBudget()) await run.call("research_regulations", {});
   }
   if (!run.candidates.length) return finalize(run, []);
   const top20 = run.candidates.slice(0, 20).map((c) => c.shell.id).filter((id) => !run.dropped.has(id));

@@ -115,6 +115,11 @@ describe("converse after results", () => {
     expect(t.reply).toMatch(/updat/i);
   });
 
+  it("routes permit and regulation questions to the regulations action", () => {
+    expect(converse(results(), "what permits do I need?").action).toBe("regulations");
+    expect(converse(results(), "Which licenses or regulations apply?").action).toBe("regulations");
+  });
+
   it("handles relative refinements from the quick replies", () => {
     const bigger = converse(results(), "Make it bigger");
     expect(bigger.ready).toBe(true);

@@ -5,6 +5,7 @@ import { IMPLIED_FIXTURES } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
+import type { Finding, RegQuery } from "../regs/research";
 import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
@@ -12,6 +13,7 @@ export type AgentDeps = {
   shells: (spec: RequirementSpec) => Shell[];
   graph: (sid: string) => RoomGraph | null;
   zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
+  research?: (q: RegQuery) => Promise<{ findings: Finding[]; fromCache: boolean }>;
 };
 export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
 
@@ -25,6 +27,7 @@ export const ToolInputs = {
   inspect_view: z.object({ shellId: z.string(), question: z.string() }),
   drop_candidate: z.object({ drops: z.array(z.object({ shellId: z.string(), reason: z.string() })).min(1).max(20) }),
   submit_reports: z.object({ shellIds: z.array(z.string()).max(5) }),
+  research_regulations: z.object({}),
 };
 export type ToolName = keyof typeof ToolInputs;
 
@@ -35,6 +38,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
   submit_reports: "Finish: produce Shell Reports for up to 5 evaluated candidates in your chosen rank order.",
+  research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
 export class Run {
@@ -47,6 +51,8 @@ export class Run {
   evaluated = new Map<string, Evaluation>();
   dropped = new Set<string>();
   reports: ShellReport[] | null = null;
+  regulations: Finding[] = [];
+  get canResearch() { return !!this.deps.research; }
 
   constructor(public spec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {}
 
@@ -74,6 +80,7 @@ export class Run {
       case "inspect_view": return this.inspect(args.shellId, args.question);
       case "drop_candidate": return this.drop(args.drops);
       case "submit_reports": return this.submit(args.shellIds);
+      case "research_regulations": return this.research();
     }
   }
 
@@ -88,6 +95,18 @@ export class Run {
 
   private shell(id: string) {
     return this.candidates.find((c) => c.shell.id === id);
+  }
+
+  private async research() {
+    if (!this.deps.research) return { result: { findings: [] }, summary: "no regulation source configured" };
+    const { findings, fromCache } = await this.deps.research({ city: this.spec.city, useType: this.spec.useType });
+    this.regulations = findings;
+    const by = (j: Finding["jurisdiction"]) => findings.filter((f) => f.jurisdiction === j).length;
+    const parts = (["city", "county", "state", "federal"] as const).filter((j) => by(j)).map((j) => `${j} ${by(j)}`);
+    return {
+      result: { findings: findings.map((f) => ({ topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty })) },
+      summary: `${findings.length} rules (${parts.join(", ") || "none"})${fromCache ? " from cache" : ""}`,
+    };
   }
 
   private screen(ids: string[]) {
@@ -190,7 +209,7 @@ export class Run {
   private submit(ids: string[]) {
     const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id)).slice(0, 5);
     if (ids.length && !chosen.length) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped); call evaluate_candidates first`);
-    this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1));
+    this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1, this.regulations));
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
   }
 }

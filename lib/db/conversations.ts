@@ -3,7 +3,7 @@ import { db, tx } from "./index";
 import type { ChatState } from "../chat/converse";
 import type { RequirementSpec, ShellReport } from "../types";
 
-export type StoredMsg = { role: "user" | "bot"; kind: "text" | "thinking" | "compare" | "design" | "results"; payload: unknown };
+export type StoredMsg = { role: "user" | "bot"; kind: "text" | "thinking" | "compare" | "design" | "results" | "regulations"; payload: unknown };
 export type StoredRow = StoredMsg & { id: string; seq: number; createdAt: string };
 
 const ID = /^c_[a-f0-9]{24}$/;

@@ -162,6 +162,22 @@ test.describe("results", () => {
     await other.close();
   });
 
+  test("regulations are researched, shown on reports, and answer permit questions", async ({ page }) => {
+    await expect(conversation(page)).toContainText("Researching Houston and Texas rules for a medical clinic");
+    await cards(page).first().getByRole("button", { name: "Full report" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Rules that may apply" })).toBeVisible();
+    await expect(dialog.getByRole("region", { name: "City rules" }).getByRole("link", { name: "source" }).first()).toHaveAttribute("href", /^https:\/\//);
+    await expect(dialog.getByRole("region", { name: "Federal rules" })).toContainText(/ADA/);
+    await page.keyboard.press("Escape");
+    await page.getByLabel("Message Hermit").fill("what permits do I need?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("Here are the rules I found");
+    await expect(conversation(page).getByRole("region", { name: "City rules" })).toBeVisible();
+    await page.reload();
+    await expect(conversation(page).getByRole("region", { name: "City rules" })).toBeVisible();
+  });
+
   test("View property opens a 3D tour that jumps between your rooms", async ({ page }) => {
     await cards(page).first().getByRole("button", { name: "View property" }).click();
     const dialog = page.getByRole("dialog");
@@ -361,6 +377,9 @@ test.describe("replay and failure states", () => {
     expect((await request.post("/api/chat", { data: { conversationId: "c_000000000000000000000000", text: "hi" } })).status()).toBe(404);
     expect((await request.get("/api/conversations/..%2Fx")).status()).toBe(404);
     expect((await request.post("/api/saved", { data: { report: {} } })).status()).toBe(400);
+    expect((await request.get("/api/regulations?city=paris&useType=salon")).status()).toBe(400);
+    const regs = await (await request.get("/api/regulations?city=houston&useType=salon")).json();
+    expect(regs.findings.every((f: { url: string }) => f.url.startsWith("https://"))).toBe(true);
   });
 
   test("missing printable reports fail gracefully", async ({ page }) => {

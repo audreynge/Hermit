@@ -130,7 +130,10 @@ export type Shell = {
 };
 
 export type RuleStatus = "pass" | "fail" | "warn" | "unknown";
-export type RuleHit = { rule: string; status: RuleStatus; detail: string; citation: string; evidence: Evidence[] };
+export type RuleHit = {
+  rule: string; status: RuleStatus; detail: string; citation: string; evidence: Evidence[];
+  reg?: { topic: string; jurisdiction: "city" | "county" | "state" | "federal"; requirement: string; certainty: "applies" | "may_apply"; retrievedAt: string };
+};
 
 export type FitResult = {
   score: number;

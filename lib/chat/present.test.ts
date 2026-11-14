@@ -89,6 +89,12 @@ describe("thinkingSteps", () => {
     expect(labels.some((l) => /Looking for a sink/.test(l))).toBe(true);
   });
 
+  it("shows regulation research with what it found per jurisdiction", () => {
+    const ev: TraceEvent[] = [{ type: "tool", id: "r", tool: "research_regulations", args: {}, resultId: "x", summary: "3 rules (city 1, state 1, federal 1)", ms: 1 }];
+    const labels = thinkingSteps(ev, spec).map((s) => s.label);
+    expect(labels).toEqual(["Researching Houston and Texas rules for a medical clinic", "Found 1 city rule", "Found 1 state rule", "Found 1 federal rule"]);
+  });
+
   it("only mentions checks the spec asked for", () => {
     const labels = thinkingSteps(events, { ...spec, needs: {} }).map((s) => s.label);
     expect(labels).not.toContain("Checking electrical requirements");

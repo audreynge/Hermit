@@ -19,17 +19,20 @@ import { FitView } from "./FitView";
 import { Modal } from "./Modal";
 import { ReportPanel } from "./ReportPanel";
 import { PropertyViewer } from "./PropertyViewer";
+import { RegulationList } from "./Regulations";
+import type { Finding } from "@/lib/regs/research";
 import { SpaceCard } from "./SpaceCard";
 
 type Msg =
   | { id: string; role: "user"; text: string; design?: DesignPreview }
   | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
-  | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] };
+  | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] }
+  | { id: string; role: "bot"; kind: "regulations"; findings: Finding[] };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type DesignPreview = { kind: "layout"; blocks: Block[] } | { kind: "upload"; name: string; url?: string };
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[]; findings?: Finding[]; kind?: string; blocks?: Block[]; summary?: string; name?: string } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn };
 
@@ -40,6 +43,7 @@ function fromStored(r: StoredRow): Msg | null {
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
   if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
+  if (r.kind === "regulations" && r.payload.findings) return { id: uid(), role: "bot", kind: "regulations", findings: r.payload.findings };
   return null;
 }
 
@@ -158,6 +162,12 @@ export function SearchChat() {
       void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
     }
     if (turn.action === "email" && reports.length) setEmailFor(reports[selected] ?? reports[0]);
+    if (turn.action === "regulations" && turn.state.spec.city && turn.state.spec.useType) {
+      const qs = new URLSearchParams({ city: turn.state.spec.city, useType: turn.state.spec.useType });
+      const r = await fetch(`/api/regulations?${qs}`).then((x) => (x.ok ? x.json() : { findings: [] })).catch(() => ({ findings: [] }));
+      push({ id: uid(), role: "bot", kind: "regulations", findings: r.findings });
+      void persist({ messages: [{ role: "bot", kind: "regulations", payload: { findings: r.findings } }] });
+    }
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
   }, [reports, selected, runSearch]);
 
@@ -334,6 +344,7 @@ export function SearchChat() {
                     )}
                     {m.kind === "thinking" && <Thinking steps={m.runKey === runKey ? steps.slice(0, shown) : steps} total={steps.length} done={m.runKey !== runKey || finished} />}
                     {m.kind === "compare" && <Compare reports={m.reports} />}
+                    {m.kind === "regulations" && <div className="bubble"><RegulationList findings={m.findings} /></div>}
                   </div>
                 </div>
               );

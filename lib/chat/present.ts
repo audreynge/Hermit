@@ -4,6 +4,7 @@ import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
 export { displayName };
 
 const CITY: Record<string, string> = { houston: "Houston", los_angeles: "Los Angeles" };
+const STATE: Record<string, string> = { houston: "Texas", los_angeles: "California" };
 const fmt = (n: number) => Math.round(n).toLocaleString();
 const shortName = (r: ShellReport) => displayName(r.name);
 const k = (n: number) => `$${Math.round(n / 1000)}k`;
@@ -90,6 +91,10 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
   const add = (id: string, icon: string, label: string, tone: Step["tone"] = "info") => steps.push({ id, icon, label, tone });
   for (const e of events) {
     if (e.type === "tool" && e.tool === "search_shells") add(e.id, "search", `Searching ${fmt(searchCounts([e]).indexed)} spaces in ${CITY[spec.city]}`);
+    if (e.type === "tool" && e.tool === "research_regulations") {
+      add(e.id, "gavel", `Researching ${CITY[spec.city]} and ${STATE[spec.city]} rules for a ${spec.useType}`);
+      for (const [, j, n] of e.summary.matchAll(/(city|county|state|federal) (\d+)/g)) add(`${e.id}-${j}`, "doc", `Found ${n} ${j} rule${n === "1" ? "" : "s"}`);
+    }
     if (e.type === "tool" && e.tool === "screen_sites") {
       add(`${e.id}-z`, "gavel", "Checking local zoning laws");
       if (spec.needs.heavyPower || spec.needs.threePhase) add(`${e.id}-e`, "bolt", "Checking electrical requirements");

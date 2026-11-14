@@ -214,6 +214,11 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .multi-card { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .multi-card .chip-toggle { min-height: 42px; font-size: 15px; padding: 0 14px; }
 
+.regs section + section { margin-top: 10px; }
+.regs h4 { font-size: 15px; margin-bottom: 4px; }
+.regs ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.badge-src.applies { color: var(--fail); }
+
 /* Thinking */
 .thinking { display: grid; gap: 10px; }
 .thinking-head { display: flex; align-items: center; gap: 10px; font-weight: 700; }

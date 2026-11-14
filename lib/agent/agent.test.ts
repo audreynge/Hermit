@@ -126,6 +126,27 @@ describe("deterministic agent", () => {
     expect(report.reports[0].rules.find((r) => r.rule === "zoning_records")?.status).toBe("warn");
   });
 
+  it("researches regulations once, within budget, and cites them on every report", async () => {
+    let calls = 0;
+    const research = async () => { calls++; return { fromCache: false, findings: [
+      { topic: "professional_license" as const, jurisdiction: "state" as const, requirement: "Dental practices need a state permit", appliesWhen: "always", certainty: "applies" as const, url: "https://tsbde.texas.gov/x", citedText: "A permit is required.", retrievedAt: "2026-11-14" },
+      { topic: "occupancy" as const, jurisdiction: "city" as const, requirement: "Certificate of occupancy", appliesWhen: "new tenant", certainty: "may_apply" as const, url: "https://houstontx.gov/co", citedText: "A CO is required.", retrievedAt: "2026-11-14" },
+    ] }; };
+    const events: TraceEvent[] = [];
+    await runAgent(spec, (e) => events.push(e), { ...deps(), research });
+    expect(calls).toBe(1);
+    expect(events.filter((e) => e.type === "tool" && e.tool === "research_regulations")).toHaveLength(1);
+    const done = events.at(-1) as Extract<TraceEvent, { type: "done" }>;
+    expect(done.toolCalls).toBeLessThanOrEqual(25);
+    const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    for (const r of report.reports) {
+      const regs = r.rules.filter((h) => h.rule.startsWith("reg_"));
+      expect(regs.map((h) => [h.status, h.citation])).toEqual([["warn", "https://tsbde.texas.gov/x"], ["unknown", "https://houstontx.gov/co"]]);
+      expect(regs[0].evidence[0].source).toBe("state");
+      expect(r.unknowns.some((u) => /state permit/i.test(u.question))).toBe(true);
+    }
+  });
+
   it("reads at most 8 room graphs", async () => {
     let reads = 0;
     const d = deps();

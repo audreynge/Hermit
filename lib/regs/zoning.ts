@@ -31,13 +31,4 @@ export async function lookupZoning(lat: number, lon: number, fetchFn: typeof fet
   }
 }
 
-export function normalizeZone(z: string): string {
-  const s = z.toUpperCase().replace(/,\s*LOS ANGELES$/, "").replace(/[\[(][A-Z]+[\])]/g, "").trim();
-  const noLA = /^LA(R|C|M|P|A|O|S|H)/.test(s) ? s.slice(2) : s;
-  return noLA.split("-")[0].trim();
-}
-
-export function zoningAgreement(costar: string | null, parcel: string): "agree" | "disagree" | "unknown" {
-  if (!costar) return "unknown";
-  return normalizeZone(costar) === normalizeZone(parcel) ? "agree" : "disagree";
-}
+export { normalizeZone, zoningAgreement } from "./zones";
