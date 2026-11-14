@@ -1,3 +1,10 @@
 costar-hackathon-kit/
 .env
 .vercel
+node_modules/
+.next/
+next-env.d.ts
+data/processed/
+test-results/
+playwright-report/
+*.tsbuildinfo
