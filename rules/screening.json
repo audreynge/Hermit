@@ -14,7 +14,7 @@
     "nfpa13": { "title": "NFPA 13: Standard for the Installation of Sprinkler Systems (ESFR for high-piled storage)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-13-standard-development/13" },
     "nfpa70": { "title": "NFPA 70 National Electrical Code (service sizing)", "url": "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70" },
     "costar_kit": { "title": "CoStar hackathon kit record fields (listingStatus, electric, driveInBays, bedsMax); private kit, cited by field", "url": "https://www.costar.com/" },
-    "costs": { "title": "Hermit cost table v2026-11: broad screening ranges, not bids", "url": "https://github.com/audreynge/hackprinceton-fall26/blob/main/rules/screening.json" }
+    "costs": { "title": "Hermit cost table v2026-11: broad screening ranges, not bids", "url": "https://github.com/audreynge/Hermit/blob/main/rules/screening.json" }
   },
   "uses": {
     "office": { "match": ["office", "creative", "loft", "coworking", "agency", "design studio"], "zone": "commercial", "parkingPer1000": { "los_angeles": 2, "houston": 2.5 }, "sfPerTon": [300, 400], "permit": "tenant improvement" },
