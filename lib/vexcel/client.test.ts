@@ -36,6 +36,16 @@ describe("vexcelImage", () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  it("still returns the image when the cache directory is read-only (deployed bundle)", async () => {
+    const dir = process.env.HERMIT_DATA_DIR!;
+    fs.chmodSync(dir, 0o555);
+    try {
+      expect(await vexcelImage(29.7366, -95.4613, "ortho", fakeFetch().fn)).toEqual(jpeg);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  });
+
   it("obliques use the oriented endpoint on the urban layer", async () => {
     const f = fakeFetch();
     await vexcelImage(34.03, -118.39, "oblique-north", f.fn);
