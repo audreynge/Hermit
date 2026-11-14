@@ -1,9 +1,11 @@
 import { displayName } from "../agent/report";
 import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
+import { an } from "../text";
 
 export { displayName };
 
 const CITY: Record<string, string> = { houston: "Houston", los_angeles: "Los Angeles" };
+const STATE: Record<string, string> = { houston: "Texas", los_angeles: "California" };
 const fmt = (n: number) => Math.round(n).toLocaleString();
 const shortName = (r: ShellReport) => displayName(r.name);
 const k = (n: number) => `$${Math.round(n / 1000)}k`;
@@ -13,7 +15,7 @@ function roomsPhrase(spec: Pick<RequirementSpec, "rooms">): string {
   const first = [...spec.rooms].sort((a, b) => b.count - a.count)[0];
   const rest = spec.rooms.filter((r) => r !== first);
   if (!first) return "";
-  const main = first.count > 1 ? `${first.count} ${first.label}s` : `a ${first.label}`;
+  const main = first.count > 1 ? `${first.count} ${first.label}s` : an(first.label);
   return rest.length ? `${main} + support spaces` : main;
 }
 
@@ -25,6 +27,7 @@ const READY: Record<string, string> = {
 
 export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   const out: string[] = [];
+  if (r.similarity) out.push(`Floor plan ${r.similarity.score}% like your drawing`);
   const area = areaOf(r);
   if (area && spec.sizeSqft) {
     const [lo, hi] = spec.sizeSqft;
@@ -36,13 +39,14 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
 
   const prior = r.reasons.find((x) => x.startsWith("Prior use matches"))?.match(/\((.+)\)/)?.[1];
   const matched = r.fit.assignment.filter((a) => a.roomId).length;
-  if (prior) out.push(READY[prior] ?? `Already built as a ${prior} space (minimal build-out)`);
+  if (prior) out.push(READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)`);
   else if (r.fit.assignment.length) out.push(`${matched} of ${r.fit.assignment.length} rooms already built`);
 
-  const onsite = r.rules.find((x) => x.rule === "onsite_parking" && x.status === "pass");
+  const wantsParking = !!(spec.needs.parking || spec.needs.parkingStalls);
+  const onsite = wantsParking ? r.rules.find((x) => x.rule === "onsite_parking" && x.status === "pass") : undefined;
   const stalls = onsite?.detail.match(/(\d+)/)?.[1];
   if (onsite) out.push(`On-site parking${stalls ? ` (${stalls} stalls)` : ""}`);
-  else if (r.rules.some((x) => x.rule === "parking" && x.status === "pass")) out.push("Enough parking for the use");
+  else if (wantsParking && r.rules.some((x) => x.rule === "parking" && x.status === "pass")) out.push("Enough parking for the use");
   if (r.listing?.status === "active") out.push(`Listed for ${r.listing.kind === "sale" ? "sale" : "lease"} now`);
   if (r.costRange && !r.costRange[1]) out.push("No build-out identified");
   else if (r.costRange) out.push(`About ${k(r.costRange[0])}–${k(r.costRange[1])} of work`);
@@ -70,12 +74,14 @@ export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, 
   const n = strong || reports.length;
   const kind = strong ? "strong" : "possible";
   const area = areaOf(top);
-  const h = highlights(top, spec).filter((x) => !x.startsWith("Right size")).map((x) => x[0].toLowerCase() + x.slice(1));
-  const why = [area ? `it's ${fmt(area)} sq ft` : "", ...h].filter(Boolean);
+  const all = highlights(top, spec);
+  const sizeNote = all.find((x) => /^[\d,]+ sq ft/.test(x));
+  const h = all.filter((x) => !x.startsWith("Right size") && x !== sizeNote).map((x) => x[0].toLowerCase() + x.slice(1));
+  const why = [sizeNote ? `it's ${sizeNote}` : area ? `it's ${fmt(area)} sq ft` : "", ...h].filter(Boolean);
   const list = why.length > 1 ? `${why.slice(0, -1).join(", ")}, and ${why.at(-1)}` : why[0];
   return {
     paragraphs: [
-      `Got it! I searched ${fmt(stats.considered)} spaces in ${city}${size} would work well for a ${spec.useType}${rooms ? ` with ${rooms}` : ""}.`,
+      `Got it! I searched ${fmt(stats.considered)} spaces in ${city}${size} would work well for ${an(spec.useType)}${rooms ? ` with ${rooms}` : ""}.`,
       `I found ${n} ${kind} match${n === 1 ? "" : "es"}, with ${shortName(top)} being the best fit (${top.matchScore}%)${list ? `: ${list}` : ""}.`,
     ],
     followUp: "Would you like me to compare the layouts, adjust anything like size, location, or budget, or draft an email to the property manager?",
@@ -89,6 +95,11 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
   const add = (id: string, icon: string, label: string, tone: Step["tone"] = "info") => steps.push({ id, icon, label, tone });
   for (const e of events) {
     if (e.type === "tool" && e.tool === "search_shells") add(e.id, "search", `Searching ${fmt(searchCounts([e]).indexed)} spaces in ${CITY[spec.city]}`);
+    if (e.type === "tool" && e.tool === "research_regulations") {
+      add(e.id, "gavel", `Researching ${CITY[spec.city]} and ${STATE[spec.city]} rules for a ${spec.useType}`);
+      for (const [, j, n] of e.summary.matchAll(/(city|county|state|federal) (\d+)/g)) add(`${e.id}-${j}`, "doc", `Found ${n} ${j} rule${n === "1" ? "" : "s"}`);
+    }
+    if (e.type === "tool" && e.tool === "match_layout") add(e.id, "layout", `Comparing your drawing with ${e.summary.match(/with (\d+) scanned/)?.[1] ?? "scanned"} real floor plans`);
     if (e.type === "tool" && e.tool === "screen_sites") {
       add(`${e.id}-z`, "gavel", "Checking local zoning laws");
       if (spec.needs.heavyPower || spec.needs.threePhase) add(`${e.id}-e`, "bolt", "Checking electrical requirements");
@@ -105,7 +116,7 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
     if (e.type === "drop") add(e.id, "x", `Ruled out ${e.shellId}: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
     if (e.type === "escalate") {
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];
-      add(e.id, "eye", thing ? `Looking for a ${thing} in the scan` : "Double-checking a detail in the scan");
+      add(e.id, "eye", thing ? `Looking for ${an(thing)} in the scan` : "Double-checking a detail in the scan");
     }
     if (e.type === "rerank") add(e.id, "sort", "Re-ranking on measured evidence");
     if (e.type === "report") add(e.id, "doc", "Writing your shell reports");
@@ -117,6 +128,9 @@ export function traceSummary(events: TraceEvent[]): string[] {
   const out: string[] = [];
   const { kept } = searchCounts(events);
   if (events.some((e) => e.type === "tool" && e.tool === "search_shells")) out.push(`Searched ${kept} candidates`);
+  const lay = events.find((e) => e.type === "tool" && e.tool === "match_layout") as Extract<TraceEvent, { type: "tool" }> | undefined;
+  const n = lay?.summary.match(/with (\d+) scanned/)?.[1];
+  if (n) out.push(`Matched your layout against ${n} floor plans`);
   if (events.some((e) => e.type === "tool" && e.tool === "evaluate_candidates")) out.push("Evaluated fit (layout, size, use)");
   const rep = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }> | undefined;
   if (rep) out.push(`Ranked ${rep.reports.length} matching space${rep.reports.length === 1 ? "" : "s"}`);

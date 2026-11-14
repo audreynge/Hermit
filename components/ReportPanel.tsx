@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { RuleStatus, ShellReport } from "@/lib/types";
+import { RegulationList } from "./Regulations";
 
 const ICON: Record<RuleStatus, string> = { pass: "✓", fail: "✕", warn: "!", unknown: "?" };
 const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 1000).toLocaleString()}k` : `$${n}`);
@@ -31,7 +32,7 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
       <table>
         <thead><tr><th scope="col">Check</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>
         <tbody>
-          {report.rules.map((r) => (
+          {report.rules.filter((r) => !r.rule.startsWith("reg_")).map((r) => (
             <tr key={r.rule}>
               <th scope="row" style={{ fontWeight: 600 }}>{r.rule.replace(/_/g, " ")}</th>
               <td className={`status-${r.status}`}><span aria-hidden="true">{ICON[r.status]} </span><strong>{r.status}</strong><br /><span style={{ color: "var(--ink)" }}>{r.detail}</span></td>
@@ -40,6 +41,13 @@ export function ReportPanel({ report, runId, printable = false }: { report: Shel
           ))}
         </tbody>
       </table>
+
+      {report.rules.some((r) => r.rule.startsWith("reg_")) && (
+        <>
+          <h3>Rules that may apply</h3>
+          <RegulationList findings={report.rules.flatMap((r) => (r.reg ? [{ ...r.reg, url: r.citation }] : []))} />
+        </>
+      )}
 
       {report.work.length > 0 && (
         <>

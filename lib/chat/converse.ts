@@ -1,14 +1,16 @@
 import { useCategory } from "../reason/rules";
-import { parseText } from "../spec/parse";
-import { SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
+import { parseText, USE_NOUN } from "../spec/parse";
+import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
+import { an } from "../text";
 
-export type Slot = "use" | "city" | "size" | "rooms";
+export type Slot = "use" | "city" | "size" | "rooms" | "musts";
+export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; action?: "compare" | "email" };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations"; fallback?: "deterministic"; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
 
-const MAX_QUESTIONS = 3;
-const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|find (it|them|spaces|shells))\b/i;
+const MAX_QUESTIONS = 5;
+const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|none of these|find (it|them|spaces|shells))\b/i;
 const CITY = (c?: string) => (c === "houston" ? "Houston" : c === "los_angeles" ? "Los Angeles" : "");
 
 type UseQ = { q: string; quick: string[]; primary?: { word: RegExp; room: (n: number, t: string) => RoomReq[] } };
@@ -63,12 +65,16 @@ export function missing(spec: Draft, asked: Slot[]): Slot | null {
   if (!spec.useType) return "use";
   if (!spec.city) return "city";
   if (!spec.sizeSqft && !spec.headcount && !asked.includes("size") && spec.mode !== "home") return "size";
-  const hasRooms = spec.rooms.length > 0 || spec.beds != null || Object.values(spec.needs).some(Boolean) || spec.headcount;
+  const hasRooms = spec.rooms.length > 0 || spec.beds != null || spec.headcount || (spec.mode === "enterprise" && Object.values(spec.needs).some(Boolean));
   if (!hasRooms && !asked.includes("rooms")) return "rooms";
+  if (!asked.includes("musts") && !Object.values(spec.needs).some(Boolean)) return "musts";
   return null;
 }
 
-export function question(slot: Slot, spec: Draft): { q: string; quick: string[] } {
+export const MUSTS: Card = { kind: "multi", options: REQUIREMENTS.map((r) => ({ value: r.value, label: r.label })) };
+
+export function question(slot: Slot, spec: Draft): { q: string; quick: string[]; card?: Card } {
+  if (slot === "musts") return { q: "Anything you can't do without? Tap all that apply, or skip.", quick: ["None of these"], card: MUSTS };
   if (slot === "use") return { q: "What kind of space are you looking for, and what will you use it for?", quick: USE_OPTIONS.map((u) => u.label) };
   if (slot === "city") return { q: "Which city should I search: Houston or Los Angeles?", quick: ["Houston", "Los Angeles"] };
   if (slot === "size") return { q: "Roughly how much space do you need? A range is fine.", quick: SIZE_OPTIONS.slice(0, 4).map((s) => s.label) };
@@ -77,7 +83,7 @@ export function question(slot: Slot, spec: Draft): { q: string; quick: string[] 
 }
 
 export function describe(spec: Draft): string {
-  const parts = [`a ${spec.useType || "space"}`];
+  const parts = [an(spec.useType || "space")];
   if (spec.city) parts[0] += ` in ${CITY(spec.city)}`;
   if (spec.sizeSqft) parts.push(`${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sq ft`);
   if (spec.beds != null) parts.push(`${spec.beds} bed${spec.baths != null ? ` / ${spec.baths} bath` : ""}`);
@@ -103,14 +109,26 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   if (/houston/.test(t)) set("city", "houston");
   else if (/los angeles|\bl\.?a\.?\b/.test(t)) set("city", "los_angeles");
   if (option) { set("useType", option.useType); set("mode", option.mode); }
-  else if (p.useType !== blank.useType || (p.mode !== spec.mode && p.mode !== "business")) {
+  else if (USE_NOUN.test(t) || p.useType !== blank.useType || (p.mode !== spec.mode && p.mode !== "business")) {
     set("useType", p.useType);
     set("mode", p.mode);
   }
   if (size) set("sizeSqft", size.range);
   else if (p.sizeSqft) set("sizeSqft", p.sizeSqft);
+  else if (spec.sizeSqft && /\b(bigger|larger|more space|more room)\b/.test(t)) set("sizeSqft", spec.sizeSqft.map((v) => Math.round(v * 1.5)) as [number, number]);
+  else if (spec.sizeSqft && /\b(smaller|less space|tinier)\b/.test(t)) set("sizeSqft", spec.sizeSqft.map((v) => Math.round(v * 0.67)) as [number, number]);
+  if (/\b(cheaper|lower (the )?budget|less expensive|more affordable)\b/.test(t)) {
+    if (spec.budgetMonthly) set("budgetMonthly", Math.round(spec.budgetMonthly * 0.8));
+    if (spec.budgetTotal) set("budgetTotal", Math.round(spec.budgetTotal * 0.8));
+  }
   for (const k of ["headcount", "beds", "baths", "budgetMonthly", "budgetTotal"] as const) if (p[k] != null) set(k, p[k]);
   for (const [k, v] of Object.entries(p.needs)) if (v) set("needs", { ...next.needs, [k]: v });
+  const musts: [RegExp, keyof Draft["needs"]][] = [[/\bada\b|wheelchair|accessib/, "wheelchair"], [/on-?site parking|\bparking\b/, "parking"], [/ground floor|street level/, "groundFloor"], [/transit/, "transit"]];
+  for (const [re, k] of musts) if (re.test(t) && !next.needs[k]) set("needs", { ...next.needs, [k]: true });
+  const prefs = [...new Set([...(next.preferences ?? []), ...(/flexible layout/.test(t) ? ["flexible"] : []), ...(/patient-?friendly/.test(t) ? ["patient"] : [])])];
+  if (prefs.length !== (next.preferences ?? []).length) set("preferences", prefs);
+  if (/\b(buy|buying|purchase|purchasing|own)\b/.test(t)) set("transaction", "buy");
+  else if (/\b(lease|leasing|rent|renting)\b/.test(t)) set("transaction", "lease");
 
   const rooms = [...p.rooms];
   for (const [re, label] of BARE_ROOMS) if (re.test(t) && !rooms.some((r) => r.label === label)) rooms.push({ label, count: 1, hard: false });
@@ -130,9 +148,9 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   return { spec: next, changed };
 }
 
-function ask(state: ChatState, lead: string): Turn {
+export function ask(state: ChatState, lead: string, force = false): Turn {
   const slot = missing(state.spec, state.asked);
-  const budgetLeft = state.asked.length >= MAX_QUESTIONS;
+  const budgetLeft = force || state.asked.length >= MAX_QUESTIONS;
   if (!slot || budgetLeft) {
     const spec = { ...state.spec, city: state.spec.city ?? "houston", useType: state.spec.useType || "office" };
     const assumed = !state.spec.city ? " I'll start with Houston; say the word if you'd rather search Los Angeles." : "";
@@ -141,8 +159,8 @@ function ask(state: ChatState, lead: string): Turn {
       state: { spec, asked: state.asked, phase: "gathering" }, ready: true, quickReplies: [],
     };
   }
-  const { q, quick } = question(slot, state.spec);
-  return { reply: `${lead}${q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: quick };
+  const { q, quick, card } = question(slot, state.spec);
+  return { reply: `${lead}${q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: quick, ...(card ? { card } : {}) };
 }
 
 export function openChat(spec: Draft): Turn {
@@ -155,6 +173,9 @@ export function converse(state: ChatState, text: string): Turn {
   const awaiting = state.asked.at(-1) ?? null;
   const { spec, changed } = mergeText(state.spec, text, awaiting);
 
+  if (state.spec.city && state.spec.useType && /\b(permits?|licen[cs]es?|regulations?|rules|legal(ly)?|allowed to|zoning laws?)\b/i.test(text))
+    return { reply: `Here are the rules I found for a ${state.spec.useType} in ${CITY(state.spec.city)}. Each links to the official source; treat them as a checklist to confirm, not legal advice.`, state, ready: false, quickReplies: [], action: "regulations" };
+
   if (state.phase === "results") {
     if (/compar/i.test(text)) return { reply: "Here's how the top matches compare side by side.", state, ready: false, quickReplies: [], action: "compare" };
     if (/e-?mail|draft|reach out|contact|message the|write to/i.test(text))
@@ -166,6 +187,9 @@ export function converse(state: ChatState, text: string): Turn {
     };
   }
 
-  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms"])] }, "");
-  return ask({ ...state, spec }, changed ? "Got it. " : "No problem. ");
+  // "Just search" means search now: defaults fill anything still missing (ask() picks Houston/office and says so).
+  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts"])] }, "", true);
+  // One message that answers everything at once searches right away (wireframe 2); must-haves are asked only in Q&A mode.
+  const oneShot = missing(state.spec, state.asked) === "use" && missing(spec, state.asked) === "musts";
+  return ask({ ...state, spec, asked: oneShot ? [...state.asked, "musts"] : state.asked }, changed ? "Got it. " : "No problem. ");
 }

@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Check, FileText, Grid2x2, Mail, MapPin, Sparkles } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, Grid2x2, Mail, MapPin, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
@@ -31,9 +31,9 @@ export function Thumb({ report }: { report: ShellReport }) {
   return <img className="thumb" src={`/api/asset/${report.inside.sid}`} alt={`Inside ${report.name.split(" · ")[0]}`} onError={() => setFailed(true)} />;
 }
 
-export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, onDetails, onSave }: {
+export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, onDetails, onSave, onView }: {
   report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean;
-  onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void;
+  onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void;
 }) {
   const area = areaOf(report);
   return (
@@ -49,6 +49,7 @@ export function SpaceCard({ report, spec, selected, saved, onSelect, onEmail, on
         <ul>{highlights(report, spec).map((h) => <li key={h}><Check aria-hidden="true" /> {h}</li>)}</ul>
         <div className="space-actions">
           <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> Email manager</button>
+          <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onDetails(); }}><FileText aria-hidden="true" /> Full report</button>
           <button type="button" className="btn small" aria-pressed={saved} onClick={(e) => { e.stopPropagation(); onSave(); }}>
             {saved ? <BookmarkCheck aria-hidden="true" /> : <Bookmark aria-hidden="true" />} {saved ? "Saved" : "Save"}

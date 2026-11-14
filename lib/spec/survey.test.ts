@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBudget, SIZE_OPTIONS, surveyToSpec, USE_OPTIONS } from "./survey";
+import { layoutSummary, parseBudget, SIZE_OPTIONS, surveyToSpec, USE_OPTIONS, withLayout } from "./survey";
 
 describe("surveyToSpec", () => {
   it("maps a small-business survey onto a spec", () => {
@@ -39,5 +39,21 @@ describe("parseBudget", () => {
     expect(parseBudget("4500", "lease")).toEqual({ budgetMonthly: 4500 });
     expect(parseBudget("1.2m", "buy")).toEqual({ budgetTotal: 1200000 });
     expect(parseBudget("", "lease")).toEqual({});
+  });
+});
+
+describe("withLayout", () => {
+  const blocks = [
+    { id: "a", kind: "room" as const, label: "exam room", x: 0, y: 0, w: 10, h: 10 },
+    { id: "b", kind: "room" as const, label: "exam room", x: 10, y: 0, w: 10, h: 10 },
+    { id: "s", kind: "object" as const, label: "sink", x: 2, y: 2, w: 2, h: 2 },
+  ];
+  it("adds the layout's rooms, infers the use and size only when the survey left them blank", () => {
+    const d = withLayout(surveyToSpec({ transaction: "lease", accessibility: false, requirements: [] }), blocks);
+    expect(d).toMatchObject({ useType: "medical clinic", input: "layout", sizeSqft: [200, 400] });
+    expect(d.rooms[0]).toMatchObject({ label: "exam room", count: 2, fixtures: ["sink"] });
+    const kept = withLayout(surveyToSpec({ useType: "office", size: "1000-2500", transaction: "lease", accessibility: false, requirements: [] }), blocks);
+    expect(kept).toMatchObject({ useType: "office", sizeSqft: [1000, 2500] });
+    expect(layoutSummary("Clinic A", d, blocks)).toBe("Use my layout “Clinic A”: 2 exam rooms with sinks (about 200 sq ft).");
   });
 });

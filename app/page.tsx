@@ -1,11 +1,12 @@
+import { Suspense } from "react";
 import { PageHead } from "@/components/Chrome";
-import { Survey } from "@/components/Survey";
+import { SearchChat } from "@/components/SearchChat";
 
-export default function SurveyPage() {
+export default function ChatPage() {
   return (
     <>
-      <PageHead title="Find a space that already fits" sub="Tell us what you need, and we'll find spaces that match." />
-      <Survey />
+      <PageHead title="Find a space that already fits" sub="Tell Hermit what you need. It asks a few quick questions, then finds spaces already built for it." />
+      <Suspense fallback={<p>Loading…</p>}><SearchChat /></Suspense>
     </>
   );
 }

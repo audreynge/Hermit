@@ -28,6 +28,13 @@ describe("highlights", () => {
     expect(h.join(" ")).toMatch(/on-site parking/i);
   });
 
+  it("only mentions parking when the user asked about it", () => {
+    const noParking = { ...spec, needs: {} };
+    const r = report({ rules: [{ rule: "parking", status: "pass", detail: "40 recorded stalls", citation: "x", evidence: [] }] });
+    expect(highlights(r, noParking).join(" ")).not.toMatch(/parking/i);
+    expect(highlights(r, noParking)[2]).toBe("Listed for lease now");
+  });
+
   it("says when size is outside the range instead of pretending it fits", () => {
     const h = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 3000 } }), spec);
     expect(h[0]).toMatch(/3,000 sq ft.*1,200.1,800/);
@@ -57,6 +64,18 @@ describe("summarizeResults", () => {
     expect(s.followUp).toMatch(/email/);
   });
 
+  it("mentions the size once when the best match is outside the range", () => {
+    const s = summarizeResults([report({ floorplan: { ...report().floorplan!, totalAreaSqft: 1520 } })], { ...spec, sizeSqft: [2000, 3000] }, { considered: 3, dropped: 0 });
+    expect(s.paragraphs[1].match(/1,520 sq ft/g)).toHaveLength(1);
+    expect(s.paragraphs[1]).toMatch(/1,520 sq ft \(you asked for 2,000–3,000\)/);
+  });
+
+  it("states an out-of-range size once, with what was asked for", () => {
+    const s = summarizeResults([report({ floorplan: undefined, listing: undefined, sqft: 2400 })], spec, { considered: 10, dropped: 0 });
+    expect(s.paragraphs[1]).toMatch(/it's 2,400 sq ft \(you asked for 1,200–1,800\)/);
+    expect(s.paragraphs[1].match(/2,400/g)).toHaveLength(1);
+  });
+
   it("explains an empty result and suggests what to relax", () => {
     const s = summarizeResults([], spec, { considered: 40, dropped: 12 });
     expect(s.paragraphs.join(" ")).toMatch(/couldn't find/i);
@@ -80,6 +99,12 @@ describe("thinkingSteps", () => {
     expect(labels).toEqual(expect.arrayContaining(["Checking local zoning laws", "Checking electrical requirements", "Counting parking", "Measuring rooms in 3D scans"]));
     expect(labels.some((l) => /Ruled out/.test(l))).toBe(true);
     expect(labels.some((l) => /Looking for a sink/.test(l))).toBe(true);
+  });
+
+  it("shows regulation research with what it found per jurisdiction", () => {
+    const ev: TraceEvent[] = [{ type: "tool", id: "r", tool: "research_regulations", args: {}, resultId: "x", summary: "3 rules (city 1, state 1, federal 1)", ms: 1 }];
+    const labels = thinkingSteps(ev, spec).map((s) => s.label);
+    expect(labels).toEqual(["Researching Houston and Texas rules for a medical clinic", "Found 1 city rule", "Found 1 state rule", "Found 1 federal rule"]);
   });
 
   it("only mentions checks the spec asked for", () => {
@@ -118,5 +143,16 @@ describe("compareRows", () => {
     expect(rows.map((r) => r.label)).toEqual(["Match", "Size", "Rooms already built", "Weeks to open", "Known work", "Parking"]);
     expect(rows[0].values).toEqual(["92%", "80%"]);
     expect(rows[3].values).toEqual(["1–4", "8–20"]);
+  });
+
+  it("names the layout-matching step when the agent compared a drawing", () => {
+    const ev = [{ type: "tool", id: "t", tool: "match_layout", args: {}, resultId: "r", summary: "compared your 5-room layout with 368 scanned floor plans; most similar 85% (X)", ms: 3 }] as TraceEvent[];
+    expect(traceSummary(ev)).toEqual(["Matched your layout against 368 floor plans"]);
+    expect(thinkingSteps(ev, { city: "houston", mode: "business", rooms: [], needs: {} } as never)[0].label).toBe("Comparing your drawing with 368 real floor plans");
+  });
+
+  it("leads card highlights with layout similarity when the user drew a plan", () => {
+    const r = { reasons: [], fit: { assignment: [] }, rules: [], similarity: { score: 81, scale: 1, breakdown: { program: 80, adjacency: null, size: 90, shape: 70 }, pairs: [] } } as unknown as ShellReport;
+    expect(highlights(r, { needs: {} } as RequirementSpec)[0]).toBe("Floor plan 81% like your drawing");
   });
 });

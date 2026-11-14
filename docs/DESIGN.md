@@ -33,8 +33,9 @@ Private precomputed bundle <- offline ETL / Matterport / Vexcel / OSM / zoning /
 | `models_index.csv` (14,944 scans) | `sid`, location, CoStar/Homes join keys, `pano_count`, room/floor counts, classification clues |
 | CoStar kit (`openapi.yaml`) | property/listing facts, prior use, power, RBA, sprinklers, parking, industrial details, rents, occupancies |
 | Matterport GraphQL | rooms, polygons, dimensions, wall/door graph, panos/sweeps, floor plans; Showcase for visualization |
-| Vexcel | pre-extracted orthophotos and available roof/site/parking observations |
+| Vexcel | REST v2 (`X-API-KEY`): `POST /ortho/extract` (layers `urban,urban-r,wide-area,urban-g`) and `POST /oriented/extract` (layer `urban`, `oblique-{north,east,south,west}`), 40 m around the record point, cached to `data/processed/vexcel/`; served by `/api/vexcel/[id]?view=`. Roof/site attributes (`/property/extract`) not yet used |
 | OSM + LA zoning | nearby amenities/transit/lot polygons, parcel-level zone and allowed-use lookup (when verified) |
+| LA zoning (verified 2026-11-14) | SCAG regional parcel zoning, `https://maps.scag.ca.gov/scaggis/rest/services/LDX/Zoning_poly_LA/MapServer/0/query` point query (`geometryType=esriGeometryPoint`, `inSR=4326`), field `ZN24_CITY` = city base zone (no height district), `APN24` = parcel. Matched CoStar on 3 of 6 spot checks (C4, CR, C2); others differ (MU/C4, M1/MR1), used as a cross-check, not ground truth. |
 
 **Join strategy:** `models_index.costar_property_id` → commercial building ID; `homes_listing_id` → residential listing ID; occupancy `addressId` → commercial property-address ID; additional scan IDs via attachment type 43 or external reference type 36. Use geographic joins only for local context, with distance and provenance. Suite-level ID/area inferred from scan names is **best-effort**; do not conflate building RBA with available suite area. Validate actual kit keys and field population before shipping.
 
@@ -132,6 +133,7 @@ All tool responses include `resultId`, `source`, `confidence`, and applicable re
 | `fixtures`, `verify_size` | precomputed detections/listing discrepancy | optional |
 | `inspect_view` | question-specific Haiku judgment on **cached** crops | inference, ≤4 |
 | `draft_message`, `submit_reports` | inquiry text; terminal reports | local/final |
+| `apply_fitout` (`/api/fitout`, chat edits) | typed ops (`use_as`/`merge`/`split`/`add_fixture`) → rescored report + before/after difference; changed rooms marked `proposed` | local compute |
 
 **Concurrency/budgets:** target ≤25 **model-visible** tool calls per run, ≤8 candidate room graphs, ≤4 `inspect_view` calls, <45 seconds live. A literal `20 site_context + 8 × (room_graph + fit + check_rules)` exceeds 25 calls; **therefore implement batch endpoints/composite evaluation** that return compact per-candidate summaries. Run independent local lookups and I/O concurrently with a bounded limiter (not unbounded `Promise.all`), cache by normalized argument hash, and send only IDs + concise summaries to the model. Do not claim actual multithreaded CPU parallelism from Promise concurrency. The SDK's manual agent loop can execute independent tool uses in the same iteration; ordering dependencies stay sequential.
 

@@ -23,7 +23,7 @@ export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: 
   return (
     <Modal title="Email the property manager" onClose={onClose}>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Drafted from this space&apos;s report{report.listing?.contact?.name ? ` for ${report.listing.contact.name}${report.listing.contact.company ? ` at ${report.listing.contact.company}` : ""}` : ""}. Edit anything; Hermit never sends it for you.
+        Drafted from this space&apos;s report{report.listing?.contact?.name ? ` for ${report.listing.contact.name}${report.listing.contact.company ? ` at ${report.listing.contact.company.replace(/\.$/, "")}` : ""}` : ""}. Edit anything; Hermit never sends it for you.
       </p>
       <label>To<input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Property manager's email" /></label>
       <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>

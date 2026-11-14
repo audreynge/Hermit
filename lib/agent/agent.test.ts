@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runAgent, type AgentDeps } from "./loop";
+import { BUDGET } from "./tools";
 import type { RequirementSpec, Room, RoomGraph, Shell, TraceEvent } from "../types";
 
 const shell = (id: string, over: Partial<Shell> = {}): Shell => ({
@@ -90,7 +91,7 @@ describe("deterministic agent", () => {
 
   it("keeps a single fixable code gap as priced work and batches drops into one call", async () => {
     const d = deps();
-    const all = d.shells();
+    const all = d.shells(spec);
     const shells = [
       ...all.slice(0, 3),
       ...Array.from({ length: 10 }, (_, i) => shell(`X${i}`, { heavyPower: false, driveInBays: 0 })),
@@ -118,6 +119,50 @@ describe("deterministic agent", () => {
     for (const e of esc) expect(e.outcome).not.toMatch(/^observed/);
   });
 
+  it("cross-checks zoning with the parcel layer for evaluated candidates", async () => {
+    const d = { ...deps(), zoning: async () => ({ zone: "R3", source: "scag test", apn: "1" }) };
+    const events: TraceEvent[] = [];
+    await runAgent({ ...spec, city: "los_angeles" }, (e) => events.push(e), { ...d, shells: () => d.shells(spec).map((s) => ({ ...s, city: "los_angeles" as const, zoning: "LAC2" })) });
+    const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    expect(report.reports[0].rules.find((r) => r.rule === "zoning_records")?.status).toBe("warn");
+  });
+
+  it("researches regulations once, within budget, and cites them on every report", async () => {
+    let calls = 0;
+    const research = async () => { calls++; return { fromCache: false, findings: [
+      { topic: "professional_license" as const, jurisdiction: "state" as const, requirement: "Dental practices need a state permit", appliesWhen: "always", certainty: "applies" as const, url: "https://tsbde.texas.gov/x", citedText: "A permit is required.", retrievedAt: "2026-11-14" },
+      { topic: "occupancy" as const, jurisdiction: "city" as const, requirement: "Certificate of occupancy", appliesWhen: "new tenant", certainty: "may_apply" as const, url: "https://houstontx.gov/co", citedText: "A CO is required.", retrievedAt: "2026-11-14" },
+    ] }; };
+    const events: TraceEvent[] = [];
+    await runAgent(spec, (e) => events.push(e), { ...deps(), research });
+    expect(calls).toBe(1);
+    expect(events.filter((e) => e.type === "tool" && e.tool === "research_regulations")).toHaveLength(1);
+    const done = events.at(-1) as Extract<TraceEvent, { type: "done" }>;
+    expect(done.toolCalls).toBeLessThanOrEqual(25);
+    const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    for (const r of report.reports) {
+      const regs = r.rules.filter((h) => h.rule.startsWith("reg_"));
+      expect(regs.map((h) => [h.status, h.citation])).toEqual([["warn", "https://tsbde.texas.gov/x"], ["unknown", "https://houstontx.gov/co"]]);
+      expect(regs[0].evidence[0].source).toBe("state");
+      expect(r.unknowns.some((u) => /state permit/i.test(u.question))).toBe(true);
+    }
+  });
+
+  it("does not let slow regulation research hold up the search", async () => {
+    BUDGET.researchMs = 50;
+    try {
+      const events: TraceEvent[] = [];
+      const t0 = Date.now();
+      await runAgent(spec, (e) => events.push(e), { ...deps(), research: () => new Promise(() => {}) });
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(events.some((e) => e.type === "drop")).toBe(true);
+      const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+      expect(report.reports[0].rules.some((h) => h.rule.startsWith("reg_"))).toBe(true);
+    } finally {
+      BUDGET.researchMs = 20_000;
+    }
+  });
+
   it("reads at most 8 room graphs", async () => {
     let reads = 0;
     const d = deps();
@@ -138,5 +183,29 @@ describe("deterministic agent", () => {
     const top = report.reports[0];
     expect(top.unknowns.some((u) => /power/i.test(u.topic + u.question))).toBe(true);
     expect(top.draftMessage).toMatch(/Pat/);
+  });
+});
+
+describe("layout-driven run", () => {
+  it("dispatches match_layout after search and carries similarity into reports", async () => {
+    const events: TraceEvent[] = [];
+    const layout = [
+      { label: "office", x: 0, y: 0, w: 11, h: 11 }, { label: "office", x: 11, y: 0, w: 11, h: 11 }, { label: "office", x: 22, y: 0, w: 10, h: 11 },
+      { label: "bathroom", x: 32, y: 0, w: 8, h: 8 }, { label: "reception", x: 0, y: 11, w: 20, h: 15 },
+    ];
+    await runAgent({ ...spec, input: "layout", sizeSqft: undefined, rooms: [], layout }, (e) => events.push(e), deps(), { client: null });
+    const tools = events.flatMap((e) => (e.type === "tool" ? [e.tool] : []));
+    expect(tools.slice(0, 2)).toEqual(["search_shells", "match_layout"]);
+    const reports = (events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports.length).toBeGreaterThan(0);
+    for (const r of reports.filter((r) => r.floorplan)) {
+      expect(r.similarity?.layout).toEqual(layout);
+      expect(r.similarity!.pairs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("skips match_layout when nothing was drawn", async () => {
+    const events = await run();
+    expect(events.some((e) => e.type === "tool" && e.tool === "match_layout")).toBe(false);
   });
 });

@@ -47,6 +47,16 @@ describe("converse while gathering", () => {
     expect(t2.state.spec.city).toBe("los_angeles");
   });
 
+  it("recognizes an office even though office is the parser's default", () => {
+    expect(converse(openChat(fromSurvey()).state, "office in Houston").state.spec.useType).toBe("office");
+  });
+
+  it("stops asking and searches when the user keeps saying just search", () => {
+    let t = openChat(fromSurvey());
+    for (let i = 0; i < 6 && !t.ready; i++) t = converse(t.state, "just search");
+    expect(t.ready).toBe(true);
+  });
+
   it("lets the user skip optional questions", () => {
     const t0 = openChat(fromSurvey({ city: "houston", useType: "office" }));
     const t1 = converse(t0.state, "just search");
@@ -65,6 +75,41 @@ describe("converse while gathering", () => {
   });
 });
 
+describe("survey questions inside the chat", () => {
+  it("asks must-haves as a multi-select card once rooms are known", () => {
+    const t0 = openChat(fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }));
+    const t1 = converse(t0.state, "3 exam rooms");
+    expect(t1.ready).toBe(false);
+    expect(t1.card).toMatchObject({ kind: "multi" });
+    expect(t1.card!.options.map((o) => o.label)).toEqual(expect.arrayContaining(["ADA Accessible", "On-site Parking", "Ground Floor"]));
+    expect(converse(t1.state, "None of these").ready).toBe(true);
+  });
+
+  it("parses a multi-select answer into needs", () => {
+    const s = openChat(fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" })).state;
+    const t = converse({ ...s, asked: ["rooms", "musts"] }, "ADA Accessible, On-site Parking, Ground Floor");
+    expect(t.state.spec.needs).toMatchObject({ wheelchair: true, parking: true, groundFloor: true });
+  });
+
+  it("infers buy from the wording", () => {
+    const t = converse(openChat(fromSurvey()).state, "We're looking to purchase a small retail shop in LA");
+    expect(t.state.spec.transaction).toBe("buy");
+    expect(converse(openChat(fromSurvey()).state, "want to lease an office in Houston").state.spec.transaction).toBe("lease");
+  });
+
+  it("never asks more than five questions", () => {
+    let t = openChat(fromSurvey());
+    let asked = 1;
+    for (const msg of ["idk", "idk", "idk", "idk", "idk", "idk"]) {
+      if (t.ready) break;
+      t = converse(t.state, msg);
+      if (!t.ready) asked++;
+    }
+    expect(t.ready).toBe(true);
+    expect(asked).toBeLessThanOrEqual(5);
+  });
+});
+
 describe("converse after results", () => {
   const results = (spec = fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" })): ChatState => ({ spec, asked: ["rooms", "size"], phase: "results" });
 
@@ -78,6 +123,20 @@ describe("converse after results", () => {
     expect(t.ready).toBe(true);
     expect(t.state.spec).toMatchObject({ city: "los_angeles", sizeSqft: [2500, 4000] });
     expect(t.reply).toMatch(/updat/i);
+  });
+
+  it("routes permit and regulation questions to the regulations action", () => {
+    expect(converse(results(), "what permits do I need?").action).toBe("regulations");
+    expect(converse(results(), "Which licenses or regulations apply?").action).toBe("regulations");
+  });
+
+  it("handles relative refinements from the quick replies", () => {
+    const bigger = converse(results(), "Make it bigger");
+    expect(bigger.ready).toBe(true);
+    expect(bigger.state.spec.sizeSqft).toEqual([1500, 3750]);
+    expect(converse(results(), "a bit smaller please").state.spec.sizeSqft).toEqual([670, 1675]);
+    const cheaper = converse(results({ ...fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }), budgetMonthly: 5000 }), "something cheaper");
+    expect(cheaper.state.spec.budgetMonthly).toBe(4000);
   });
 
   it("offers help when it doesn't understand", () => {

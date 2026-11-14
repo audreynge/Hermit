@@ -50,6 +50,8 @@ export const RequirementSpec = z.object({
   transaction: z.enum(["lease", "buy"]).optional(),
   preferences: z.array(z.string()).optional(),
   input: z.enum(["voice", "text", "layout", "survey", "chat"]),
+  // Drawn room blocks in feet; drives layout-similarity matching. Scale comes from sizeSqft vs drawn area.
+  layout: z.array(z.object({ label: z.string(), x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() })).max(80).optional(),
   rawText: z.string().optional(),
 });
 export type RequirementSpec = z.infer<typeof RequirementSpec>;
@@ -64,6 +66,9 @@ export type Room = {
   heightFt?: number;
   polygon: { x: number; y: number }[]; // meters, Matterport floor plane
   floorId: string;
+  sweeps?: { id: string; index: number }[];
+  proposed?: boolean; // changed by a user fit-out edit, not measured
+  parts?: { x: number; y: number }[][]; // proposed merge: the original measured polygons
 };
 export type RoomGraph = {
   sid: string;
@@ -72,7 +77,7 @@ export type RoomGraph = {
   totalAreaSqft: number;
   rooms: Room[];
   edges: { a: string; b: string; kind: "door" | "possible" }[];
-  objects: { label: string; roomId: string | null; confidence: number }[];
+  objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;
 };
@@ -129,7 +134,10 @@ export type Shell = {
 };
 
 export type RuleStatus = "pass" | "fail" | "warn" | "unknown";
-export type RuleHit = { rule: string; status: RuleStatus; detail: string; citation: string; evidence: Evidence[] };
+export type RuleHit = {
+  rule: string; status: RuleStatus; detail: string; citation: string; evidence: Evidence[];
+  reg?: { topic: string; jurisdiction: "city" | "county" | "state" | "federal"; requirement: string; certainty: "applies" | "may_apply"; retrievedAt: string };
+};
 
 export type FitResult = {
   score: number;
@@ -178,6 +186,15 @@ export type ShellReport = {
   badge: "scan-verified" | "record-only";
   sources: Evidence[];
   listing?: Listing;
+  similarity?: Similarity;
+};
+
+export type Similarity = {
+  score: number;
+  scale: number; // area multiplier applied to the drawn layout
+  breakdown: { program: number; adjacency: number | null; size: number; shape: number };
+  pairs: { mine: number; theirs: string }[]; // index into layout -> room id in the scan
+  layout?: NonNullable<RequirementSpec["layout"]>; // the drawn design this was compared against (unscaled)
 };
 
 export type TraceEvent =
@@ -189,4 +206,4 @@ export type TraceEvent =
   | { type: "rerank"; id: string; order: string[]; reason: string }
   | { type: "report"; id: string; reports: ShellReport[] }
   | { type: "error"; id: string; message: string }
-  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "deterministic" | "replay" };
+  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "gemini" | "openai" | "deterministic" | "replay" };

@@ -27,6 +27,23 @@ describe("chatTurn", () => {
     expect(t.reply).toMatch(/Houston or Los Angeles/);
   });
 
+  it("keeps captured fields when Claude fails mid-conversation", async () => {
+    let calls = 0;
+    const flaky = { messages: { parse: async () => {
+      if (calls++ === 0) return { parsed_output: { reply: "Which city?", ready: false, quickReplies: [], action: "none", update: { useType: "dental clinic", mode: "business", city: null, sizeMinSqft: null, sizeMaxSqft: null, budgetMonthly: null, budgetTotal: null, headcount: null, beds: null, baths: null, rooms: [], needs: { parking: null, wheelchair: null, groundFloor: null, heavyPower: null, esfr: null, driveInBays: null } } } };
+      throw new Error("overloaded");
+    } } } as never;
+    const t1 = await chatTurn({ ...state, spec: { ...state.spec, city: undefined } }, "a dental clinic", flaky);
+    const t2 = await chatTurn(t1.state, "Houston", flaky);
+    expect(t2.state.spec).toMatchObject({ useType: "dental clinic", city: "houston" });
+  });
+
+  it("marks turns answered by the fallback when Claude was configured but failed", async () => {
+    const broken = { messages: { parse: async () => { throw new Error("overloaded"); } } } as never;
+    expect((await chatTurn(state, "a dental clinic", broken)).fallback).toBe("deterministic");
+    expect((await chatTurn(state, "a dental clinic", null)).fallback).toBeUndefined();
+  });
+
   it("falls back to the deterministic conversation when there is no client or Claude fails", async () => {
     const a = await chatTurn(state, "a dental clinic", null);
     expect(a.state.spec.useType).toMatch(/dental clinic/);

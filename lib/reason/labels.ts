@@ -34,6 +34,7 @@ const COMPATIBLE: Record<string, string[]> = {
 };
 
 export function labelCost(req: string, observed: string): number {
+  if (req.toLowerCase() === observed) return 0; // a room the user re-labelled for this exact use
   const want = normalizeRoomLabel([req]);
   if (want === observed) return 0;
   if (COMPATIBLE[want]?.includes(observed)) return 15;

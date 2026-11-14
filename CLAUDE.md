@@ -44,7 +44,7 @@ This is **tool-augmented/agentic retrieval**, not an embeddings-first vector RAG
 
 ## 4. MVP boundaries
 
-**Ship:** survey + three input modes; editable specs; local candidate query; agent trace and branching; room graph/area; layout assignment; electrical/HVAC/fire/parking/zoning/accessibility screening; cached Vexcel view; Matterport tour where available; ranked reports; citations and uncertainty; one or two Home-mode listing checks.
+**Ship:** survey + three input modes; editable specs; local candidate query; agent trace and branching; room graph/area; layout assignment; electrical/HVAC/fire/parking/zoning/accessibility screening; cached Vexcel view; Matterport tour where available; ranked reports; citations and uncertainty; one or two Home-mode listing checks; chat-driven layout and fit-out edits (Claude picks typed ops, code applies and rescores them; see `docs/DESIGN_EDITS_PLAN.md`).
 
 **Stretch, in order:** verified fixture tags → walkability/foot-traffic proxies → expanded enterprise screens → landlord reverse match → extra panorama inspection. Offline fixture detection is optional if precision is not demonstrated; geometry-only matching is an explicit fallback.
 

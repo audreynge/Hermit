@@ -4,32 +4,44 @@ import { fit as fitRooms } from "../reason/fit";
 import { IMPLIED_FIXTURES } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
-import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
+import type { ParcelZone } from "../regs/zoning";
+import { screeningFindings, type Finding, type RegQuery } from "../regs/research";
+import { similarScans } from "../similarity/layout";
+import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, Similarity, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
-export type AgentDeps = { shells: () => Shell[]; graph: (sid: string) => RoomGraph | null };
-export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
+export type AgentDeps = {
+  shells: (spec: RequirementSpec) => Shell[];
+  graph: (sid: string) => RoomGraph | null;
+  zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
+  research?: (q: RegQuery) => Promise<{ findings: Finding[]; fromCache: boolean }>;
+};
+export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000, researchMs: 20_000 };
 
 let seq = 0;
 const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
 
 export const ToolInputs = {
   search_shells: z.object({}),
+  match_layout: z.object({}),
   screen_sites: z.object({ shellIds: z.array(z.string()).max(20) }),
   evaluate_candidates: z.object({ shellIds: z.array(z.string()).max(8) }),
   inspect_view: z.object({ shellId: z.string(), question: z.string() }),
   drop_candidate: z.object({ drops: z.array(z.object({ shellId: z.string(), reason: z.string() })).min(1).max(20) }),
   submit_reports: z.object({ shellIds: z.array(z.string()).max(5) }),
+  research_regulations: z.object({}),
 };
 export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   search_shells: "Retrieve the top 50 candidate spaces for the user's RequirementSpec from the local index (city, mode, size, prior use, scan evidence). Call first.",
+  match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags.",
   evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run.",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
   submit_reports: "Finish: produce Shell Reports for up to 5 evaluated candidates in your chosen rank order.",
+  research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
 export class Run {
@@ -41,7 +53,12 @@ export class Run {
   screened = new Map<string, { shell: Shell; flags: ReturnType<typeof checkRules> }>();
   evaluated = new Map<string, Evaluation>();
   dropped = new Set<string>();
+  similarity = new Map<string, Similarity>();
   reports: ShellReport[] | null = null;
+  regulations: Finding[] = [];
+  researched = false;
+  private researchJob: Promise<{ findings: Finding[]; fromCache: boolean; timedOut?: boolean }> | null = null;
+  get canResearch() { return !!this.deps.research; }
 
   constructor(public spec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {}
 
@@ -56,24 +73,36 @@ export class Run {
     this.calls++;
     const t0 = Date.now();
     const resultId = rid(name);
-    const { result, summary } = this.exec(name, args as never);
+    const { result, summary } = await this.exec(name, args as never);
     this.emit({ type: "tool", id: rid("ev"), tool: name, args, resultId, summary, ms: Date.now() - t0 });
     return { resultId, ...result };
   }
 
-  private exec(name: ToolName, args: Record<string, never>): { result: object; summary: string } {
+  private async exec(name: ToolName, args: Record<string, never>): Promise<{ result: object; summary: string }> {
     switch (name) {
       case "search_shells": return this.search();
+      case "match_layout": return this.matchLayout();
       case "screen_sites": return this.screen(args.shellIds);
       case "evaluate_candidates": return this.evaluate(args.shellIds);
       case "inspect_view": return this.inspect(args.shellId, args.question);
       case "drop_candidate": return this.drop(args.drops);
       case "submit_reports": return this.submit(args.shellIds);
+      case "research_regulations": return this.research();
     }
   }
 
+  // Research runs in the background from the first search so it never sits on the critical path.
+  private startResearch() {
+    if (this.researchJob || !this.deps.research) return;
+    const q = { city: this.spec.city, useType: this.spec.useType };
+    const timeout = new Promise<{ findings: Finding[]; fromCache: boolean; timedOut: boolean }>((res) =>
+      setTimeout(() => res({ findings: screeningFindings(q), fromCache: false, timedOut: true }), BUDGET.researchMs));
+    this.researchJob = Promise.race([this.deps.research(q).catch(() => ({ findings: screeningFindings(q), fromCache: false })), timeout]);
+  }
+
   private search() {
-    const out = searchShells(this.spec, this.deps.shells());
+    this.startResearch();
+    const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
     return {
       result: { considered: out.considered, rejected: out.rejected, top: out.results.slice(0, 20).map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons.slice(0, 3), scan: !!c.shell.sid })) },
@@ -81,8 +110,39 @@ export class Run {
     };
   }
 
+  private matchLayout() {
+    const { scale, rooms, results } = similarScans(this.spec, this.deps.shells(this.spec), this.deps.graph);
+    if (!rooms) return { result: { error: "spec has no drawn layout" }, summary: "skipped: no drawn layout in the spec" };
+    for (const r of results) this.similarity.set(r.candidate.shell.id, r.sim);
+    const ranked = results
+      .map(({ candidate: c, sim }) => ({ ...c, score: Math.round(c.score * 0.4 + sim.score * 0.6), reasons: [`Layout ${sim.score}% similar to your drawing`, ...c.reasons] }))
+      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id)).slice(0, 50);
+    const seen = new Set(ranked.map((c) => c.shell.id));
+    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))].slice(0, 50);
+    const best = results[0];
+    const at = scale === 1 ? "" : ` at ${Math.round(scale * 100)}% of the drawn area`;
+    return {
+      result: { compared: results.length, scale, top: ranked.slice(0, 10).map((c) => ({ id: c.shell.id, similarity: this.similarity.get(c.shell.id)!.score, breakdown: this.similarity.get(c.shell.id)!.breakdown })) },
+      summary: `compared your ${rooms}-room layout${at} with ${results.length} scanned floor plans; most similar ${best ? `${best.sim.score}% (${best.candidate.shell.id})` : "none"}`,
+    };
+  }
+
   private shell(id: string) {
     return this.candidates.find((c) => c.shell.id === id);
+  }
+
+  private async research() {
+    if (!this.deps.research) return { result: { findings: [] }, summary: "no regulation source configured" };
+    this.startResearch();
+    const { findings, fromCache, timedOut } = await this.researchJob!;
+    this.regulations = findings;
+    this.researched = true;
+    const by = (j: Finding["jurisdiction"]) => findings.filter((f) => f.jurisdiction === j).length;
+    const parts = (["city", "county", "state", "federal"] as const).filter((j) => by(j)).map((j) => `${j} ${by(j)}`);
+    return {
+      result: { findings: findings.map((f) => ({ topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty })) },
+      summary: `${findings.length} rules (${parts.join(", ") || "none"})${fromCache ? " from cache" : ""}${timedOut ? "; research timed out, showing screening rules" : ""}`,
+    };
   }
 
   private screen(ids: string[]) {
@@ -97,7 +157,16 @@ export class Run {
     return { result: { rows }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict` };
   }
 
-  private evaluate(ids: string[]) {
+  private async evaluate(ids: string[]) {
+    const zones = new Map<string, ParcelZone | null>();
+    if (this.deps.zoning) await Promise.all(ids.map(async (id) => {
+      const s = this.shell(id)?.shell;
+      if (s?.city === "los_angeles" && s.lat != null && s.lon != null) zones.set(id, await this.deps.zoning!(s.lat, s.lon).catch(() => null));
+    }));
+    return this.evaluateWith(ids, zones);
+  }
+
+  private evaluateWith(ids: string[], zones: Map<string, ParcelZone | null>) {
     const rows = ids.flatMap((id) => {
       const c = this.shell(id);
       if (!c || this.dropped.has(id)) return [];
@@ -108,9 +177,11 @@ export class Run {
         graph = this.deps.graph(c.shell.sid);
       }
       const fit = graph ? fitRooms(this.spec, graph) : { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] };
-      const rules = checkRules(this.spec, c.shell, graph ?? undefined);
+      const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null });
       const work = estimateWork(this.spec, c.shell, fit, rules);
-      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: finalScore(fit, rules, c.score, !!graph), escalations: [] };
+      const similarity = this.similarity.get(id);
+      const base = finalScore(fit, rules, c.score, !!graph);
+      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: similarity ? Math.round(base * 0.5 + similarity.score * 0.5) : base, escalations: [], similarity };
       this.evaluated.set(id, e);
       return [this.row(e)];
     });
@@ -118,7 +189,7 @@ export class Run {
   }
 
   evaluateQuietly(ids: string[]) {
-    this.evaluate(ids);
+    return this.evaluate(ids);
   }
 
   private row(e: Evaluation) {
@@ -173,10 +244,15 @@ export class Run {
     this.emit({ type: "drop", id: rid("ev"), shellId: id, reason, evidence });
   }
 
-  private submit(ids: string[]) {
+  private async submit(ids: string[]) {
+    if (this.deps.research && !this.researched) {
+      const t0 = Date.now();
+      const r = await this.research();
+      this.emit({ type: "tool", id: rid("ev"), tool: "research_regulations", args: {}, resultId: rid("research_regulations"), summary: r.summary, ms: Date.now() - t0 });
+    }
     const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id)).slice(0, 5);
     if (ids.length && !chosen.length) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped); call evaluate_candidates first`);
-    this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1));
+    this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1, this.regulations));
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
   }
 }
@@ -184,7 +260,7 @@ export class Run {
 // Last step when the budget is spent: evaluate any unevaluated picks inside the single submit call.
 export async function finalize(run: Run, ids: string[]) {
   const missing = ids.filter((id) => !run.evaluated.has(id));
-  if (missing.length) run.evaluateQuietly(missing);
+  if (missing.length) await run.evaluateQuietly(missing);
   return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id)) });
 }
 

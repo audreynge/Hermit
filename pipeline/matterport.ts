@@ -12,7 +12,7 @@ const QUERY = `query($id: ID!) { model(id: $id) {
   propertyClassifications { classification type }
   floors { id }
   panoLocations { id }
-  rooms { id label tags classifications { label confidence } dimensions { areaFloor height units } floor { id }
+  rooms { id label tags classifications { label confidence } dimensions { areaFloor height units } floor { id } panoLocations { id label }
     boundary { edges { id type openings { type } vertices { position { x y } } } } }
   objectAnnotations { label confidence room { id } }
 } }`;
@@ -36,13 +36,13 @@ async function fetchModel(sid: string, attempt = 0): Promise<unknown> {
 }
 
 async function main() {
-  const limit = Number(process.argv[2] ?? Infinity);
+  const limit = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? Infinity);
   const shells: Shell[] = JSON.parse(fs.readFileSync(path.join(DIR, "shells.json"), "utf8"));
   fs.mkdirSync(OUT, { recursive: true });
   const wanted = shells
     .filter((s) => s.sid && (s.mode !== "home" || s.listing?.status === "active"))
     .map((s) => s.sid!)
-    .filter((sid) => !fs.existsSync(path.join(OUT, `${sid}.json`)))
+    .filter((sid) => process.argv.includes("--refresh") || !fs.existsSync(path.join(OUT, `${sid}.json`)))
     .slice(0, limit);
   console.log(`fetching ${wanted.length} room graphs`);
   let done = 0, failed = 0;

@@ -1,13 +1,5 @@
-import { PageHead } from "@/components/Chrome";
-import { LayoutStudio } from "@/components/LayoutStudio";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Layout · Hermit" };
-
-export default function LayoutPage() {
-  return (
-    <>
-      <PageHead title="Build your layout" sub="Drag and drop room blocks to sketch the space you need." />
-      <LayoutStudio />
-    </>
-  );
+export default function LayoutRedirect() {
+  redirect("/?design=draw");
 }

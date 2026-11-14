@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "hermit": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "mcp/hermit-server.ts"
+      ],
+      "timeout": 120000,
+      "trust": true,
+      "description": "Hermit: find existing spaces already built for a use (Houston, LA)"
+    }
+  },
+  "security": {
+    "auth": {
+      "selectedType": "gemini-api-key"
+    }
+  },
+  "model": {
+    "name": "gemini-2.5-flash-lite"
+  }
+}
