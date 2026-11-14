@@ -40,3 +40,18 @@ The thresholds are in `docs/DESIGN_EDITS_PLAN.md` §5. The language eval runs th
 | eval (65 cases) | **all met**: op match 100%, target 100%, ambiguous asked 100%, unsafe 100% with zero wrong ops, 0 bad ids, 0 claims, 0 prices, 0 errors, latency p50 2.72 s, p95 4.07 s |
 
 **Next:** run iteration 3 for the second green in a row. Median latency is close to its threshold (2.72–2.92 s against 3 s), so check how much it varies between runs.
+
+## Iteration 3
+
+**Change:** hardened the trust boundary. Block labels from the client and fit-out op labels both reach the model's prompt, and before this only their length was limited. Now only plain room names are accepted (`/^[A-Za-z][A-Za-z0-9 -]{0,39}$/`), and ids use a safe character set. Covered by a new trust-boundary test.
+
+| Gate | Result |
+|---|---|
+| typecheck | pass |
+| unit tests | 165/165 |
+| build | pass (exit 0) |
+| e2e | 27/27, axe clean |
+| eval (65 cases) | **all met**: op match 100%, target 100%, ambiguous asked 100%, unsafe 100%, 0 bad ids/claims/prices/errors, latency p50 2.72 s, p95 3.66 s |
+
+**Stop condition met:** green in iterations 2 and 3. Phase C (the agent proposes the fit-out itself) is not started; it's the next step if wanted.
+**Caveat:** median latency is about 0.3 s under its 3 s threshold in every run (2.72–2.92 s), so a slower model day could miss it. Latency is measured as API time through the CLI, not through the SDK.

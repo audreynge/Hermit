@@ -4,11 +4,11 @@ import { searchShells } from "../query/shells";
 import type { Draft } from "../spec/survey";
 import type { RequirementSpec } from "../types";
 import type { EditContext } from "./edit";
-import { FitoutOp } from "./fitout";
+import { FitoutOp, PlainLabel } from "./fitout";
 
 // Request shapes shared by /api/chat and /api/fitout. Client data is untrusted: bounded sizes, safe ids.
 export const BlockIn = z.object({
-  id: z.string().min(1).max(40), label: z.string().min(1).max(40), kind: z.enum(["room", "object"]).optional(),
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/), label: PlainLabel, kind: z.enum(["room", "object"]).optional(),
   x: z.number().finite(), y: z.number().finite(), w: z.number().finite().positive(), h: z.number().finite().positive(),
 });
 export const LayoutIn = z.array(BlockIn).max(200);

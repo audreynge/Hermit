@@ -7,11 +7,14 @@ import type { RequirementSpec, Room, RoomGraph, Shell, ShellReport, WorkItem } f
 import { parseOps, type Rejected } from "./layout-ops";
 import { roomType } from "./rooms";
 
+// Labels and ids end up in the model's prompt, so only plain words are accepted.
+export const PlainLabel = z.string().regex(/^[A-Za-z][A-Za-z0-9 -]{0,39}$/, "use a plain room name");
+const Id = z.string().regex(/^[A-Za-z0-9_.+-]{1,60}$/, "bad id");
 export const FitoutOp = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("use_as"), roomId: z.string(), label: z.string().min(1).max(40) }),
-  z.object({ op: z.literal("merge"), roomIds: z.array(z.string()).min(1).max(6), label: z.string().min(1).max(40).optional() }),
-  z.object({ op: z.literal("split"), roomId: z.string(), into: z.number(), label: z.string().min(1).max(40).optional() }),
-  z.object({ op: z.literal("add_fixture"), roomId: z.string(), fixture: z.string().min(1) }),
+  z.object({ op: z.literal("use_as"), roomId: Id, label: PlainLabel }),
+  z.object({ op: z.literal("merge"), roomIds: z.array(Id).min(1).max(6), label: PlainLabel.optional() }),
+  z.object({ op: z.literal("split"), roomId: Id, into: z.number(), label: PlainLabel.optional() }),
+  z.object({ op: z.literal("add_fixture"), roomId: Id, fixture: PlainLabel }),
 ]);
 export type FitoutOp = z.infer<typeof FitoutOp>;
 
