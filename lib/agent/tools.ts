@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENTS, consult, needsAgent, type AgentId, type Verdict } from "../crew";
 import { searchShells, type Candidate } from "../query/shells";
 import { fit as fitRooms } from "../reason/fit";
 import { IMPLIED_FIXTURES } from "../reason/labels";
@@ -7,8 +8,9 @@ import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
 import { screeningFindings, type Finding, type RegQuery } from "../regs/research";
 import { similarScans } from "../similarity/layout";
+import { seedRooms } from "../uses/packs";
 import type { Evidence, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
-import { buildReport, finalScore, type Evaluation } from "./report";
+import { buildReport, displayName, scoreLines, total, type Evaluation } from "./report";
 import { auditInput, checkReport, mustHaves, type Auditor } from "./verify";
 
 export type AgentDeps = {
@@ -22,11 +24,13 @@ export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000
 let seq = 0;
 const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
 
+const CONSULTABLE = ["code", "access", "systems", "surveyor"] as const;
 export const ToolInputs = {
   search_shells: z.object({}),
   match_layout: z.object({}),
   screen_sites: z.object({ shellIds: z.array(z.string()).max(20) }),
   evaluate_candidates: z.object({ shellIds: z.array(z.string()).max(8) }),
+  consult_specialist: z.object({ agent: z.enum(CONSULTABLE), shellIds: z.array(z.string()).min(1).max(8), why: z.string().optional() }),
   inspect_view: z.object({ shellId: z.string(), question: z.string() }),
   drop_candidate: z.object({ drops: z.array(z.object({ shellId: z.string(), reason: z.string() })).min(1).max(20) }),
   submit_reports: z.object({ shellIds: z.array(z.string()).max(5) }),
@@ -35,13 +39,14 @@ export const ToolInputs = {
 export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first.",
+  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first. (Scout.)",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
-  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run. Must-have failures and missing required rooms are dropped automatically (dropped: true).",
+  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Must-have failures and missing required rooms are dropped automatically (dropped: true).",
+  consult_specialist: "Hand evaluated candidates to one specialist: code (zoning/parking/fire/power), access (corridor widths, floors, stairs; only useful if the user needs step-free access), systems (HVAC/power, hidden infrastructure), surveyor (aerial site check). A specialist veto removes the candidate.",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
-  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated candidates in your chosen rank order. An independent verifier then re-checks every report against the must-haves and sources.",
+  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated, non-vetoed candidates in your chosen rank order. An independent verifier then re-checks every report against the must-haves and sources.",
   research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
@@ -61,8 +66,14 @@ export class Run {
   researched = false;
   private researchJob: Promise<{ findings: Finding[]; fromCache: boolean; timedOut?: boolean }> | null = null;
   get canResearch() { return !!this.deps.research; }
+  consulted = new Set<AgentId>();
+  vetoes = new Map<string, Verdict>();
+  spec: RequirementSpec;
 
-  constructor(public spec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {}
+  constructor(public userSpec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {
+    // Rooms the user never described come from the use pack, so a missing sink or restroom counts as work.
+    this.spec = { ...userSpec, rooms: seedRooms(userSpec) };
+  }
 
   overBudget() {
     return this.calls >= BUDGET.toolCalls || Date.now() - this.started > BUDGET.ms;
@@ -87,6 +98,7 @@ export class Run {
       case "match_layout": return this.matchLayout();
       case "screen_sites": return this.screen(args.shellIds);
       case "evaluate_candidates": return this.evaluate(args.shellIds);
+      case "consult_specialist": return this.consultMany(args.agent, args.shellIds, args.why);
       case "inspect_view": return this.inspect(args.shellId, args.question);
       case "drop_candidate": return this.drop(args.drops);
       case "submit_reports": return this.submit(args.shellIds);
@@ -107,9 +119,11 @@ export class Run {
     this.startResearch();
     const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
+    this.emit({ type: "funnel", id: rid("ev"), stages: out.stages });
+    const pathText = out.stages.map((s) => `${s.count.toLocaleString()} ${s.label}`).join(" → ");
     return {
-      result: { considered: out.considered, rejected: out.rejected, top: out.results.map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons, scan: !!c.shell.sid })) },
-      summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → ${out.results.length} kept`,
+      result: { considered: out.considered, rejected: out.rejected, stages: out.stages.map((s) => ({ label: s.label, count: s.count })), top: out.results.map((c) => ({ id: c.shell.id, name: displayName(c.shell.name), score: c.score, reasons: c.reasons, scan: !!c.shell.sid })) },
+      summary: `${pathText}; ${out.results.length} kept`,
     };
   }
 
@@ -184,27 +198,66 @@ export class Run {
       const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null });
       const work = estimateWork(this.spec, c.shell, fit, rules);
       const similarity = this.similarity.get(id);
-      const base = finalScore(fit, rules, c.score, !!graph);
-      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: similarity ? Math.round(base * 0.5 + similarity.score * 0.5) : base, escalations: [], similarity };
+      const lines = scoreLines(this.spec, c.shell, graph, fit, rules);
+      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, lines, finalScore: 0, escalations: [], verdicts: [], similarity };
+      rescore(e);
       this.evaluated.set(id, e);
       // A missing room is work to build, not a failed must-have; only a far-too-small measured area drops here.
-      this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")));
+      if (!this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")))) this.verdict(consult("inspector", this.spec, e), e);
       return [this.row(e)];
     });
-    return { result: { rows }, summary: `evaluated ${rows.length} (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
+    return { result: { rows }, summary: `Inspector walked ${rows.filter((r) => r.scan).length} scans (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
   }
 
   evaluateQuietly(ids: string[]) {
     return this.evaluate(ids);
   }
 
+  private verdict(v: Verdict, e: Evaluation) {
+    e.verdicts = [...e.verdicts.filter((x) => x.agent !== v.agent), v];
+    this.emit({ type: "verdict", id: rid("ev"), verdict: v });
+    if (v.status === "veto" && !this.dropped.has(e.shell.id)) {
+      const evidence = v.claims.flatMap((c) => c.evidence).slice(0, 4);
+      this.dropped.add(e.shell.id);
+      this.vetoes.set(e.shell.id, v);
+      this.emit({ type: "veto", id: rid("ev"), agent: v.agent, shellId: e.shell.id, name: displayName(e.shell.name), reason: v.headline, evidence });
+    }
+  }
+
+  handoffNeeded(agent: AgentId) {
+    return needsAgent(agent, this.userSpec).needed;
+  }
+
+  handoff(agent: AgentId, ids: string[], why?: string) {
+    const need = needsAgent(agent, this.userSpec);
+    this.emit({ type: "handoff", id: rid("ev"), to: agent, shellIds: ids, why: why ?? need.why, skipped: !need.needed });
+    return need.needed;
+  }
+
+  private consultMany(agent: AgentId, ids: string[], why?: string) {
+    this.consulted.add(agent);
+    this.handoff(agent, ids, why);
+    const out = ids.flatMap((id) => {
+      const e = this.evaluated.get(id);
+      if (!e || this.dropped.has(id)) return [];
+      const v = consult(agent, this.spec, e);
+      this.verdict(v, e);
+      // Code and Systems warnings come from rule hits already scored; Access measurements are new evidence.
+      if (v.status === "warn" && agent === "access") { e.lines.push({ factor: "Access flag", earned: -2, max: 0, note: v.headline, source: "access" }); rescore(e); }
+      return [{ id, status: v.status, headline: v.headline, questions: v.questions.length }];
+    });
+    const vetoes = out.filter((o) => o.status === "veto").length;
+    return { result: { rows: out }, summary: `${AGENTS[agent].name} reviewed ${out.length}: ${vetoes} veto${vetoes === 1 ? "" : "es"}, ${out.filter((o) => o.status === "warn").length} flagged` };
+  }
+
   private row(e: Evaluation) {
     return {
-      id: e.shell.id, dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
+      id: e.shell.id, name: displayName(e.shell.name), dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
       hardFails: e.fit.hardFails, roomUnknowns: e.fit.unknowns, ruleFails: e.rules.filter((r) => r.status === "fail").map((r) => r.rule),
       unknowns: e.rules.filter((r) => r.status === "unknown").map((r) => r.rule),
       unverifiedFixtures: unverifiedFixtures(this.spec, e),
-      cost: e.work.costRange, weeks: e.work.weeksToOpen,
+      workItems: e.work.items.length, weeks: e.work.weeksToOpen,
+      inspector: e.verdicts.find((v) => v.agent === "inspector")?.status,
     };
   }
 
@@ -219,14 +272,20 @@ export class Run {
       const fixtures = FIXTURE_WORDS.filter((f) => words.has(f));
       const roomTypes = ROOM_WORDS.filter((r) => words.has(r));
       const objs = e.graph.objects.filter((o) => fixtures.includes(o.label.replace(/s$/, "")));
-      const rooms = e.graph.rooms.filter((r) => roomTypes.includes(r.label));
+      const rooms = fixtures.length ? [] : e.graph.rooms.filter((r) => roomTypes.includes(r.label));
+      const desc = e.graph.description ?? "";
+      const sentences = desc.split(/(?<=\.)\s+/);
+      const has = (x: string, w: string) => new RegExp(`\b${w}`, "i").test(x);
+      const sentence = sentences.find((x) => fixtures.some((f) => has(x, f)) && roomTypes.some((r) => has(x, r)))
+        ?? (roomTypes.length ? undefined : sentences.find((x) => [...fixtures, ...roomTypes].some((w) => has(x, w))));
       outcome = !fixtures.length && !roomTypes.length ? "unresolved: question names no fixture or room type Hermit can look up"
-        : objs.length
-        ? `observed: ${objs.map((o) => `${o.label} in room ${o.roomId ?? "?"} (conf ${o.confidence.toFixed(2)})`).join("; ")}`
+        : objs.length ? `observed: ${objs.map((o) => `${o.label} in room ${o.roomId ?? "?"} (conf ${o.confidence.toFixed(2)})`).join("; ")}`
         : rooms.length ? `observed: room tags ${rooms.map((r) => r.rawTags.join("/")).join("; ")}`
-        : `not observed in ${e.graph.objects.length} object annotations / ${e.graph.rooms.length} room tags; treat as unknown`;
+        : sentence ? `described, not tagged: Matterport's scan description says "${sentence.trim().slice(0, 160)}" (AI-written; ask to confirm)`
+        : `not observed in ${e.graph.objects.length} object annotations / ${e.graph.rooms.length} room tags / scan description; treat as unknown`;
     }
     e?.escalations.push({ question, outcome });
+    if (e && !outcome.startsWith("observed")) { e.lines.push({ factor: "Closer look unresolved", earned: outcome.startsWith("described") ? -1 : -3, max: 0, note: question, source: "inspect_view" }); rescore(e); }
     this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome });
     return { result: { outcome }, summary: outcome };
   }
@@ -234,9 +293,10 @@ export class Run {
   private drop(drops: { shellId: string; reason: string }[]) {
     const unknown = drops.filter((d) => !this.shell(d.shellId)).map((d) => d.shellId);
     if (unknown.length === drops.length) throw new Error(`not candidates from search_shells: ${unknown.join(", ")}`);
-    drops = drops.filter((d) => this.shell(d.shellId));
+    const already = drops.filter((d) => this.dropped.has(d.shellId)).length;
+    drops = drops.filter((d) => this.shell(d.shellId) && !this.dropped.has(d.shellId));
     for (const d of drops) this.dropOne(d.shellId, d.reason);
-    return { result: { dropped: drops.map((d) => d.shellId) }, summary: `dropped ${drops.length}: ${drops.map((d) => d.shellId).join(", ")}` };
+    return { result: { dropped: drops.map((d) => d.shellId), alreadyRemoved: already }, summary: drops.length ? `dropped ${drops.length}: ${drops.map((d) => displayName(this.shell(d.shellId)!.shell.name)).join(", ")}` : `${already} already removed by a specialist veto` };
   }
 
   // Code-enforced must-haves (every planner path): a recorded fail drops the candidate; unknown stays in, flagged, with a landlord question.
@@ -268,9 +328,32 @@ export class Run {
       const r = await this.research();
       this.emit({ type: "tool", id: rid("ev"), tool: "research_regulations", args: {}, resultId: rid("research_regulations"), summary: r.summary, ms: Date.now() - t0 });
     }
-    const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id)).slice(0, 5);
-    if (ids.length && !chosen.length) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped); call evaluate_candidates first`);
+    // Guardrail: a specialist with veto power that the user's needs call for reviews every finalist, whatever the planner chose.
+    for (const agent of ["code", "access"] as const) {
+      if (!needsAgent(agent, this.userSpec).needed) continue;
+      const missed = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id) && !this.evaluated.get(id)!.verdicts.some((v) => v.agent === agent));
+      if (!missed.length) continue;
+      this.emit({ type: "handoff", id: rid("ev"), to: agent, shellIds: missed, why: `Hermit's rule: ${AGENTS[agent].name} reviews every finalist before a report goes out` });
+      for (const id of missed) this.verdict(consult(agent, this.spec, this.evaluated.get(id)!), this.evaluated.get(id)!);
+    }
+    // The planner picks which spaces to report; rank follows the evidence score so every position is explainable.
+    const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id))
+      .sort((a, b) => this.evaluated.get(b)!.finalScore - this.evaluated.get(a)!.finalScore).slice(0, 5);
+    if (ids.length && !chosen.length && !ids.some((id) => this.vetoes.has(id))) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped/vetoed); call evaluate_candidates first`);
+    for (const id of chosen) {
+      const e = this.evaluated.get(id)!;
+      for (const a of ["estimator", "advocate"] as const) if (!e.verdicts.some((v) => v.agent === a)) e.verdicts.push(consult(a, this.spec, e));
+    }
     this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1, this.regulations));
+    const first = this.candidates[0];
+    if (first && chosen[0] && chosen[0] !== first.shell.id) {
+      const veto = this.vetoes.get(first.shell.id);
+      const top = displayName(this.evaluated.get(chosen[0])!.shell.name), scout = displayName(first.shell.name);
+      this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: veto
+        ? `${AGENTS[veto.agent].name} vetoed the Scout's first pick, ${scout} (${veto.headline.charAt(0).toLowerCase()}${veto.headline.slice(1)}). ${top} takes the top spot.`
+        : this.dropped.has(first.shell.id) ? `The Scout's first pick, ${scout}, was dropped. ${top} takes the top spot.`
+        : `After walking the scans, ${top} outscored the Scout's first pick, ${scout}.` });
+    }
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
   }
 
@@ -322,8 +405,8 @@ export async function finalize(run: Run, ids: string[]) {
   return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id) && !run.dropped.has(id)) });
 }
 
-const FIXTURE_WORDS = ["sink", "toilet", "shower", "bathtub", "tub", "hood", "drain", "range", "stove", "oven", "refrigerator", "dishwasher", "washer", "dryer"];
-const ROOM_WORDS = ["bathroom", "kitchen", "office", "bedroom", "reception", "conference", "storage", "utility", "garage"];
+const FIXTURE_WORDS = ["sink", "toilet", "shower", "bathtub", "tub", "hood", "drain", "range", "stove", "oven", "refrigerator", "dishwasher", "washer", "dryer", "elevator", "ramp"];
+const ROOM_WORDS = ["bathroom", "restroom", "kitchen", "office", "bedroom", "reception", "conference", "storage", "utility", "garage", "exam"];
 
 export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string[] {
   if (!e.graph) return [];
@@ -336,6 +419,12 @@ export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string
     for (const f of req?.fixtures ?? []) if (!have.has(f)) out.add(f);
   }
   return [...out];
+}
+
+// Evidence score lines, blended 50/50 with layout similarity when the user drew a plan.
+function rescore(e: Evaluation) {
+  const base = total(e.lines);
+  e.finalScore = e.similarity ? Math.round(base * 0.5 + e.similarity.score * 0.5) : base;
 }
 
 export const newEventId = () => rid("ev");

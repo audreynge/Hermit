@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { buildReport, finalScore, type Evaluation } from "../agent/report";
+import { buildReport, scoreLines, total, type Evaluation } from "../agent/report";
 import { fit, fixturesIn } from "../reason/fit";
 import { checkRules } from "../reason/rules";
 import { estimateWork, row } from "../reason/work";
@@ -167,9 +167,10 @@ function evaluation(spec: RequirementSpec, shell: Shell, graph: RoomGraph, searc
   const f = fit(spec, graph);
   const rules = checkRules(spec, shell, graph);
   const work = estimateWork(spec, shell, f, rules, extra);
+  const lines = scoreLines(spec, shell, graph, f, rules);
   return {
     shell, searchScore: search.score, searchReasons: search.reasons, graph, fit: f, rules, work,
-    finalScore: finalScore(f, rules, search.score, true), escalations: [],
+    lines, finalScore: total(lines), escalations: [], verdicts: [],
     extraUnknowns: unknowns.map((question) => ({ topic: "proposed change", question })),
   };
 }

@@ -81,7 +81,7 @@ describe("survey questions inside the chat", () => {
     const t1 = converse(t0.state, "3 exam rooms");
     expect(t1.ready).toBe(false);
     expect(t1.card).toMatchObject({ kind: "multi" });
-    expect(t1.card!.options.map((o) => o.label)).toEqual(expect.arrayContaining(["ADA Accessible", "On-site Parking", "Ground Floor"]));
+    expect(t1.card!.options.map((o) => o.label)).toEqual(expect.arrayContaining(["Step-free / wheelchair access", "On-site Parking", "Ground Floor"]));
     expect(converse(t1.state, "None of these").ready).toBe(true);
   });
 

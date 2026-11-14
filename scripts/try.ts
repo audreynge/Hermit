@@ -1,19 +1,24 @@
+// Run one search against the local bundle and print the trace. Usage: npx tsx --env-file=.env scripts/try.ts ["spoken request"] [--det]
 import { runAgent } from "../lib/agent/loop";
 import { loadRoomGraph, loadShells } from "../lib/query/load";
 import { parseText } from "../lib/spec/parse";
 import type { TraceEvent } from "../lib/types";
 
-const q = process.argv[2];
-const spec = parseText(q);
-const ev: TraceEvent[] = [];
-const t = Date.now();
-const reports = await runAgent(spec, (e) => ev.push(e), { shells: loadShells, graph: loadRoomGraph }, { client: null });
-console.log(JSON.stringify({ spec: { mode: spec.mode, city: spec.city, use: spec.useType, size: spec.sizeSqft, rooms: spec.rooms.map((r) => `${r.count}x${r.label}`), needs: spec.needs } }));
-for (const e of ev) {
-  if (e.type === "tool") console.log("tool", e.tool, "|", e.summary);
-  else if (e.type === "drop") console.log("drop", e.shellId, "|", e.reason.slice(0, 110));
-  else if (e.type === "escalate") console.log("esc ", e.shellId, "|", e.outcome.slice(0, 100));
-  else if (e.type === "rerank") console.log("rerank", e.reason);
-}
-for (const r of reports) console.log(r.rank, r.badge, r.verdict, "|", r.name.slice(0, 60), "| fit", r.fit.score, "|", r.summary.slice(0, 120));
-console.log("ms", Date.now() - t);
+const text = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "Medical clinic in Houston, 2,000-4,000 sf, 2 exam rooms off a hallway, a small lab, parking for 10, one wheelchair user on staff";
+const spec = { ...parseText(text, { city: "houston" }), input: "text" as const };
+console.log("spec", JSON.stringify(spec));
+const t0 = Date.now();
+const show = (e: TraceEvent) => {
+  const s = (() => { switch (e.type) {
+    case "funnel": return e.stages.map((x) => `${x.count} ${x.label}`).join(" → ");
+    case "tool": return `${e.tool}: ${e.summary}`;
+    case "verdict": return `${e.verdict.agent} on ${e.verdict.shellId}: ${e.verdict.status} — ${e.verdict.headline}`;
+    case "veto": return `VETO by ${e.agent}: ${e.name} — ${e.reason}`;
+    case "handoff": return `→ ${e.to}${e.skipped ? " (skipped)" : ""}: ${e.why}`;
+    case "report": return e.reports.map((r) => `#${r.rank} ${r.name} ${r.matchScore}% [${(r.score ?? []).map((l) => `${l.factor} ${l.earned}/${l.max}`).join(", ")}]`).join("\n   ");
+    case "plan": return e.text; case "escalate": return `${e.question} → ${e.outcome}`; case "rerank": return e.reason; case "drop": return `drop ${e.shellId}: ${e.reason}`;
+    case "error": return e.message; case "done": return `${e.planner} ${e.toolCalls} calls ${e.ms}ms`; default: return "";
+  } })();
+  if (s) console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${e.type.padEnd(8)} ${s}`);
+};
+runAgent(spec, show, { shells: loadShells, graph: loadRoomGraph }, process.argv.includes("--det") ? { client: null, gemini: null } : {});

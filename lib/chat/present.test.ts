@@ -16,6 +16,7 @@ const report = (over: Partial<ShellReport> = {}): ShellReport => ({
   work: [], weeksToOpen: [1, 4], costRange: [0, 0], unknowns: [], draftMessage: "Hi Pat,\n\nI'm looking for space…", badge: "scan-verified", sources: [],
   floorplan: { sid: "A", name: "A", totalAreaSqft: 1650, rooms: [], edges: [], objects: [], panoCount: 9, floorCount: 1 },
   listing: { listingId: 1, status: "active", kind: "lease", contact: { name: "Pat Lee", email: "pat@example.com" } },
+  score: [], crew: [], triangulation: [],
   ...over,
 });
 

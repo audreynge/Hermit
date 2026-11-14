@@ -39,3 +39,8 @@ export function ringFromEdges(edges: Pt[][], tol = 0.01): Pt[] {
   if (ring.length > 2 && near(ring[0], ring[ring.length - 1], tol)) ring.pop();
   return ring;
 }
+
+export const perimeter = (pts: Pt[]) => pts.reduce((s, a, i) => s + Math.hypot(pts[(i + 1) % pts.length].x - a.x, pts[(i + 1) % pts.length].y - a.y), 0);
+
+// For a long, thin room 2·area/perimeter approximates its clear width (exact for an infinitely long rectangle).
+export const corridorWidth = (pts: Pt[]) => (pts.length >= 3 ? (2 * shoelaceArea(pts)) / perimeter(pts) : null);

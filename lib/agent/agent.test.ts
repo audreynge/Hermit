@@ -73,9 +73,11 @@ describe("deterministic agent", () => {
     expect(report.reports.map((r) => r.shellId)).not.toContain("C");
   });
 
-  it("drops the search leader when its scan lacks a required room, changing the top pick", async () => {
+  it("vetoes the search leader when its scan lacks a required room, changing the top pick", async () => {
     const ev = await run();
-    expect(ev.some((e) => e.type === "drop" && e.shellId === "A")).toBe(true);
+    const veto = ev.find((e) => e.type === "veto" && e.shellId === "A") as Extract<TraceEvent, { type: "veto" }> | undefined;
+    expect(veto?.agent).toBe("inspector");
+    expect(veto?.reason).toMatch(/bathroom not found/);
     expect(ev.some((e) => e.type === "rerank")).toBe(true);
     const report = ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
     expect(report.reports[0].shellId).not.toBe("A");
@@ -86,7 +88,7 @@ describe("deterministic agent", () => {
     const esc = ev.filter((e) => e.type === "escalate") as Extract<TraceEvent, { type: "escalate" }>[];
     expect(esc.length).toBeGreaterThan(0);
     expect(esc.length).toBeLessThanOrEqual(4);
-    expect(esc[0].question).toBe("Is there a sink in the exam rooms?");
+    expect(esc[0].question).toBe("Does the exam room have a sink?");
   });
 
   it("drops a recorded must-have failure (even a fixable one) and batches drops into one call", async () => {
@@ -169,6 +171,28 @@ describe("deterministic agent", () => {
     d.graph = (sid) => { reads++; return g(sid); };
     await run(d);
     expect(reads).toBeLessThanOrEqual(8);
+  });
+
+  it("only consults Access when the user needs step-free access, and Access can veto a multi-level scan", async () => {
+    const skipped = await run();
+    expect(skipped.some((e) => e.type === "handoff" && e.to === "access" && e.skipped)).toBe(true);
+    const d = deps();
+    const g = d.graph;
+    d.graph = (sid) => (sid === "B" ? { ...g("B")!, floorCount: 2 } : g(sid));
+    const shells = d.shells(spec).map((s) => (s.id === "B" ? { ...s, elevator: null } : s));
+    const events: TraceEvent[] = [];
+    await runAgent({ ...spec, needs: { wheelchair: true } }, (e) => events.push(e), { ...d, shells: () => shells });
+    const veto = events.find((e) => e.type === "veto" && e.shellId === "B") as Extract<TraceEvent, { type: "veto" }> | undefined;
+    expect(veto?.agent).toBe("access");
+    expect(veto?.reason).toMatch(/2 floors/);
+    const report = events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    expect(report.reports.map((r) => r.shellId)).not.toContain("B");
+  });
+
+  it("makes the visible score lines sum to the match score", async () => {
+    const ev = await run();
+    const report = ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
+    for (const r of report.reports) expect(Math.max(0, Math.min(100, r.score!.reduce((s, l) => s + l.earned, 0)))).toBe(r.matchScore);
   });
 
   it("builds sourced reports with badges, unknowns and a draft inquiry", async () => {
