@@ -39,10 +39,11 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   if (prior) out.push(READY[prior] ?? `Already built as a ${prior} space (minimal build-out)`);
   else if (r.fit.assignment.length) out.push(`${matched} of ${r.fit.assignment.length} rooms already built`);
 
-  const onsite = r.rules.find((x) => x.rule === "onsite_parking" && x.status === "pass");
+  const wantsParking = !!(spec.needs.parking || spec.needs.parkingStalls);
+  const onsite = wantsParking ? r.rules.find((x) => x.rule === "onsite_parking" && x.status === "pass") : undefined;
   const stalls = onsite?.detail.match(/(\d+)/)?.[1];
   if (onsite) out.push(`On-site parking${stalls ? ` (${stalls} stalls)` : ""}`);
-  else if (r.rules.some((x) => x.rule === "parking" && x.status === "pass")) out.push("Enough parking for the use");
+  else if (wantsParking && r.rules.some((x) => x.rule === "parking" && x.status === "pass")) out.push("Enough parking for the use");
   if (r.listing?.status === "active") out.push(`Listed for ${r.listing.kind === "sale" ? "sale" : "lease"} now`);
   if (r.costRange && !r.costRange[1]) out.push("No build-out identified");
   else if (r.costRange) out.push(`About ${k(r.costRange[0])}–${k(r.costRange[1])} of work`);

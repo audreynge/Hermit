@@ -80,6 +80,15 @@ describe("converse after results", () => {
     expect(t.reply).toMatch(/updat/i);
   });
 
+  it("handles relative refinements from the quick replies", () => {
+    const bigger = converse(results(), "Make it bigger");
+    expect(bigger.ready).toBe(true);
+    expect(bigger.state.spec.sizeSqft).toEqual([1500, 3750]);
+    expect(converse(results(), "a bit smaller please").state.spec.sizeSqft).toEqual([670, 1675]);
+    const cheaper = converse(results({ ...fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }), budgetMonthly: 5000 }), "something cheaper");
+    expect(cheaper.state.spec.budgetMonthly).toBe(4000);
+  });
+
   it("offers help when it doesn't understand", () => {
     const t = converse(results(), "hello?");
     expect(t.ready).toBe(false);

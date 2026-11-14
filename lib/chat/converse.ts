@@ -109,6 +109,12 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   }
   if (size) set("sizeSqft", size.range);
   else if (p.sizeSqft) set("sizeSqft", p.sizeSqft);
+  else if (spec.sizeSqft && /\b(bigger|larger|more space|more room)\b/.test(t)) set("sizeSqft", spec.sizeSqft.map((v) => Math.round(v * 1.5)) as [number, number]);
+  else if (spec.sizeSqft && /\b(smaller|less space|tinier)\b/.test(t)) set("sizeSqft", spec.sizeSqft.map((v) => Math.round(v * 0.67)) as [number, number]);
+  if (/\b(cheaper|lower (the )?budget|less expensive|more affordable)\b/.test(t)) {
+    if (spec.budgetMonthly) set("budgetMonthly", Math.round(spec.budgetMonthly * 0.8));
+    if (spec.budgetTotal) set("budgetTotal", Math.round(spec.budgetTotal * 0.8));
+  }
   for (const k of ["headcount", "beds", "baths", "budgetMonthly", "budgetTotal"] as const) if (p[k] != null) set(k, p[k]);
   for (const [k, v] of Object.entries(p.needs)) if (v) set("needs", { ...next.needs, [k]: v });
 

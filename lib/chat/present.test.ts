@@ -28,6 +28,13 @@ describe("highlights", () => {
     expect(h.join(" ")).toMatch(/on-site parking/i);
   });
 
+  it("only mentions parking when the user asked about it", () => {
+    const noParking = { ...spec, needs: {} };
+    const r = report({ rules: [{ rule: "parking", status: "pass", detail: "40 recorded stalls", citation: "x", evidence: [] }] });
+    expect(highlights(r, noParking).join(" ")).not.toMatch(/parking/i);
+    expect(highlights(r, noParking)[2]).toBe("Listed for lease now");
+  });
+
   it("says when size is outside the range instead of pretending it fits", () => {
     const h = highlights(report({ floorplan: { ...report().floorplan!, totalAreaSqft: 3000 } }), spec);
     expect(h[0]).toMatch(/3,000 sq ft.*1,200.1,800/);

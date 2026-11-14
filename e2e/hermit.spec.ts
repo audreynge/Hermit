@@ -247,6 +247,19 @@ test.describe("replay and failure states", () => {
     await expect(cards(page).first()).toBeVisible();
     await page.getByRole("region", { name: "Agent trace" }).getByText("See every step").click();
     await expect(page.getByLabel("Full agent trace")).toContainText("replay planner");
+    await expect(conversation(page)).toContainText("medical clinic");
+    await expect(conversation(page)).not.toContainText("for a space");
+  });
+
+  test("a failed search tells you and lets you keep chatting", async ({ page }) => {
+    await page.route("**/api/agent", (route) => route.fulfill({ status: 500, body: "boom" }));
+    await fresh(page, "/search");
+    await page.getByLabel("Message Hermit").fill("small medical clinic in Houston, 1,200-1,800 sq ft, 3 exam rooms, a reception area and storage");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(conversation(page)).toContainText("Search failed");
+    await expect(page.getByRole("region", { name: "Matching Spaces" }).getByRole("status")).not.toContainText("Searching");
+    await page.getByLabel("Message Hermit").fill("try again");
+    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
   });
 
   test("APIs validate input and refuse path tricks", async ({ request }) => {

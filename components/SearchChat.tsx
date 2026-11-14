@@ -95,7 +95,9 @@ export function SearchChat() {
         }
       }
     } catch (err) {
-      push(bot([err instanceof Error ? err.message : String(err)]));
+      setMessages((xs) => xs.filter((m) => !(m.role === "bot" && m.kind === "thinking" && m.runKey === key)));
+      setRunKey("");
+      push(bot([`${err instanceof Error ? err.message : String(err)}. Try again, or change what you're looking for.`]));
     } finally {
       setRunning(false);
     }
