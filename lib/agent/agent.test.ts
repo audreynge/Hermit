@@ -185,3 +185,27 @@ describe("deterministic agent", () => {
     expect(top.draftMessage).toMatch(/Pat/);
   });
 });
+
+describe("layout-driven run", () => {
+  it("dispatches match_layout after search and carries similarity into reports", async () => {
+    const events: TraceEvent[] = [];
+    const layout = [
+      { label: "office", x: 0, y: 0, w: 11, h: 11 }, { label: "office", x: 11, y: 0, w: 11, h: 11 }, { label: "office", x: 22, y: 0, w: 10, h: 11 },
+      { label: "bathroom", x: 32, y: 0, w: 8, h: 8 }, { label: "reception", x: 0, y: 11, w: 20, h: 15 },
+    ];
+    await runAgent({ ...spec, input: "layout", sizeSqft: undefined, rooms: [], layout }, (e) => events.push(e), deps(), { client: null });
+    const tools = events.flatMap((e) => (e.type === "tool" ? [e.tool] : []));
+    expect(tools.slice(0, 2)).toEqual(["search_shells", "match_layout"]);
+    const reports = (events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports.length).toBeGreaterThan(0);
+    for (const r of reports.filter((r) => r.floorplan)) {
+      expect(r.similarity?.layout).toEqual(layout);
+      expect(r.similarity!.pairs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("skips match_layout when nothing was drawn", async () => {
+    const events = await run();
+    expect(events.some((e) => e.type === "tool" && e.tool === "match_layout")).toBe(false);
+  });
+});

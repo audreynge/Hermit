@@ -37,7 +37,7 @@ export function SavedList() {
     </div>
   );
   return (
-    <section className="card results-card" aria-label="Saved spaces" style={{ minHeight: 0 }}>
+    <section className="card results-card" aria-label="Saved spaces" style={{ minHeight: 0, height: "auto" }}>
       <div className="results-list">
         {list.map(({ report, spec }) => (
           <div key={report.shellId} style={{ display: "grid", gap: 6 }}>

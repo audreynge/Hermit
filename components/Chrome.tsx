@@ -2,6 +2,29 @@
 import { Bookmark, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+
+type Ai = { connected: boolean; email: string | null; model: string | null; apiKey: boolean; gemini: boolean; canSignIn: boolean };
+
+// Which model powers chat + search. Sign in with ChatGPT only works on the machine running Hermit (loopback OAuth).
+function AiConnect() {
+  const path = usePathname();
+  const [ai, setAi] = useState<Ai | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = () => fetch("/api/auth/openai").then((r) => r.json()).then(setAi).catch(() => setAi(null));
+  useEffect(() => { refresh(); }, []);
+  if (!ai || (!ai.canSignIn && !ai.connected && !ai.apiKey && !ai.gemini)) return null;
+  if (ai.gemini) return <span className="ai-status" title="GEMINI_API_KEY is set">AI: Gemini</span>;
+  if (ai.apiKey) return <span className="ai-status" title="OPENAI_API_KEY is set">AI: OpenAI API key</span>;
+  if (ai.connected) return (
+    <span className="ai-status">
+      <span title={ai.model ? `Model: ${ai.model}` : undefined}>AI: ChatGPT{ai.email ? ` (${ai.email})` : ""}</span>
+      {ai.canSignIn && <button type="button" className="btn small" disabled={busy}
+        onClick={async () => { setBusy(true); await fetch("/api/auth/openai", { method: "DELETE" }).catch(() => null); await refresh(); setBusy(false); }}>Disconnect</button>}
+    </span>
+  );
+  return <a className="btn small ai-status" href={`/api/auth/openai/start?return=${encodeURIComponent(path)}`} title="Use your ChatGPT plan to power Hermit's chat and search agent">Connect ChatGPT</a>;
+}
 
 const NAV = [
   { href: "/", label: "Chat", Icon: MessageCircle },
@@ -24,6 +47,7 @@ export function Header() {
           </Link>
         ))}
       </nav>
+      <AiConnect />
     </header>
   );
 }

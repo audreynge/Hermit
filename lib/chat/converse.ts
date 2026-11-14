@@ -2,6 +2,7 @@ import { useCategory } from "../reason/rules";
 import { parseText, USE_NOUN } from "../spec/parse";
 import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
+import { an } from "../text";
 
 export type Slot = "use" | "city" | "size" | "rooms" | "musts";
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
@@ -82,7 +83,7 @@ export function question(slot: Slot, spec: Draft): { q: string; quick: string[];
 }
 
 export function describe(spec: Draft): string {
-  const parts = [`a ${spec.useType || "space"}`];
+  const parts = [an(spec.useType || "space")];
   if (spec.city) parts[0] += ` in ${CITY(spec.city)}`;
   if (spec.sizeSqft) parts.push(`${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sq ft`);
   if (spec.beds != null) parts.push(`${spec.beds} bed${spec.baths != null ? ` / ${spec.baths} bath` : ""}`);

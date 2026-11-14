@@ -12,3 +12,4 @@ data/sample/replay/run-*
 .superpowers/
 data/sample/hermit.db*
 .claude/
+.gemini/.env

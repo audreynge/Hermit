@@ -1,11 +1,14 @@
 "use client";
 import {
-  Archive, ArrowRight, Armchair, Columns2, ConciergeBell, CookingPot, Layers, Monitor, Redo2, Sparkles, SquarePlus,
-  Stethoscope, Toilet, Undo2, Users, ZoomIn, ZoomOut,
+  Archive, ArrowRight, Armchair, BedDouble, Car, Columns2, ConciergeBell, CookingPot, Expand, Layers, Monitor, Redo2, Shrink, Sofa,
+  Sparkles, SquarePlus, Stethoscope, Toilet, Undo2, Users, UtensilsCrossed, WashingMachine, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { Block } from "@/lib/spec/parse";
+import type { City, Mode } from "@/lib/types";
+import { Plan3D, rectPoly, type Solid } from "./Plan3D";
+import { SimilarScans } from "./SimilarScans";
 
 type Item = Block & { kind: "room" | "object" };
 
@@ -20,7 +23,16 @@ const ROOMS: { type: string; label: string; Icon: typeof Stethoscope; w: number;
   { type: "waiting area", label: "Waiting Area", Icon: Armchair, w: 12, h: 8, fill: "#fde3d4" },
   { type: "conference", label: "Conference Room", Icon: Users, w: 14, h: 12, fill: "#f3ecff" },
   { type: "procedure room", label: "Procedure Room", Icon: SquarePlus, w: 12, h: 12, fill: "#ffe5e5" },
+  { type: "bedroom", label: "Bedroom", Icon: BedDouble, w: 12, h: 12, fill: "#e9e4fb" },
+  { type: "living room", label: "Living Room", Icon: Sofa, w: 18, h: 14, fill: "#fde9d6" },
+  { type: "dining room", label: "Dining Room", Icon: UtensilsCrossed, w: 12, h: 11, fill: "#fff0e0" },
+  { type: "laundry", label: "Laundry", Icon: WashingMachine, w: 7, h: 7, fill: "#e3f4fb" },
+  { type: "garage", label: "Garage", Icon: Car, w: 20, h: 20, fill: "#eceae6" },
 ];
+const HOME_ROOMS = new Set(["bedroom", "living room", "dining room", "laundry", "garage"]);
+// Drawn rooms decide the mode: any home-only room means a home search.
+const modeOf = (labels: string[]): Mode => (labels.some((l) => HOME_ROOMS.has(l)) ? "home" : "business");
+const OBJECT_HEIGHT: Record<string, number> = { chair: 3, stool: 2.2, table: 2.5, desk: 2.5, "reception desk": 3.5, sink: 3, counter: 3, kitchenette: 3, plant: 4, "exam bed": 2.8, shelf: 6, other: 2 };
 const OBJECTS: { type: string; label: string; w: number; h: number }[] = [
   { type: "chair", label: "Chair", w: 3, h: 3 }, { type: "table", label: "Table", w: 5, h: 3 }, { type: "desk", label: "Desk", w: 5, h: 3 },
   { type: "sink", label: "Sink", w: 3, h: 3 }, { type: "counter", label: "Counter", w: 6, h: 2.5 }, { type: "kitchenette", label: "Kitchenette", w: 6, h: 3 },
@@ -52,6 +64,28 @@ const TEMPLATE: Item[] = [
   { id: "o16", kind: "object", label: "door", x: 37, y: 30, w: 3, h: 3 },
   { id: "o17", kind: "object", label: "shelf", x: 49.5, y: 27.5, w: 5.5, h: 8 },
 ];
+const TEMPLATES: Record<string, { label: string; items: Item[] }> = {
+  clinic: { label: "Small clinic", items: TEMPLATE },
+  office: { label: "Team office", items: [
+    { id: "f1", kind: "room", label: "reception", x: 4, y: 4, w: 20, h: 14 },
+    { id: "f2", kind: "room", label: "office", x: 24, y: 4, w: 12, h: 11 },
+    { id: "f3", kind: "room", label: "office", x: 36, y: 4, w: 12, h: 11 },
+    { id: "f4", kind: "room", label: "conference", x: 4, y: 18, w: 20, h: 14 },
+    { id: "f5", kind: "room", label: "hallway", x: 24, y: 15, w: 24, h: 5 },
+    { id: "f6", kind: "room", label: "kitchen", x: 24, y: 20, w: 12, h: 12 },
+    { id: "f7", kind: "room", label: "bathroom", x: 36, y: 20, w: 8, h: 8 },
+  ] },
+  home: { label: "2-bed home", items: [
+    { id: "h1", kind: "room", label: "living room", x: 4, y: 4, w: 20, h: 16 },
+    { id: "h2", kind: "room", label: "kitchen", x: 24, y: 4, w: 12, h: 10 },
+    { id: "h3", kind: "room", label: "dining room", x: 24, y: 14, w: 12, h: 10 },
+    { id: "h4", kind: "room", label: "bedroom", x: 4, y: 20, w: 13, h: 13 },
+    { id: "h5", kind: "room", label: "bedroom", x: 17, y: 24, w: 12, h: 12 },
+    { id: "h6", kind: "room", label: "bathroom", x: 29, y: 24, w: 8, h: 8 },
+    { id: "h7", kind: "room", label: "laundry", x: 29, y: 32, w: 7, h: 6 },
+  ] },
+  blank: { label: "Blank canvas", items: [] },
+};
 const PX = 14;
 
 export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: { onDone: (items: Block[]) => void; doneLabel?: string }) {
@@ -61,11 +95,16 @@ export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: {
   const [sel, setSel] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [snap, setSnap] = useState(true);
+  const [view, setView] = useState<"2d" | "3d">("2d");
+  const [city, setCity] = useState<City>("houston");
   const drag = useRef<{ id: string; dx: number; dy: number; mode: "move" | "resize"; before: Item[] } | null>(null);
   const svg = useRef<SVGSVGElement>(null);
   const scale = (PX * zoom) / 100;
 
-  useEffect(() => { const prev = load<Item[]>(KEYS.layout); if (prev?.length) setItems(prev); }, []);
+  useEffect(() => {
+    const prev = load<Item[]>(KEYS.layout);
+    if (prev) setItems(prev);
+  }, []);
   useEffect(() => { save(KEYS.layout, items); }, [items]);
 
   const commit = useCallback((next: Item[], before = items) => {
@@ -114,6 +153,18 @@ export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: {
   const bounds = rooms.length ? { x: Math.min(...rooms.map((r) => r.x)), y: Math.min(...rooms.map((r) => r.y)), x2: Math.max(...rooms.map((r) => r.x + r.w)), y2: Math.max(...rooms.map((r) => r.y + r.h)) } : null;
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
 
+  // Linear scale about the plan's top-left corner; area changes by f².
+  const rescale = (f: number) => {
+    const ox = Math.min(...items.map((i) => i.x)), oy = Math.min(...items.map((i) => i.y));
+    const r = (v: number) => Math.round(v * 2) / 2;
+    commit(items.map((i) => ({ ...i, x: r(ox + (i.x - ox) * f), y: r(oy + (i.y - oy) * f), ...(i.kind === "room" ? { w: Math.max(2, r(i.w * f)), h: Math.max(2, r(i.h * f)) } : {}) })));
+  };
+  const mode = modeOf(rooms.map((r) => r.label));
+  const solids: Solid[] = [
+    ...rooms.map((r) => ({ id: r.id, label: nameOf(r), polygon: rectPoly(r), height: 9, fill: FILL[r.label] ?? "#f7efe9" })),
+    ...objects.filter((o) => !["door", "window"].includes(o.label)).map((o) => ({ id: o.id, polygon: rectPoly(o), height: OBJECT_HEIGHT[o.label] ?? 2, fill: o.label === "plant" ? "#9bd18f" : "#fdeee2", cap: true })),
+  ];
+
   return (
     <>
       <div className="layout-grid">
@@ -157,8 +208,26 @@ export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: {
               Snap to grid <span className="switch" aria-hidden="true" />
             </button>
           </div>
+          <div className="toolbar">
+            <div className="view-switch" role="group" aria-label="Canvas view" style={{ margin: 0 }}>
+              <button type="button" aria-pressed={view === "2d"} onClick={() => setView("2d")}>2D plan</button>
+              <button type="button" aria-pressed={view === "3d"} onClick={() => setView("3d")}>3D model</button>
+            </div>
+            <span className="sep" aria-hidden="true" />
+            <button type="button" className="btn small" onClick={() => rescale(0.9)} disabled={!rooms.length}><Shrink aria-hidden="true" /> Scale down</button>
+            <button type="button" className="btn small" onClick={() => rescale(1.1)} disabled={!rooms.length}><Expand aria-hidden="true" /> Scale up</button>
+            <span className="num muted" aria-live="polite">{area.toLocaleString()} sq ft</span>
+            <span className="sep" aria-hidden="true" />
+            <label className="start-from">Start from{" "}
+              <select value="" onChange={(e) => { const t = TEMPLATES[e.target.value]; if (t) { commit(t.items); setSel(null); } }}>
+                <option value="" disabled>Choose…</option>
+                {Object.entries(TEMPLATES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+              </select>
+            </label>
+          </div>
+          {view === "3d" && <Plan3D solids={solids} label={`Your layout: ${rooms.length} rooms, about ${area.toLocaleString()} square feet`} height={520} wallScale={0.45} />}
           <p className="sr-only" id="canvas-help">Each room and object is a button. Arrow keys move it (Shift for 5 ft), plus and minus resize, Delete removes. You can also drag with a mouse or finger.</p>
-          <div className="canvas" style={{ backgroundSize: `${scale * 2}px ${scale * 2}px` }}
+          <div className="canvas" hidden={view === "3d"} style={{ backgroundSize: `${scale * 2}px ${scale * 2}px` }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); const t = e.dataTransfer.getData("text/x-hermit"); if (!t) return; const p = toFt(e.clientX, e.clientY); add(t, p.x, p.y); }}>
             <svg ref={svg} className="plan" width={W * scale} height={H * scale} viewBox={`0 0 ${W} ${H}`} role="application" aria-describedby="canvas-help"
@@ -203,6 +272,7 @@ export function LayoutStudio({ onDone, doneLabel = "Analyze & match layout" }: {
           </div>
         </section>
       </div>
+      <SimilarScans layout={rooms.map(({ label, x, y, w, h }) => ({ label, x, y, w, h }))} mode={mode} city={city} onCity={setCity} />
       <div className="layout-cta">
         <button type="button" className="cta" onClick={() => onDone(items)} disabled={!rooms.length}><Sparkles aria-hidden="true" /> {doneLabel} <ArrowRight aria-hidden="true" /></button>
       </div>

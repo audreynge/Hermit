@@ -6,7 +6,8 @@ import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
 import { screeningFindings, type Finding, type RegQuery } from "../regs/research";
-import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
+import { similarScans } from "../similarity/layout";
+import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, Similarity, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
 export type AgentDeps = {
@@ -22,6 +23,7 @@ const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
 
 export const ToolInputs = {
   search_shells: z.object({}),
+  match_layout: z.object({}),
   screen_sites: z.object({ shellIds: z.array(z.string()).max(20) }),
   evaluate_candidates: z.object({ shellIds: z.array(z.string()).max(8) }),
   inspect_view: z.object({ shellId: z.string(), question: z.string() }),
@@ -33,6 +35,7 @@ export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   search_shells: "Retrieve the top 50 candidate spaces for the user's RequirementSpec from the local index (city, mode, size, prior use, scan evidence). Call first.",
+  match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags.",
   evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks and work/cost estimates. At most 8 room graphs per run.",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
@@ -50,6 +53,7 @@ export class Run {
   screened = new Map<string, { shell: Shell; flags: ReturnType<typeof checkRules> }>();
   evaluated = new Map<string, Evaluation>();
   dropped = new Set<string>();
+  similarity = new Map<string, Similarity>();
   reports: ShellReport[] | null = null;
   regulations: Finding[] = [];
   researched = false;
@@ -77,6 +81,7 @@ export class Run {
   private async exec(name: ToolName, args: Record<string, never>): Promise<{ result: object; summary: string }> {
     switch (name) {
       case "search_shells": return this.search();
+      case "match_layout": return this.matchLayout();
       case "screen_sites": return this.screen(args.shellIds);
       case "evaluate_candidates": return this.evaluate(args.shellIds);
       case "inspect_view": return this.inspect(args.shellId, args.question);
@@ -102,6 +107,23 @@ export class Run {
     return {
       result: { considered: out.considered, rejected: out.rejected, top: out.results.slice(0, 20).map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons.slice(0, 3), scan: !!c.shell.sid })) },
       summary: `${out.considered} indexed → ${out.rejected} rejected by hard filters → top ${out.results.length} kept`,
+    };
+  }
+
+  private matchLayout() {
+    const { scale, rooms, results } = similarScans(this.spec, this.deps.shells(this.spec), this.deps.graph);
+    if (!rooms) return { result: { error: "spec has no drawn layout" }, summary: "skipped: no drawn layout in the spec" };
+    for (const r of results) this.similarity.set(r.candidate.shell.id, r.sim);
+    const ranked = results
+      .map(({ candidate: c, sim }) => ({ ...c, score: Math.round(c.score * 0.4 + sim.score * 0.6), reasons: [`Layout ${sim.score}% similar to your drawing`, ...c.reasons] }))
+      .sort((a, b) => b.score - a.score || a.shell.id.localeCompare(b.shell.id)).slice(0, 50);
+    const seen = new Set(ranked.map((c) => c.shell.id));
+    this.candidates = [...ranked, ...this.candidates.filter((c) => !seen.has(c.shell.id))].slice(0, 50);
+    const best = results[0];
+    const at = scale === 1 ? "" : ` at ${Math.round(scale * 100)}% of the drawn area`;
+    return {
+      result: { compared: results.length, scale, top: ranked.slice(0, 10).map((c) => ({ id: c.shell.id, similarity: this.similarity.get(c.shell.id)!.score, breakdown: this.similarity.get(c.shell.id)!.breakdown })) },
+      summary: `compared your ${rooms}-room layout${at} with ${results.length} scanned floor plans; most similar ${best ? `${best.sim.score}% (${best.candidate.shell.id})` : "none"}`,
     };
   }
 
@@ -157,7 +179,9 @@ export class Run {
       const fit = graph ? fitRooms(this.spec, graph) : { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] };
       const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null });
       const work = estimateWork(this.spec, c.shell, fit, rules);
-      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: finalScore(fit, rules, c.score, !!graph), escalations: [] };
+      const similarity = this.similarity.get(id);
+      const base = finalScore(fit, rules, c.score, !!graph);
+      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: similarity ? Math.round(base * 0.5 + similarity.score * 0.5) : base, escalations: [], similarity };
       this.evaluated.set(id, e);
       return [this.row(e)];
     });

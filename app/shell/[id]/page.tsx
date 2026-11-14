@@ -10,7 +10,7 @@ export default async function ShellPage({ params, searchParams }: { params: Prom
   const { run: runId } = await searchParams;
   const run = loadRun(runId ?? "");
   const report = run?.events.flatMap((e) => (e.type === "report" ? e.reports : [])).find((r) => r.shellId === id);
-  if (!run || !report) return <p>Report not found. It may have come from a run on another server. <Link href="/plan">Start a search</Link>.</p>;
+  if (!run || !report) return <p>Report not found. It may have come from a run on another server. <Link href="/search">Start a search</Link>.</p>;
   return (
     <div style={{ maxWidth: 940, margin: "0 auto", display: "grid", gap: 18 }}>
       <p className="muted no-print"><Link href="/">← Back to chat</Link> · Search for a {run.spec.useType}, run {new Date(run.createdAt).toLocaleString()}</p>

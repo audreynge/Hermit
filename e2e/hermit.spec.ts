@@ -142,29 +142,31 @@ test.describe("results", () => {
     await expect(page.getByText("No saved spaces yet.")).toBeVisible();
   });
 
-  test("reloading keeps the conversation and results; saved spaces stay with this browser", async ({ page, browser }) => {
+  test("a refresh starts a fresh chat; the link still shares the search; saved spaces stay with this browser", async ({ page, browser }) => {
     await expect(page).toHaveURL(/[?&]c=c_[a-f0-9]{24}/);
+    const shared = page.url();
     const name = await cards(page).first().locator("h3").innerText();
     await cards(page).first().getByRole("button", { name: "Save" }).click();
-    await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
-    await page.reload();
-    await expect(conversation(page)).toContainText("Perfect, I have what I need");
-    await expect(conversation(page)).toContainText(/Would you like me to compare/);
-    await expect(cards(page).first().locator("h3")).toHaveText(name);
     await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
 
     const other = await browser.newContext();
     const p2 = await other.newPage();
-    await p2.goto(page.url());
+    await p2.goto(shared);
     await expect(p2.getByLabel("Conversation")).toContainText("Perfect, I have what I need");
     await expect(p2.getByText("You're viewing someone else's search")).toBeVisible();
     await expect(p2.getByLabel("Message Hermit")).toHaveCount(0);
     await p2.getByRole("button", { name: "Start my own search from this" }).click();
-    await expect(p2).not.toHaveURL(page.url());
+    await expect(p2).not.toHaveURL(shared);
     await expect(p2.getByLabel("Message Hermit")).toBeVisible();
     await p2.getByLabel("Message Hermit").fill("make it smaller");
     await p2.getByRole("button", { name: "Send" }).click();
     await expect(p2.getByLabel("Conversation")).not.toContainText("Something went wrong");
+
+    await page.reload();
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await expect(conversation(page)).not.toContainText("Perfect, I have what I need");
+    await page.goto("/saved");
+    await expect(page.getByText(name)).toBeVisible();
     await p2.goto("/saved");
     await expect(p2.getByText("No saved spaces yet.")).toBeVisible();
     await other.close();
@@ -182,7 +184,7 @@ test.describe("results", () => {
     await page.getByRole("button", { name: "Send" }).click();
     await expect(conversation(page)).toContainText("Here are the rules I found");
     await expect(conversation(page).getByRole("region", { name: "City rules" })).toBeVisible();
-    await page.reload();
+    await page.goto(page.url());
     await expect(conversation(page).getByRole("region", { name: "City rules" })).toBeVisible();
   });
 
@@ -206,21 +208,21 @@ test.describe("results", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("Inside, Above and Fit open evidence for the selected space", async ({ page }) => {
+  test("Interior, aerial and floor plan tabs open evidence for the selected space", async ({ page }) => {
     if ((await cards(page).count()) > 1) {
       await cards(page).nth(1).locator("h3 button").click();
       await expect(cards(page).nth(1)).toHaveAttribute("data-selected", "true");
     }
-    await page.getByRole("button", { name: "Inside" }).click();
+    await page.getByRole("button", { name: "Interior & tour" }).click();
     const panel = page.locator("#evidence-panel");
     await expect(panel).toBeVisible();
     await panel.getByRole("button", { name: "Open 3D tour" }).click();
     await expect(panel.locator("iframe")).toHaveAttribute("src", /my\.matterport\.com/);
-    await page.getByRole("button", { name: "Above" }).click();
+    await page.getByRole("button", { name: "Aerial view" }).click();
     await expect(panel.getByRole("img", { name: /aerial (image|photo)/i })).toBeVisible();
-    await page.getByRole("button", { name: "Fit" }).click();
+    await page.getByRole("button", { name: "Floor plan", exact: true }).click();
     await expect(panel.locator("figure")).toBeVisible();
-    await page.getByRole("button", { name: "Fit" }).click();
+    await page.getByRole("button", { name: "Floor plan", exact: true }).click();
     await expect(panel).toBeHidden();
   });
 
@@ -275,8 +277,9 @@ test.describe("designs in the chat", () => {
     await quick(page, "Houston").click();
     await quick(page, "None of these").click();
     await waitForResults(page);
+    await expect(conversation(page)).toContainText(/Comparing your drawing with \d+ real floor plans/);
 
-    await page.reload();
+    await page.goto(page.url());
     await expect(conversation(page).getByRole("img", { name: /Drawn layout/ })).toBeVisible();
   });
 
@@ -415,5 +418,41 @@ test.describe("layout and motion", () => {
     await page.goto("/?design=draw");
     const t = await page.getByRole("button", { name: /Use this layout/ }).evaluate((el) => getComputedStyle(el).transitionDuration);
     expect(t).toBe("0s");
+  });
+});
+
+test.describe("dream layout", () => {
+  test("3D view, scaling and live closest matches with a 3D comparison", async ({ page }) => {
+    await fresh(page, "/layout");
+    await page.getByLabel("Start from").selectOption("home");
+    const canvas = page.getByRole("application");
+    await expect(canvas).toHaveAttribute("aria-label", /7 rooms/);
+    const area = async () => Number((await canvas.getAttribute("aria-label"))!.match(/about ([\d,]+)/)![1].replace(/,/g, ""));
+    const before = await area();
+    await page.getByRole("button", { name: "Scale up" }).click();
+    expect(await area()).toBeGreaterThan(before * 1.15);
+    await page.getByRole("button", { name: "Undo" }).click();
+    expect(await area()).toBe(before);
+
+    await page.getByRole("button", { name: "3D model" }).click();
+    const model = page.getByRole("img", { name: /Your layout: 7 rooms.*3D view/ });
+    await expect(model).toBeVisible();
+    await model.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(model).toHaveAttribute("aria-label", /rotated 335 degrees/);
+
+    const matches = page.locator(".similar-list button");
+    await expect(matches.first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".similar")).toContainText(/scanned homes/);
+    await page.getByRole("button", { name: "Larger", exact: true }).click();
+    await expect(page.locator(".similar")).toContainText("scaled to 125%");
+
+    await matches.first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("layout similarity");
+    await expect(dialog.getByRole("img", { name: /Matched scan .* in 3D/ })).toBeVisible();
+    await axe(page);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
   });
 });

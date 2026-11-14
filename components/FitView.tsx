@@ -1,4 +1,7 @@
-import type { ShellReport } from "@/lib/types";
+"use client";
+import { useState } from "react";
+import type { RoomGraph, ShellReport } from "@/lib/types";
+import { M_TO_FT, PAIR_COLORS, Plan3D, rectPoly, roomHeight, type Solid } from "./Plan3D";
 
 const W = 640, MAX_H = 460, PAD = 28;
 const INK = "#111", MUTED = "#6b6b6b", MATCH = "#e6e6e6";
@@ -26,11 +29,82 @@ export function labelPoint(p: Pt[]): Pt & { r: number } {
   }
   return best;
 }
+type View = "plan" | "3d" | "compare";
 
 export function FitView({ report }: { report: ShellReport }) {
+  const sim = report.similarity?.layout?.length ? report.similarity : undefined;
+  const [picked, setView] = useState<View>(sim ? "compare" : "plan");
+  const view: View = picked === "compare" && !sim ? "plan" : picked; // the report can change under a kept view
   const g = report.floorplan;
   if (!g) return <p className="muted" style={{ padding: 16 }}>Record-only candidate: there is no room scan to lay the requirements onto.</p>;
+  const views: [View, string][] = [["plan", "2D plan"], ["3d", "3D model"], ...(sim ? [["compare", "vs. your design"] as [View, string]] : [])];
+  return (
+    <div style={{ padding: 12 }}>
+      <div className="view-switch" role="group" aria-label="Fit view">
+        {views.map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}
+      </div>
+      {view === "plan" && <Plan2D report={report} g={g} />}
+      {view === "3d" && <Scan3D report={report} g={g} />}
+      {view === "compare" && sim && <LayoutCompare name={report.name.split(" · ")[0]} g={g} sim={sim} />}
+    </div>
+  );
+}
 
+const mainFloor = (g: RoomGraph) => [...new Set(g.rooms.map((r) => r.floorId))].sort((a, b) => area(g, b) - area(g, a))[0];
+// Matterport y points up in plan; flip so the 3D view reads the same way round as the 2D plan.
+const scanSolids = (g: RoomGraph, paint: (roomId: string, label: string) => { fill: string; label?: string }): Solid[] =>
+  g.rooms.filter((r) => r.floorId === mainFloor(g) && r.polygon.length >= 3).map((r) => {
+    const p = paint(r.id, r.label);
+    return { id: r.id, polygon: r.polygon.map((q) => ({ x: q.x * M_TO_FT, y: -q.y * M_TO_FT })), height: roomHeight(r.heightFt), fill: p.fill, label: p.label };
+  });
+
+function Scan3D({ report, g }: { report: ShellReport; g: RoomGraph }) {
+  const byRoom = new Map(report.fit.assignment.filter((a) => a.roomId).map((a) => [a.roomId!, a.req]));
+  const solids = scanSolids(g, (id, label) => {
+    const req = byRoom.get(id);
+    return { fill: req ? "#f58a6b" : label === "hallway" ? "#fff1d6" : "#fbe5d8", label: req ?? undefined };
+  });
+  if (!solids.length) return <p className="muted">This scan has no wall geometry to build a 3D model from.</p>;
+  return (
+    <figure style={{ margin: 0 }}>
+      <Plan3D solids={solids} label={`3D model of ${g.name} from Matterport room polygons`} wallScale={0.5} />
+      <figcaption className="muted" style={{ fontSize: "var(--t-sm)", marginTop: 8 }}>
+        Extruded from scan {g.sid} room outlines (walls cut to half height). Coral rooms already serve one of your requirements. Geometry only: it does not show fixtures or finishes.
+      </figcaption>
+    </figure>
+  );
+}
+
+export function LayoutCompare({ name, g, sim }: { name: string; g: RoomGraph; sim: NonNullable<ShellReport["similarity"]> }) {
+  const layout = sim.layout!;
+  const color = new Map(sim.pairs.map((p, i) => [p.mine, PAIR_COLORS[i % PAIR_COLORS.length]]));
+  const theirs = new Map(sim.pairs.map((p, i) => [p.theirs, { c: PAIR_COLORS[i % PAIR_COLORS.length], l: layout[p.mine]?.label }]));
+  const k = Math.sqrt(sim.scale);
+  const mine: Solid[] = layout.map((b, i) => ({
+    id: `m${i}`, polygon: rectPoly({ x: b.x * k, y: b.y * k, w: b.w * k, h: b.h * k }), height: 9,
+    fill: color.get(i) ?? (/hall|corridor/i.test(b.label) ? "#fff1d6" : "#ffffff"), dashed: !color.has(i) && !/hall|corridor/i.test(b.label), label: b.label,
+  }));
+  const scan = scanSolids(g, (id) => { const t = theirs.get(id); return t ? { fill: t.c, label: t.l } : { fill: "#f3e9e2" }; });
+  const unmatched = layout.filter((b, i) => !color.has(i) && !/hall|corridor/i.test(b.label)).map((b) => b.label);
+  const bars: [string, number | null][] = [["Room program", sim.breakdown.program], ["Adjacency kept", sim.breakdown.adjacency], ["Total size", sim.breakdown.size], ["Footprint shape", sim.breakdown.shape]];
+  return (
+    <figure style={{ margin: 0 }}>
+      <p style={{ margin: "0 0 4px" }}><strong className="num">{sim.score}%</strong> layout similarity{sim.scale !== 1 ? <> · your design scaled to <span className="num">{Math.round(sim.scale * 100)}%</span> of its drawn area</> : null}</p>
+      <div className="sim-bars">
+        {bars.map(([l, v]) => <div key={l}><strong className="num">{v == null ? "n/a" : `${v}%`}</strong>{l}{v != null && <meter min={0} max={100} value={v} aria-label={`${l} ${v}%`} />}</div>)}
+      </div>
+      <div className="compare3d">
+        <div><h4>Your design</h4><Plan3D solids={mine} label="Your drawn layout in 3D" height={300} wallScale={0.5} /></div>
+        <div><h4>{name} (measured)</h4>{scan.length ? <Plan3D solids={scan} label={`Matched scan ${g.sid} in 3D`} height={300} wallScale={0.5} /> : <p className="muted">No wall geometry in this scan.</p>}</div>
+      </div>
+      <figcaption className="muted" style={{ fontSize: "var(--t-sm)", marginTop: 8 }}>
+        Matching colours are rooms Hermit paired by type and size{unmatched.length ? `; dashed rooms (${unmatched.join(", ")}) have no counterpart in the scan` : ""}. Similarity compares room tags and outlines from scan {g.sid}; it is a screening signal, not a survey.
+      </figcaption>
+    </figure>
+  );
+}
+
+function Plan2D({ report, g }: { report: ShellReport; g: RoomGraph }) {
   const byRoom = new Map(report.fit.assignment.filter((a) => a.roomId).map((a) => [a.roomId!, tidy(a.req)]));
   const unmatched = report.fit.assignment.filter((a) => !a.roomId).map((a) => tidy(a.req));
   const floors = [...new Set(g.rooms.map((r) => r.floorId))];

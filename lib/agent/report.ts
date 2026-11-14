@@ -1,5 +1,6 @@
 import type { Finding } from "../regs/research";
-import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, WorkItem } from "../types";
+import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, WorkItem } from "../types";
+import { an } from "../text";
 
 export type Evaluation = {
   shell: Shell;
@@ -11,6 +12,7 @@ export type Evaluation = {
   work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number]; tiAllowance?: number };
   finalScore: number;
   escalations: { question: string; outcome: string }[];
+  similarity?: Similarity;
 };
 
 const QUESTIONS: Record<string, string> = {
@@ -85,7 +87,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
 
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, 4).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for a ${spec.useType} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for space for ${an(spec.useType)} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${displayName(shell.name)} at ${shell.address} looks promising.\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -112,5 +114,6 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     badge: graph ? "scan-verified" : "record-only",
     sources,
     listing: shell.listing,
+    ...(e.similarity ? { similarity: e.similarity } : {}),
   };
 }

@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { MODEL } from "../agent/model";
+import { outputText, type OpenAIClient } from "../llm/openai";
+import { geminiText, type GeminiClient } from "../llm/gemini";
 import { RoomReq } from "../types";
 import { converse, describe, question, type ChatState, type Turn } from "./converse";
 
@@ -28,18 +30,28 @@ quickReplies: 2-4 short tap-to-answer suggestions for your question.`;
 
 type Client = Pick<Anthropic, "messages">;
 
-export async function chatTurn(state: ChatState, text: string, client?: Client | null): Promise<Turn> {
+export async function chatTurn(state: ChatState, text: string, client?: Client | null, openai?: OpenAIClient | null, gemini?: GeminiClient | null): Promise<Turn> {
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-  if (!c) return converse(state, text);
+  if (!c && !openai && !gemini) return converse(state, text);
+  const prompt = `Phase: ${state.phase}\nWhat I know so far: ${describe(state.spec)}\nQuestions already asked: ${state.asked.join(", ") || "none"}\nUser says: ${text}`;
   try {
-    const res = await c.messages.parse({
-      model: MODEL,
-      max_tokens: 2048,
-      output_config: { effort: "low", format: zodOutputFormat(ChatOut) },
-      system: SYSTEM,
-      messages: [{ role: "user", content: `Phase: ${state.phase}\nWhat I know so far: ${describe(state.spec)}\nQuestions already asked: ${state.asked.join(", ") || "none"}\nUser says: ${text}` }],
-    });
-    const out = res.parsed_output;
+    const out = c
+      ? (await c.messages.parse({
+          model: MODEL,
+          max_tokens: 2048,
+          output_config: { effort: "low", format: zodOutputFormat(ChatOut) },
+          system: SYSTEM,
+          messages: [{ role: "user", content: prompt }],
+        })).parsed_output
+      : gemini
+      ? ChatOut.safeParse(JSON.parse(geminiText(await gemini.generate({
+          systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json", responseJsonSchema: z.toJSONSchema(ChatOut) },
+        })) || "null")).data
+      : ChatOut.safeParse(JSON.parse(outputText((await openai!.respond({
+          instructions: SYSTEM, input: [{ type: "message", role: "user", content: prompt }], reasoning: { effort: "low" },
+          text: { format: { type: "json_schema", name: "chat_turn", schema: z.toJSONSchema(ChatOut), strict: false } },
+        })).output) || "null")).data;
     if (!out) return fallbackTurn(state, text, "no structured output");
     const u = out.update;
     const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms], input: "chat" as const };

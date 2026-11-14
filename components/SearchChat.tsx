@@ -61,7 +61,9 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
 export function SearchChat() {
   const params = useSearchParams();
   const router = useRouter();
-  const conv = useRef<string | null>(params.get("c"));
+  // ?c= keeps a conversation linkable (shared, read-only for others), but a browser refresh always starts a fresh chat.
+  const reloaded = typeof window !== "undefined" && (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined)?.type === "reload";
+  const conv = useRef<string | null>(reloaded ? null : params.get("c"));
   // Resolves once the conversation exists, so a message typed during the greeting is not sent without an id.
   const opening = useRef<Promise<void> | null>(null);
   const replay = params.get("replay");
@@ -289,15 +291,15 @@ export function SearchChat() {
     <>
       <div className="search-grid">
         <section className="card chat" aria-label="Chat with Hermit">
-          <div className="tabs-pill" role="group" aria-label="Evidence for the selected space">
-            {([["inside", "Inside", Sofa], ["above", "Above", Layers], ["fit", "Fit", SlidersHorizontal]] as const).map(([k, label, Icon]) => (
-              <button key={k} type="button" data-active={tab === k} aria-expanded={tab === k && evidenceOpen && showResults} aria-controls="evidence-panel"
+          {showResults && <div className="tabs-pill" role="group" aria-label="Evidence for the selected space">
+            {([["inside", "Interior & tour", Sofa, "photos and the 3D walkthrough"], ["above", "Aerial view", Layers, "satellite view of the building and lot"], ["fit", "Floor plan", SlidersHorizontal, "floor plan with your rooms placed in it"]] as const).map(([k, label, Icon, what]) => (
+              <button key={k} type="button" data-active={tab === k && evidenceOpen} aria-expanded={tab === k && evidenceOpen} aria-controls="evidence-panel"
                 onClick={() => { if (tab === k && evidenceOpen) setEvidenceOpen(false); else { setTab(k); setEvidenceOpen(true); } }}
-                title={showResults ? `Show ${label.toLowerCase()} view of the selected space` : "Available once Hermit finds matches"}>
+                title={`Show the ${what} for the selected space`}>
                 <Icon aria-hidden="true" /> {label}
               </button>
             ))}
-          </div>
+          </div>}
 
           {showResults && current && evidenceOpen && (
             <div className="evidence" id="evidence-panel" role="region" aria-label={`${tab} view of ${current.name.split(" · ")[0]}`}>

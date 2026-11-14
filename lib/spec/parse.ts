@@ -128,5 +128,6 @@ export function fromLayout(blocks: Block[], base: { mode: Mode; city: City; useT
     };
   });
   const total = rooms.reduce((s, b) => s + b.w * b.h, 0);
-  return { ...base, rooms: reqs, needs: {}, priorities: {}, input: "layout", sizeSqft: [Math.round(total), Math.round(total * 2)] };
+  return { ...base, rooms: reqs, needs: {}, priorities: {}, input: "layout", sizeSqft: [Math.round(total), Math.round(total * 2)],
+    layout: rooms.map(({ label, x, y, w, h }) => ({ label, x, y, w, h })) };
 }

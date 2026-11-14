@@ -14,10 +14,13 @@
     "sample": "tsx pipeline/sample.ts",
     "demo": "tsx scripts/record-demo.ts",
     "db:import": "tsx pipeline/import-db.ts",
-    "explore": "tsx scripts/explore.ts"
+    "explore": "tsx scripts/explore.ts",
+    "mcp": "tsx mcp/hermit-server.ts",
+    "mcp:check": "tsx mcp/smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "lucide-react": "^1.73.0",
     "next": "^16.4.6",
     "react": "^19.3.1",

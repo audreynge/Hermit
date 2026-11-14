@@ -70,6 +70,12 @@ describe("summarizeResults", () => {
     expect(s.paragraphs[1]).toMatch(/1,520 sq ft \(you asked for 2,000–3,000\)/);
   });
 
+  it("states an out-of-range size once, with what was asked for", () => {
+    const s = summarizeResults([report({ floorplan: undefined, listing: undefined, sqft: 2400 })], spec, { considered: 10, dropped: 0 });
+    expect(s.paragraphs[1]).toMatch(/it's 2,400 sq ft \(you asked for 1,200–1,800\)/);
+    expect(s.paragraphs[1].match(/2,400/g)).toHaveLength(1);
+  });
+
   it("explains an empty result and suggests what to relax", () => {
     const s = summarizeResults([], spec, { considered: 40, dropped: 12 });
     expect(s.paragraphs.join(" ")).toMatch(/couldn't find/i);
@@ -137,5 +143,16 @@ describe("compareRows", () => {
     expect(rows.map((r) => r.label)).toEqual(["Match", "Size", "Rooms already built", "Weeks to open", "Known work", "Parking"]);
     expect(rows[0].values).toEqual(["92%", "80%"]);
     expect(rows[3].values).toEqual(["1–4", "8–20"]);
+  });
+
+  it("names the layout-matching step when the agent compared a drawing", () => {
+    const ev = [{ type: "tool", id: "t", tool: "match_layout", args: {}, resultId: "r", summary: "compared your 5-room layout with 368 scanned floor plans; most similar 85% (X)", ms: 3 }] as TraceEvent[];
+    expect(traceSummary(ev)).toEqual(["Matched your layout against 368 floor plans"]);
+    expect(thinkingSteps(ev, { city: "houston", mode: "business", rooms: [], needs: {} } as never)[0].label).toBe("Comparing your drawing with 368 real floor plans");
+  });
+
+  it("leads card highlights with layout similarity when the user drew a plan", () => {
+    const r = { reasons: [], fit: { assignment: [] }, rules: [], similarity: { score: 81, scale: 1, breakdown: { program: 80, adjacency: null, size: 90, shape: 70 }, pairs: [] } } as unknown as ShellReport;
+    expect(highlights(r, { needs: {} } as RequirementSpec)[0]).toBe("Floor plan 81% like your drawing");
   });
 });

@@ -5,6 +5,8 @@ import { openChat, type Turn } from "@/lib/chat/converse";
 import { appendMessages, createConversation, loadConversation, saveState, type StoredMsg } from "@/lib/db/conversations";
 import { Draft } from "@/lib/server/schemas";
 import { viewerId } from "@/lib/server/viewer";
+import { isLoopback, openaiClient } from "@/lib/llm/openai";
+import { geminiClient } from "@/lib/llm/gemini";
 
 const Body = z.union([
   z.object({ open: z.literal(true), spec: Draft, userText: z.string().max(2000).optional() }),
@@ -31,7 +33,9 @@ export async function POST(req: Request) {
   if (!conv) return NextResponse.json({ error: "unknown conversation" }, { status: 404 });
   if (conv.viewerId !== vid) return NextResponse.json({ error: "not your conversation" }, { status: 403 });
   appendMessages(conv.id, [{ role: "user", kind: "text", payload: { text: b.text } }]);
-  const turn = await chatTurn(conv.state, b.text);
+  const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch(() => null);
+  const openai = process.env.ANTHROPIC_API_KEY || gemini ? null : await openaiClient(isLoopback(req)).catch(() => null);
+  const turn = await chatTurn(conv.state, b.text, undefined, openai, gemini);
   appendMessages(conv.id, [botMsg(turn)]);
   saveState(conv.id, turn.state);
   return NextResponse.json({ conversationId: conv.id, turn });

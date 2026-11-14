@@ -50,6 +50,8 @@ export const RequirementSpec = z.object({
   transaction: z.enum(["lease", "buy"]).optional(),
   preferences: z.array(z.string()).optional(),
   input: z.enum(["voice", "text", "layout", "survey", "chat"]),
+  // Drawn room blocks in feet; drives layout-similarity matching. Scale comes from sizeSqft vs drawn area.
+  layout: z.array(z.object({ label: z.string(), x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() })).max(80).optional(),
   rawText: z.string().optional(),
 });
 export type RequirementSpec = z.infer<typeof RequirementSpec>;
@@ -182,6 +184,15 @@ export type ShellReport = {
   badge: "scan-verified" | "record-only";
   sources: Evidence[];
   listing?: Listing;
+  similarity?: Similarity;
+};
+
+export type Similarity = {
+  score: number;
+  scale: number; // area multiplier applied to the drawn layout
+  breakdown: { program: number; adjacency: number | null; size: number; shape: number };
+  pairs: { mine: number; theirs: string }[]; // index into layout -> room id in the scan
+  layout?: NonNullable<RequirementSpec["layout"]>; // the drawn design this was compared against (unscaled)
 };
 
 export type TraceEvent =
@@ -193,4 +204,4 @@ export type TraceEvent =
   | { type: "rerank"; id: string; order: string[]; reason: string }
   | { type: "report"; id: string; reports: ShellReport[] }
   | { type: "error"; id: string; message: string }
-  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "deterministic" | "replay" };
+  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "gemini" | "openai" | "deterministic" | "replay" };

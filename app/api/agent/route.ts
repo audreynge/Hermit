@@ -1,4 +1,6 @@
 import { runAgent } from "@/lib/agent/loop";
+import { isLoopback, openaiClient } from "@/lib/llm/openai";
+import { geminiClient } from "@/lib/llm/gemini";
 import { listRuns, loadRun, newRunId, saveRun } from "@/lib/agent/replay";
 import { loadRoomGraph, searchCandidates } from "@/lib/query/load";
 import { lookupZoning } from "@/lib/regs/zoning";
@@ -31,7 +33,9 @@ export async function POST(req: Request) {
       };
       emit({ type: "run", id: "run", runId, replay: false });
       try {
-        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) });
+        const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch(() => null);
+        const openai = process.env.ANTHROPIC_API_KEY || gemini ? null : await openaiClient(isLoopback(req)).catch(() => null);
+        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) }, { gemini, openai });
       } catch (e) {
         emit({ type: "error", id: "fatal", message: e instanceof Error ? e.message : String(e) });
       }
