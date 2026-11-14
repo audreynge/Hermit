@@ -1,12 +1,10 @@
 "use client";
-import { Bookmark, ClipboardList, Layers, Search } from "lucide-react";
+import { Bookmark, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
-  { href: "/", label: "Survey", Icon: ClipboardList },
-  { href: "/search", label: "Search", Icon: Search },
-  { href: "/layout", label: "Layout", Icon: Layers },
+  { href: "/", label: "Chat", Icon: MessageCircle },
   { href: "/saved", label: "Saved", Icon: Bookmark },
 ];
 

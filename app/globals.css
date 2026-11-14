@@ -211,6 +211,9 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .trace-full .kind { display: inline-block; min-width: 78px; font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; color: var(--ink-soft); }
 .trace-full .kind.drop { color: var(--fail); } .trace-full .kind.escalate { color: var(--warn); } .trace-full .kind.rerank { color: var(--coral-ink); }
 
+.multi-card { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.multi-card .chip-toggle { min-height: 42px; font-size: 15px; padding: 0 14px; }
+
 /* Thinking */
 .thinking { display: grid; gap: 10px; }
 .thinking-head { display: flex; align-items: center; gap: 10px; font-weight: 700; }

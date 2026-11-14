@@ -1,14 +1,15 @@
 import { useCategory } from "../reason/rules";
 import { parseText } from "../spec/parse";
-import { SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
+import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
 
-export type Slot = "use" | "city" | "size" | "rooms";
+export type Slot = "use" | "city" | "size" | "rooms" | "musts";
+export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; action?: "compare" | "email" };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" };
 
-const MAX_QUESTIONS = 3;
-const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|find (it|them|spaces|shells))\b/i;
+const MAX_QUESTIONS = 5;
+const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|none of these|find (it|them|spaces|shells))\b/i;
 const CITY = (c?: string) => (c === "houston" ? "Houston" : c === "los_angeles" ? "Los Angeles" : "");
 
 type UseQ = { q: string; quick: string[]; primary?: { word: RegExp; room: (n: number, t: string) => RoomReq[] } };
@@ -63,12 +64,16 @@ export function missing(spec: Draft, asked: Slot[]): Slot | null {
   if (!spec.useType) return "use";
   if (!spec.city) return "city";
   if (!spec.sizeSqft && !spec.headcount && !asked.includes("size") && spec.mode !== "home") return "size";
-  const hasRooms = spec.rooms.length > 0 || spec.beds != null || Object.values(spec.needs).some(Boolean) || spec.headcount;
+  const hasRooms = spec.rooms.length > 0 || spec.beds != null || spec.headcount || (spec.mode === "enterprise" && Object.values(spec.needs).some(Boolean));
   if (!hasRooms && !asked.includes("rooms")) return "rooms";
+  if (!asked.includes("musts") && !Object.values(spec.needs).some(Boolean)) return "musts";
   return null;
 }
 
-export function question(slot: Slot, spec: Draft): { q: string; quick: string[] } {
+export const MUSTS: Card = { kind: "multi", options: REQUIREMENTS.map((r) => ({ value: r.value, label: r.label })) };
+
+export function question(slot: Slot, spec: Draft): { q: string; quick: string[]; card?: Card } {
+  if (slot === "musts") return { q: "Anything you can't do without? Tap all that apply, or skip.", quick: ["None of these"], card: MUSTS };
   if (slot === "use") return { q: "What kind of space are you looking for, and what will you use it for?", quick: USE_OPTIONS.map((u) => u.label) };
   if (slot === "city") return { q: "Which city should I search: Houston or Los Angeles?", quick: ["Houston", "Los Angeles"] };
   if (slot === "size") return { q: "Roughly how much space do you need? A range is fine.", quick: SIZE_OPTIONS.slice(0, 4).map((s) => s.label) };
@@ -117,6 +122,12 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   }
   for (const k of ["headcount", "beds", "baths", "budgetMonthly", "budgetTotal"] as const) if (p[k] != null) set(k, p[k]);
   for (const [k, v] of Object.entries(p.needs)) if (v) set("needs", { ...next.needs, [k]: v });
+  const musts: [RegExp, keyof Draft["needs"]][] = [[/\bada\b|wheelchair|accessib/, "wheelchair"], [/on-?site parking|\bparking\b/, "parking"], [/ground floor|street level/, "groundFloor"], [/transit/, "transit"]];
+  for (const [re, k] of musts) if (re.test(t) && !next.needs[k]) set("needs", { ...next.needs, [k]: true });
+  const prefs = [...new Set([...(next.preferences ?? []), ...(/flexible layout/.test(t) ? ["flexible"] : []), ...(/patient-?friendly/.test(t) ? ["patient"] : [])])];
+  if (prefs.length !== (next.preferences ?? []).length) set("preferences", prefs);
+  if (/\b(buy|buying|purchase|purchasing|own)\b/.test(t)) set("transaction", "buy");
+  else if (/\b(lease|leasing|rent|renting)\b/.test(t)) set("transaction", "lease");
 
   const rooms = [...p.rooms];
   for (const [re, label] of BARE_ROOMS) if (re.test(t) && !rooms.some((r) => r.label === label)) rooms.push({ label, count: 1, hard: false });
@@ -147,8 +158,8 @@ function ask(state: ChatState, lead: string): Turn {
       state: { spec, asked: state.asked, phase: "gathering" }, ready: true, quickReplies: [],
     };
   }
-  const { q, quick } = question(slot, state.spec);
-  return { reply: `${lead}${q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: quick };
+  const { q, quick, card } = question(slot, state.spec);
+  return { reply: `${lead}${q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: quick, ...(card ? { card } : {}) };
 }
 
 export function openChat(spec: Draft): Turn {
@@ -172,6 +183,8 @@ export function converse(state: ChatState, text: string): Turn {
     };
   }
 
-  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms"])] }, "");
-  return ask({ ...state, spec }, changed ? "Got it. " : "No problem. ");
+  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts"])] }, "");
+  // One message that answers everything at once searches right away (wireframe 2); must-haves are asked only in Q&A mode.
+  const oneShot = missing(state.spec, state.asked) === "use" && missing(spec, state.asked) === "musts";
+  return ask({ ...state, spec, asked: oneShot ? [...state.asked, "musts"] : state.asked }, changed ? "Got it. " : "No problem. ");
 }

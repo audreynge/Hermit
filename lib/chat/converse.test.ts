@@ -65,6 +65,41 @@ describe("converse while gathering", () => {
   });
 });
 
+describe("survey questions inside the chat", () => {
+  it("asks must-haves as a multi-select card once rooms are known", () => {
+    const t0 = openChat(fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }));
+    const t1 = converse(t0.state, "3 exam rooms");
+    expect(t1.ready).toBe(false);
+    expect(t1.card).toMatchObject({ kind: "multi" });
+    expect(t1.card!.options.map((o) => o.label)).toEqual(expect.arrayContaining(["ADA Accessible", "On-site Parking", "Ground Floor"]));
+    expect(converse(t1.state, "None of these").ready).toBe(true);
+  });
+
+  it("parses a multi-select answer into needs", () => {
+    const s = openChat(fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" })).state;
+    const t = converse({ ...s, asked: ["rooms", "musts"] }, "ADA Accessible, On-site Parking, Ground Floor");
+    expect(t.state.spec.needs).toMatchObject({ wheelchair: true, parking: true, groundFloor: true });
+  });
+
+  it("infers buy from the wording", () => {
+    const t = converse(openChat(fromSurvey()).state, "We're looking to purchase a small retail shop in LA");
+    expect(t.state.spec.transaction).toBe("buy");
+    expect(converse(openChat(fromSurvey()).state, "want to lease an office in Houston").state.spec.transaction).toBe("lease");
+  });
+
+  it("never asks more than five questions", () => {
+    let t = openChat(fromSurvey());
+    let asked = 1;
+    for (const msg of ["idk", "idk", "idk", "idk", "idk", "idk"]) {
+      if (t.ready) break;
+      t = converse(t.state, msg);
+      if (!t.ready) asked++;
+    }
+    expect(t.ready).toBe(true);
+    expect(asked).toBeLessThanOrEqual(5);
+  });
+});
+
 describe("converse after results", () => {
   const results = (spec = fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" })): ChatState => ({ spec, asked: ["rooms", "size"], phase: "results" });
 

@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
 import { fromLayout, type Block } from "@/lib/spec/parse";
-import { surveyToSpec, type Survey } from "@/lib/spec/survey";
 
 type Item = Block & { kind: "room" | "object" };
 
@@ -118,17 +117,16 @@ export function LayoutStudio() {
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
 
   const analyze = () => {
-    const survey = load<Survey>(KEYS.survey);
-    const base = survey ? surveyToSpec(survey) : null;
+    const base = null as null | { mode?: "business"; city?: "houston" | "los_angeles"; useType?: string; needs?: Record<string, boolean>; budgetMonthly?: number; budgetTotal?: number; transaction?: "lease" | "buy" };
     const types = new Set(rooms.map((r) => r.label));
     const useType = types.has("exam room") || types.has("procedure room") ? "medical clinic" : base?.useType || (types.has("kitchen") && !types.has("office") ? "restaurant" : "office");
     const s = fromLayout(items, { mode: base?.mode ?? "business", city: (base?.city ?? "houston"), useType });
     const draft = { ...s, ...(base?.city ? {} : { city: undefined }), needs: { ...(base?.needs ?? {}) }, ...(base?.budgetMonthly ? { budgetMonthly: base.budgetMonthly } : {}), ...(base?.budgetTotal ? { budgetTotal: base.budgetTotal } : {}), transaction: base?.transaction ?? "lease" };
     const one: Record<string, string> = { reception: "a reception area", storage: "storage", kitchen: "a kitchen", office: "an office" };
-    const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.fixtures.join(" and ")}s` : ""}`);
+    const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.count > 1 ? r.fixtures.map((f) => `${f}s`).join(" and ") : `a ${r.fixtures.join(" and a ")}`}` : ""}`);
     const summary = `Here's my layout: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space"}${types.has("hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft). Find the closest match.`;
     save(KEYS.pending, { source: "layout", spec: draft, summary });
-    router.push("/search");
+    router.push("/");
   };
 
   return (

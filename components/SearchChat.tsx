@@ -5,10 +5,10 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChatState, Turn } from "@/lib/chat/converse";
+import type { Card, ChatState, Turn } from "@/lib/chat/converse";
 import { compareRows, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "@/lib/chat/present";
 import { KEYS, load, save } from "@/lib/client/store";
-import { surveyToSpec, type Draft, type Survey } from "@/lib/spec/survey";
+import type { Draft } from "@/lib/spec/survey";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Aerial } from "./Aerial";
 import { EmailDraft } from "./EmailDraft";
@@ -19,18 +19,18 @@ import { SpaceCard } from "./SpaceCard";
 
 type Msg =
   | { id: string; role: "user"; text: string }
-  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[] }
+  | { id: string; role: "bot"; kind: "text"; paragraphs: string[]; quick?: string[]; card?: Card }
   | { id: string; role: "bot"; kind: "thinking"; runKey: string }
   | { id: string; role: "bot"; kind: "compare"; reports: ShellReport[] };
 
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
-type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; reports?: ShellReport[] } };
+type StoredRow = { role: "user" | "bot"; kind: string; payload: { text?: string; paragraphs?: string[]; quick?: string[]; card?: Card; reports?: ShellReport[] } };
 type ConvResponse = { id: string; owner: boolean; state: ChatState; messages: StoredRow[]; run: { spec: RequirementSpec; events: TraceEvent[] } | null };
 type ChatResponse = { conversationId: string; turn: Turn };
 
 function fromStored(r: StoredRow): Msg | null {
   if (r.role === "user") return { id: uid(), role: "user", text: r.payload.text ?? "" };
-  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined };
+  if (r.kind === "text") return { id: uid(), role: "bot", kind: "text", paragraphs: r.payload.paragraphs ?? [], quick: r.payload.quick?.length ? r.payload.quick : undefined, card: r.payload.card };
   if (r.kind === "compare" && r.payload.reports) return { id: uid(), role: "bot", kind: "compare", reports: r.payload.reports };
   return null;
 }
@@ -73,7 +73,7 @@ export function SearchChat() {
   const scroller = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
-  const bot = (paragraphs: string[], quick?: string[]): Msg => ({ id: uid(), role: "bot", kind: "text", paragraphs, quick });
+  const bot = (paragraphs: string[], quick?: string[], card?: Card): Msg => ({ id: uid(), role: "bot", kind: "text", paragraphs, quick, card });
   const push = (...m: Msg[]) => setMessages((x) => [...x, ...m]);
   const persist = (body: { messages?: unknown[]; state?: ChatState; lastRunId?: string | null }) =>
     conv.current ? fetch(`/api/conversations/${conv.current}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}) : Promise.resolve();
@@ -140,7 +140,7 @@ export function SearchChat() {
 
   const respond = useCallback(async (turn: Turn) => {
     setChat(turn.state);
-    push(bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined));
+    push(bot([turn.reply], turn.quickReplies.length ? turn.quickReplies : undefined, turn.card));
     if (turn.action === "compare" && reports.length) {
       push({ id: uid(), role: "bot", kind: "compare", reports });
       void persist({ messages: [{ role: "bot", kind: "compare", payload: { reports } }] });
@@ -187,7 +187,7 @@ export function SearchChat() {
       return;
     }
     save(KEYS.pending, null);
-    const draft = pending?.source === "layout" && pending.spec ? pending.spec : pending?.source === "survey" ? surveyToSpec(load<Survey>(KEYS.survey) ?? { transaction: "lease", accessibility: false, requirements: [] }) : EMPTY_DRAFT;
+    const draft = pending?.source === "layout" && pending.spec ? pending.spec : EMPTY_DRAFT;
     if (pending?.summary) push({ id: uid(), role: "user", text: pending.summary });
     void openNew(draft, pending?.summary);
   }, [replay, openNew, runSearch]);
@@ -281,6 +281,7 @@ export function SearchChat() {
                       <>
                         <div className="bubble">{m.paragraphs.slice(0, m.paragraphs.length > 2 ? -1 : undefined).map((p, i) => <p key={i}>{p}</p>)}</div>
                         {m.paragraphs.length > 2 && <div className="bubble"><p>{m.paragraphs.at(-1)}</p></div>}
+                        {m.card && m === lastQuick && !running && <MultiCard card={m.card} onSubmit={send} />}
                         {m.quick && m === lastQuick && !running && (
                           <div className="quick" role="group" aria-label="Suggested replies">{m.quick.map((q) => <button key={q} type="button" onClick={() => send(q)}>{q}</button>)}</div>
                         )}
@@ -387,6 +388,19 @@ function Compare({ reports }: { reports: ShellReport[] }) {
         <thead><tr><th scope="col"><span className="sr-only">Measure</span></th>{reports.map((r) => <th key={r.shellId} scope="col">{r.name.split(" · ")[0]}</th>)}</tr></thead>
         <tbody>{rows.map((row) => <tr key={row.label}><th scope="row">{row.label}</th>{row.values.map((v, i) => <td key={i} className="num">{v}</td>)}</tr>)}</tbody>
       </table>
+    </div>
+  );
+}
+
+function MultiCard({ card, onSubmit }: { card: Card; onSubmit: (text: string) => void }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const toggle = (label: string) => setPicked((p) => (p.includes(label) ? p.filter((x) => x !== label) : [...p, label]));
+  return (
+    <div className="multi-card" role="group" aria-label="Choose all that apply">
+      {card.options.map((o) => (
+        <button key={o.value} type="button" className="chip-toggle" aria-pressed={picked.includes(o.label)} onClick={() => toggle(o.label)}>{o.label}</button>
+      ))}
+      <button type="button" className="btn primary" disabled={!picked.length} onClick={() => onSubmit(picked.join(", "))}>Done</button>
     </div>
   );
 }

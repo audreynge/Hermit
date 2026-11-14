@@ -20,43 +20,48 @@ async function fresh(page: Page, path = "/") {
   await page.goto(path);
 }
 
-async function surveyToSearch(page: Page) {
+const RICH = "I'm looking for a space for a small medical clinic in Houston. I need about 1,200-1,800 sq ft, with 3 exam rooms, a reception area, and some storage.";
+
+async function chatToResults(page: Page) {
   await fresh(page);
-  await page.getByLabel("City").selectOption("houston");
-  await page.getByLabel("Use Type").selectOption("medical");
-  await page.getByLabel("Size").selectOption("1000-2500");
-  await page.getByRole("button", { name: "Find shells" }).click();
-  await expect(page).toHaveURL(/\/search$/);
-  await expect(conversation(page)).toContainText("medical clinic in Houston");
+  await page.getByLabel("Message Hermit").fill(RICH);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(conversation(page)).toContainText("Perfect, I have what I need");
+  await waitForResults(page);
 }
 
-test.describe("survey", () => {
-  test("is short, friendly and keyboard-reachable", async ({ page }) => {
+test.describe("chat onboarding", () => {
+  test("one Chat tab greets you and offers tap-to-answer choices", async ({ page }) => {
     await fresh(page);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Find a space that already fits");
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Survey" })).toHaveAttribute("aria-current", "page");
-    await expect(page.getByRole("navigation", { name: "Progress" }).getByRole("link", { name: /Survey/ })).toHaveAttribute("aria-current", "step");
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await expect(nav.getByRole("link")).toHaveText(["Chat", "Saved"]);
+    await expect(nav.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
-    for (const label of ["City", "Use Type", "Size", "Budget", "Move-in Timing"]) await expect(page.getByLabel(label)).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Lease" })).toHaveAttribute("aria-checked", "true");
-    await page.getByRole("radio", { name: "Buy" }).click();
-    await expect(page.getByRole("radio", { name: "Buy" })).toHaveAttribute("aria-checked", "true");
-    const sw = page.getByRole("switch", { name: /accessibility/i });
-    await sw.click();
-    await expect(sw).toHaveAttribute("aria-checked", "true");
-    for (const chip of ["ADA Accessible", "On-site Parking", "Ground Floor", "Flexible Layout", "Patient-friendly", "Transit Nearby"]) await expect(page.getByRole("button", { name: chip })).toBeVisible();
-    await page.getByRole("button", { name: "On-site Parking" }).click();
-    await expect(page.getByRole("button", { name: "On-site Parking" })).toHaveAttribute("aria-pressed", "true");
+    await expect(conversation(page)).toContainText(/what kind of space/i);
+    await expect(quick(page, "Medical / dental clinic")).toBeVisible();
     await axe(page);
   });
 
-  test("hands off to a chat that asks only what is missing, then searches with visible thinking", async ({ page }) => {
-    await surveyToSearch(page);
+  test("the survey questions arrive one at a time, including a must-haves card", async ({ page }) => {
+    await fresh(page);
+    await quick(page, "Medical / dental clinic").click();
+    await expect(conversation(page)).toContainText("Houston or Los Angeles");
+    await quick(page, "Houston").click();
+    await expect(conversation(page)).toContainText("how much space");
+    await quick(page, "1,000 – 2,500 sq ft").click();
     await expect(conversation(page)).toContainText("How many exam rooms");
     await quick(page, "3 exam rooms with sinks").click();
-    await expect(conversation(page)).toContainText("Checking local zoning laws");
-    await expect(conversation(page)).toContainText("Measuring rooms in 3D scans");
+    const card = page.getByRole("group", { name: "Choose all that apply" });
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "ADA Accessible" }).click();
+    await card.getByRole("button", { name: "On-site Parking" }).click();
+    await expect(card.getByRole("button", { name: "ADA Accessible" })).toHaveAttribute("aria-pressed", "true");
+    await axe(page);
+    await card.getByRole("button", { name: "Done" }).click();
+    await expect(conversation(page)).toContainText("ADA Accessible, On-site Parking");
+    await expect(conversation(page)).toContainText("Checking accessibility");
+    await expect(conversation(page)).toContainText("Counting parking");
     await waitForResults(page);
 
     const n = await cards(page).count();
@@ -64,33 +69,30 @@ test.describe("survey", () => {
     expect(n).toBeLessThanOrEqual(5);
     await expect(cards(page).first().locator(".fit-badge")).toContainText(/\d+% Fit/);
     await expect(cards(page).first().locator("li")).toHaveCount(3);
-    await expect(conversation(page)).toContainText(/I found \d+ .*best fit \(\d+%\)/);
     const trace = page.getByRole("region", { name: "Agent trace" });
     await expect(trace).toContainText(/Searched \d+ candidates/);
-    await expect(trace).toContainText("Evaluated fit (layout, size, use)");
     await expect(trace).toContainText(/Ranked \d+ matching space/);
     await trace.getByText("See every step").click();
     await expect(page.getByLabel("Full agent trace")).toContainText("search_shells");
     await axe(page);
   });
 
-  test("chat alone works without the survey", async ({ page }) => {
-    await fresh(page, "/search");
-    await expect(conversation(page)).toContainText(/what kind of space/i);
-    await page.getByLabel("Message Hermit").fill("I'm looking for a space for a small medical clinic in Houston. I need about 1,200-1,800 sq ft, with 3 exam rooms, a reception area, and some storage.");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(conversation(page)).toContainText("Perfect, I have what I need");
-    await waitForResults(page);
+  test("a single detailed message searches right away", async ({ page }) => {
+    await chatToResults(page);
+    await expect(conversation(page)).toContainText(/I found \d+ .*best fit \(\d+%\)/);
     await expect(cards(page).first()).toBeVisible();
+  });
+
+  test("old /search links land on the chat", async ({ page }) => {
+    await page.goto("/search");
+    await expect(page).toHaveURL(/\/(\?c=.*)?$/);
+    await expect(conversation(page)).toBeVisible();
   });
 });
 
 test.describe("results", () => {
   test.beforeEach(async ({ page }) => {
-    await surveyToSearch(page);
-    await page.getByLabel("Message Hermit").fill("3 exam rooms with sinks, a reception area, and some storage");
-    await page.getByRole("button", { name: "Send" }).click();
-    await waitForResults(page);
+    await chatToResults(page);
   });
 
   test("email drafts are obvious, editable and never sent", async ({ page, context }) => {
@@ -146,7 +148,7 @@ test.describe("results", () => {
     await cards(page).first().getByRole("button", { name: "Save" }).click();
     await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
     await page.reload();
-    await expect(conversation(page)).toContainText("How many exam rooms");
+    await expect(conversation(page)).toContainText("Perfect, I have what I need");
     await expect(conversation(page)).toContainText(/Would you like me to compare/);
     await expect(cards(page).first().locator("h3")).toHaveText(name);
     await expect(cards(page).first().getByRole("button", { name: "Saved" })).toBeVisible();
@@ -154,7 +156,7 @@ test.describe("results", () => {
     const other = await browser.newContext();
     const p2 = await other.newPage();
     await p2.goto(page.url());
-    await expect(p2.getByLabel("Conversation")).toContainText("How many exam rooms");
+    await expect(p2.getByLabel("Conversation")).toContainText("Perfect, I have what I need");
     await p2.goto("/saved");
     await expect(p2.getByText("No saved spaces yet.")).toBeVisible();
     await other.close();
@@ -224,36 +226,34 @@ test.describe("layout studio", () => {
     await axe(page);
 
     await page.getByRole("button", { name: /Analyze & match layout/ }).click();
-    await expect(page).toHaveURL(/\/search$/);
+    await expect(page).toHaveURL(/\/(\?c=.*)?$/);
     await expect(conversation(page)).toContainText("Here's my layout");
     await expect(conversation(page)).toContainText("2 exam rooms with sinks");
     await quick(page, "Houston").click();
+    await quick(page, "None of these").click();
     await waitForResults(page);
   });
 });
 
 test.describe("other uses", () => {
-  test("a warehouse search screens power", async ({ page }) => {
+  test("a warehouse search asks about equipment and screens power", async ({ page }) => {
     await fresh(page);
-    await page.getByLabel("City").selectOption("los_angeles");
-    await page.getByLabel("Use Type").selectOption("warehouse");
-    await page.getByLabel("Size").selectOption("10000+");
-    await page.getByRole("button", { name: "Find shells" }).click();
+    await page.getByLabel("Message Hermit").fill("I need a 20,000 sf warehouse in Los Angeles");
+    await page.getByRole("button", { name: "Send" }).click();
     await expect(conversation(page)).toContainText("heavy power");
     await quick(page, "Heavy power + 2 drive-in doors").click();
     await expect(conversation(page)).toContainText("Checking electrical requirements");
     await waitForResults(page);
   });
 
-  test("a home purchase asks for bedrooms", async ({ page }) => {
+  test("buying a home asks for bedrooms, then must-haves", async ({ page }) => {
     await fresh(page);
-    await page.getByLabel("City").selectOption("houston");
-    await page.getByRole("radio", { name: "Buy" }).click();
-    await page.getByLabel("Use Type").selectOption("home");
-    await page.getByLabel("Budget").fill("$450,000");
-    await page.getByRole("button", { name: "Find shells" }).click();
+    await page.getByLabel("Message Hermit").fill("I want to buy a house in Houston under $450k");
+    await page.getByRole("button", { name: "Send" }).click();
     await expect(conversation(page)).toContainText("How many bedrooms");
     await quick(page, "3 bed / 2 bath").click();
+    await expect(page.getByRole("group", { name: "Choose all that apply" })).toBeVisible();
+    await quick(page, "None of these").click();
     await waitForResults(page);
   });
 });
@@ -261,7 +261,7 @@ test.describe("other uses", () => {
 test.describe("replay and failure states", () => {
   test("the recorded demo replays with every outside request blocked", async ({ page }) => {
     await page.route("**/*", (route) => (new URL(route.request().url()).hostname === "localhost" ? route.continue() : route.abort()));
-    await fresh(page, "/search?replay=demo");
+    await fresh(page, "/?replay=demo");
     await expect(conversation(page)).toContainText("recorded run");
     await waitForResults(page);
     await expect(cards(page).first()).toBeVisible();
@@ -273,7 +273,7 @@ test.describe("replay and failure states", () => {
 
   test("a failed search tells you and lets you keep chatting", async ({ page }) => {
     await page.route("**/api/agent", (route) => route.fulfill({ status: 500, body: "boom" }));
-    await fresh(page, "/search");
+    await fresh(page, "/");
     await page.getByLabel("Message Hermit").fill("small medical clinic in Houston, 1,200-1,800 sq ft, 3 exam rooms, a reception area and storage");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(conversation(page)).toContainText("Search failed");
@@ -305,7 +305,7 @@ test.describe("replay and failure states", () => {
 });
 
 test.describe("layout and motion", () => {
-  for (const path of ["/", "/search", "/layout", "/saved"]) {
+  for (const path of ["/", "/layout", "/saved"]) {
     test(`no horizontal overflow on ${path} @mobile`, async ({ page }) => {
       await page.goto(path);
       await page.waitForTimeout(300);
@@ -316,8 +316,8 @@ test.describe("layout and motion", () => {
 
   test("reduced motion turns animation off", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto("/");
-    const t = await page.getByRole("button", { name: "Find shells" }).evaluate((el) => getComputedStyle(el).transitionDuration);
+    await page.goto("/layout");
+    const t = await page.getByRole("button", { name: /Analyze & match layout/ }).evaluate((el) => getComputedStyle(el).transitionDuration);
     expect(t).toBe("0s");
   });
 });

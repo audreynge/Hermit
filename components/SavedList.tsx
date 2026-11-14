@@ -31,7 +31,7 @@ export function SavedList() {
       <Bookmark aria-hidden="true" style={{ width: 40, height: 40, color: "var(--coral)" }} />
       <p style={{ fontSize: 19, marginTop: 10 }}>No saved spaces yet.</p>
       <p className="muted" style={{ marginTop: 6 }}>Tap Save on any match and it will wait for you here, on this device.</p>
-      <p style={{ marginTop: 18 }}><Link className="btn primary" href="/search">Find spaces</Link></p>
+      <p style={{ marginTop: 18 }}><Link className="btn primary" href="/">Find spaces</Link></p>
     </div>
   );
   return (

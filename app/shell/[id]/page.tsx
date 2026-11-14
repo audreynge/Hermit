@@ -13,7 +13,7 @@ export default async function ShellPage({ params, searchParams }: { params: Prom
   if (!run || !report) return <p>Report not found. It may have come from a run on another server. <Link href="/plan">Start a search</Link>.</p>;
   return (
     <div style={{ maxWidth: 940, margin: "0 auto", display: "grid", gap: 18 }}>
-      <p className="muted no-print"><Link href="/search">← Back to search</Link> · Search for a {run.spec.useType}, run {new Date(run.createdAt).toLocaleString()}</p>
+      <p className="muted no-print"><Link href="/">← Back to chat</Link> · Search for a {run.spec.useType}, run {new Date(run.createdAt).toLocaleString()}</p>
       <section className="card panel"><h1 style={{ fontSize: 34, marginBottom: 8 }}>{report.name.split(" · ")[0]}</h1><ReportPanel report={report} runId={run.id} printable /></section>
       <section className="card panel"><h2 style={{ fontSize: 24 }}>Fit overlay</h2><FitView report={report} /></section>
     </div>
