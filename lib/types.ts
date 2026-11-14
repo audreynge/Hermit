@@ -64,11 +64,15 @@ export type Room = {
   heightFt?: number;
   polygon: { x: number; y: number }[]; // meters, Matterport floor plane
   floorId: string;
+  panoId?: string; // nearest sweep to the room centroid
 };
 export type RoomGraph = {
   sid: string;
   name: string;
   classification?: string;
+  description?: string; // Matterport generatedDescription (vision-written; treat as a claim, not proof)
+  panos?: { id: string; label: string; x: number; y: number }[];
+  floorplan?: string; // cached asset key
   totalAreaSqft: number;
   rooms: Room[];
   edges: { a: string; b: string; kind: "door" | "possible" }[];
@@ -88,9 +92,18 @@ export type Listing = {
   url?: string;
 };
 
+// What the scan shows, classified from its name and Matterport metadata.
+export type ScanKind = "unit" | "amenity" | "home" | "suite" | "office" | "medical" | "salon" | "retail" | "warehouse" | "other";
+
 export type Shell = {
   id: string;
   sid?: string;
+  kind?: ScanKind;
+  scanClass?: string; // Matterport vision propertyClassification, e.g. "healthcare"
+  measuredSqft?: number; // net floor area summed from the scan's rooms
+  defurnished?: boolean;
+  splat?: boolean;
+  floorCount?: number;
   mode: Mode;
   city: City;
   name: string;
@@ -153,6 +166,12 @@ export type WorkItem = {
 
 export type Overlay = { kind: "pin" | "radius"; lat: number; lon: number; label: string; radiusM?: number };
 
+export type ScoreLine = { factor: string; earned: number; max: number; note: string; source: string };
+export type Layer = "costar" | "matterport" | "aerial";
+export type TriRow = { claim: string; cells: Record<Layer, { state: "agree" | "disagree" | "absent"; note: string }>; verdict: "confirmed" | "conflict" | "single-source" | "unknown"; detail: string };
+export type CrewVerdict = { agent: string; shellId: string; status: "pass" | "warn" | "veto" | "unknown"; headline: string; claims: { text: string; evidence: Evidence[] }[]; questions: string[] };
+export type FunnelStage = { key: string; label: string; count: number; removed: { id: string; name: string; reason: string }[]; removedCount: number };
+
 export type ShellReport = {
   shellId: string;
   rank: number;
@@ -178,6 +197,10 @@ export type ShellReport = {
   badge: "scan-verified" | "record-only";
   sources: Evidence[];
   listing?: Listing;
+  score: ScoreLine[];
+  crew: CrewVerdict[];
+  triangulation: TriRow[];
+  defurnished?: boolean;
 };
 
 export type TraceEvent =
@@ -187,6 +210,11 @@ export type TraceEvent =
   | { type: "drop"; id: string; shellId: string; reason: string; evidence: Evidence[] }
   | { type: "escalate"; id: string; shellId: string; question: string; outcome: string }
   | { type: "rerank"; id: string; order: string[]; reason: string }
+  | { type: "funnel"; id: string; stages: FunnelStage[] }
+  | { type: "handoff"; id: string; to: string; shellIds: string[]; why: string; skipped?: boolean }
+  | { type: "verdict"; id: string; verdict: CrewVerdict }
+  | { type: "veto"; id: string; agent: string; shellId: string; name: string; reason: string; evidence: Evidence[] }
+  | { type: "tradeoff"; id: string; relax: string; gain: number; detail: string }
   | { type: "report"; id: string; reports: ShellReport[] }
   | { type: "error"; id: string; message: string }
-  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "deterministic" | "replay" };
+  | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "gemini" | "deterministic" | "replay" };

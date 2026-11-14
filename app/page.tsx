@@ -1,11 +1,6 @@
-import { PageHead } from "@/components/Chrome";
-import { Survey } from "@/components/Survey";
+import { Suspense } from "react";
+import { Hermit } from "@/components/studio/Hermit";
 
-export default function SurveyPage() {
-  return (
-    <>
-      <PageHead title="Find a space that already fits" sub="Tell us what you need, and we'll find spaces that match." />
-      <Survey />
-    </>
-  );
+export default function Home() {
+  return <Suspense fallback={<p>Loading…</p>}><Hermit /></Suspense>;
 }

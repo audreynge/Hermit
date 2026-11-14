@@ -41,10 +41,19 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     if (existing) { if (door) existing.kind = "door"; continue; }
     links.push({ a, b, kind: door ? "door" : "possible" });
   }
+  const panos: NonNullable<RoomGraph["panos"]> = (m.panoLocations ?? []).filter((p: Any) => p.position).map((p: Any) => ({ id: p.id, label: p.label ?? "", x: p.position.x, y: p.position.y }));
+  // Nearest sweep to each room's centroid, so the tour can open on the evidence.
+  for (const r of rooms) {
+    if (!r.polygon.length || !panos.length) continue;
+    const c = r.polygon.reduce((s, p) => ({ x: s.x + p.x / r.polygon.length, y: s.y + p.y / r.polygon.length }), { x: 0, y: 0 });
+    r.panoId = panos.reduce((best, p) => (Math.hypot(p.x - c.x, p.y - c.y) < Math.hypot(best.x - c.x, best.y - c.y) ? p : best)).id;
+  }
   return {
     sid: m.id,
     name: m.name ?? m.id,
     classification: m.propertyClassifications?.[0]?.classification,
+    description: m.generatedDescription?.description ?? undefined,
+    panos,
     totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0),
     rooms,
     edges: links,

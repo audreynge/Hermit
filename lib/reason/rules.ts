@@ -114,7 +114,8 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     const l = shell.listing;
     const ev: Evidence[] = l ? [{ source: "costar", ref: `listing ${l.listingId}.listingStatus`, confidence: 0.8 }] : [];
     if (l?.status === "active") hits.push(hit("availability", "pass", "Active listing on record (not a live availability guarantee).", src("costar_kit"), ev));
-    else hits.push(hit("availability", "warn", l ? `Listing status is ${l.status}; confirm availability.` : "No active listing on record; availability unknown.", src("costar_kit"), ev));
+    else if (l) hits.push(hit("availability", "warn", `Listing status is ${l.status}; confirm availability.`, src("costar_kit"), ev));
+    else hits.push(hit("availability", "unknown", "No listing linked to this scan; availability unknown.", src("costar_kit"), ev));
   }
 
   if (spec.beds != null && shell.beds != null)

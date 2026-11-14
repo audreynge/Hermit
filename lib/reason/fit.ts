@@ -1,6 +1,7 @@
 import type { FitResult, RequirementSpec, Room, RoomGraph } from "../types";
 import { minCostAssignment } from "./hungarian";
 import { IMPLIED_FIXTURES, labelCost } from "./labels";
+import { packFor } from "../uses/packs";
 
 const BUILD_COST = 70;
 const NOT_A_ROOM = new Set(["hallway", "outdoor"]);
@@ -53,6 +54,12 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
     }
     return { req: req.key, roomId: room?.id ?? null, cost: Math.round(c) };
   });
+
+  // Fixtures the use needs that no requested room covers: missing means build, never a silent pass.
+  const pack = packFor(spec);
+  const covered = new Set(reqs.flatMap((r) => r.fixtures ?? []));
+  const anywhere = new Set(rooms.flatMap((r) => [...fixturesIn(r, g)]));
+  for (const f of pack.fixtures) if (!covered.has(f) && !anywhere.has(f)) edits.push(`Add ${f} (typical for a ${pack.label.toLowerCase()}; not seen in scan ${g.sid})`);
 
   const breakdown: Record<string, number> = {};
   const adjacency = scoreAdjacency(reqs, assignment, g, edits);
