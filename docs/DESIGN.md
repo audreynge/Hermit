@@ -33,7 +33,7 @@ Private precomputed bundle <- offline ETL / Matterport / Vexcel / OSM / zoning /
 | `models_index.csv` (14,944 scans) | `sid`, location, CoStar/Homes join keys, `pano_count`, room/floor counts, classification clues |
 | CoStar kit (`openapi.yaml`) | property/listing facts, prior use, power, RBA, sprinklers, parking, industrial details, rents, occupancies |
 | Matterport GraphQL | rooms, polygons, dimensions, wall/door graph, panos/sweeps, floor plans; Showcase for visualization |
-| Vexcel | pre-extracted orthophotos and available roof/site/parking observations |
+| Vexcel | REST v2 (`X-API-KEY`): `POST /ortho/extract` (layers `urban,urban-r,wide-area,urban-g`) and `POST /oriented/extract` (layer `urban`, `oblique-{north,east,south,west}`), 40 m around the record point, cached to `data/processed/vexcel/`; served by `/api/vexcel/[id]?view=`. Roof/site attributes (`/property/extract`) not yet used |
 | OSM + LA zoning | nearby amenities/transit/lot polygons, parcel-level zone and allowed-use lookup (when verified) |
 | LA zoning (verified 2026-11-14) | SCAG regional parcel zoning, `https://maps.scag.ca.gov/scaggis/rest/services/LDX/Zoning_poly_LA/MapServer/0/query` point query (`geometryType=esriGeometryPoint`, `inSR=4326`), field `ZN24_CITY` = city base zone (no height district), `APN24` = parcel. Matched CoStar on 3 of 6 spot checks (C4, CR, C2); others differ (MU/C4, M1/MR1), used as a cross-check, not ground truth. |
 

@@ -3,7 +3,31 @@ import { useState } from "react";
 import { esriTile, tileFor } from "@/lib/geometry/tiles";
 import type { ShellReport } from "@/lib/types";
 
+const VIEWS = [["ortho", "Top-down"], ["oblique-north", "Looking north"], ["oblique-east", "Looking east"], ["oblique-south", "Looking south"], ["oblique-west", "Looking west"]] as const;
+
+// Vexcel aerial + oblique photos; falls back to Esri tiles when Vexcel has no top-down image here.
 export function Aerial({ report }: { report: ShellReport }) {
+  const [view, setView] = useState<(typeof VIEWS)[number][0]>("ortho");
+  const [missing, setMissing] = useState<Set<string>>(new Set());
+  if (!report.above) return <p className="muted" style={{ padding: 16 }}>No coordinates on record for this property.</p>;
+  if (missing.has("ortho")) return <EsriAerial report={report} />;
+  const label = VIEWS.find(([k]) => k === view)![1];
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto 1fr" }}>
+      <div role="group" aria-label="Vexcel camera angle" style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 8 }}>
+        {VIEWS.filter(([k]) => !missing.has(k)).map(([k, l]) => (
+          <button key={k} type="button" className="btn small" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>
+        ))}
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img key={view} src={`/api/vexcel/${encodeURIComponent(report.shellId)}?view=${view}`} alt={`Vexcel ${label.toLowerCase()} aerial photo of ${report.address}`}
+        onError={() => { setMissing((m) => new Set(m).add(view)); setView("ortho"); }}
+        style={{ width: "100%", height: "100%", objectFit: "contain", minHeight: 0 }} />
+    </div>
+  );
+}
+
+function EsriAerial({ report }: { report: ShellReport }) {
   const [failed, setFailed] = useState(false);
   const a = report.above;
   if (!a) return <p className="muted" style={{ padding: 16 }}>No coordinates on record for this property.</p>;

@@ -198,7 +198,7 @@ test.describe("results", () => {
     await expect(stops.first()).toHaveAttribute("aria-pressed", "true");
     await expect(dialog.locator("iframe")).toHaveAttribute("src", /&ss=\d+/);
     await dialog.getByRole("tab", { name: "Aerial" }).click();
-    await expect(dialog.getByRole("img", { name: /Aerial image/ })).toBeVisible();
+    await expect(dialog.getByRole("img", { name: /aerial (image|photo)/i })).toBeVisible();
     await dialog.getByRole("tab", { name: "Fit" }).click();
     await expect(dialog.locator("figure")).toBeVisible();
     await axe(page);
@@ -217,7 +217,7 @@ test.describe("results", () => {
     await panel.getByRole("button", { name: "Open 3D tour" }).click();
     await expect(panel.locator("iframe")).toHaveAttribute("src", /my\.matterport\.com/);
     await page.getByRole("button", { name: "Above" }).click();
-    await expect(panel.getByRole("img", { name: /Aerial image/ })).toBeVisible();
+    await expect(panel.getByRole("img", { name: /aerial (image|photo)/i })).toBeVisible();
     await page.getByRole("button", { name: "Fit" }).click();
     await expect(panel.locator("figure")).toBeVisible();
     await page.getByRole("button", { name: "Fit" }).click();

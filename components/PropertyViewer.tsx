@@ -44,7 +44,7 @@ export function PropertyViewer({ report, onClose, initial = "3d" }: { report: Sh
         {view === "fit" && <FitView report={report} />}
       </div>
       <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-        {view === "3d" ? "3D tour from Matterport; needs an internet connection." : view === "aerial" ? "Esri World Imagery. Vexcel imagery will appear here once its login is connected." : "Your requested rooms mapped onto the measured floor plan."}
+        {view === "3d" ? "3D tour from Matterport; needs an internet connection." : view === "aerial" ? "Aerial and oblique photos © Vexcel Imaging (Esri World Imagery where Vexcel has none). Centered on the record's coordinates, not a surveyed parcel." : "Your requested rooms mapped onto the measured floor plan."}
       </p>
     </Modal>
   );
