@@ -24,6 +24,10 @@ const READY: Record<string, string> = {
   retail: "Storefront-ready (minimal build-out)", restaurant: "Already built out as a restaurant", warehouse: "Already built for warehouse use",
   fitness: "Already built as a fitness space", manufacturing: "Already built for light industrial use", home: "Already laid out as a home",
 };
+const USED_AS: Record<string, string> = {
+  medical: "clinic", salon: "salon", office: "office", retail: "store", restaurant: "restaurant", warehouse: "warehouse",
+  fitness: "fitness space", manufacturing: "light industrial space", home: "home",
+};
 
 export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   const out: string[] = [];
@@ -39,7 +43,9 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
 
   const prior = r.reasons.find((x) => x.startsWith("Prior use matches"))?.match(/\((.+)\)/)?.[1];
   const matched = r.fit.assignment.filter((a) => a.roomId).length;
-  if (prior) out.push(READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)`);
+  // "Ready" needs scanned evidence: known work ≤ $10k and most requested rooms already there. Otherwise just the sourced prior use.
+  const ready = !!r.floorplan && r.costRange != null && r.costRange[1] <= 10000 && matched * 2 > r.fit.assignment.length;
+  if (prior) out.push(ready ? READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)` : `Previously used as ${an(USED_AS[prior] ?? `${prior} space`)}`);
   else if (r.fit.assignment.length) out.push(`${matched} of ${r.fit.assignment.length} rooms already built`);
 
   const wantsParking = !!(spec.needs.parking || spec.needs.parkingStalls);

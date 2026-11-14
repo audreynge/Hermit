@@ -28,6 +28,13 @@ describe("highlights", () => {
     expect(h.join(" ")).toMatch(/on-site parking/i);
   });
 
+  it("only calls a space ready when little work is known and most rooms are there", () => {
+    const pricey = report({ costRange: [18000, 54000] });
+    expect(highlights(pricey, spec)[1]).toBe("Previously used as a clinic");
+    const a = report().fit.assignment.map((x, i) => (i < 2 ? x : { ...x, roomId: null }));
+    expect(highlights(report({ fit: { ...report().fit, assignment: a } }), spec)[1]).toBe("Previously used as a clinic");
+  });
+
   it("only mentions parking when the user asked about it", () => {
     const noParking = { ...spec, needs: {} };
     const r = report({ rules: [{ rule: "parking", status: "pass", detail: "40 recorded stalls", citation: "x", evidence: [] }] });
