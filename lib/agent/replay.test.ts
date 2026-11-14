@@ -11,29 +11,29 @@ const spec: RequirementSpec = { mode: "business", city: "houston", useType: "den
 describe("replay store", () => {
   process.env.HERMIT_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hermit-replay-"));
 
-  it("round-trips a recorded run", () => {
+  it("round-trips a recorded run", async () => {
     const id = newRunId();
     const events: TraceEvent[] = [{ type: "plan", id: "e1", text: "hi" }];
-    saveRun(id, spec, events);
-    expect(loadRun(id)).toMatchObject({ id, spec, events });
-    expect(listRuns().map((r) => r.id)).toContain(id);
+    await saveRun(id, spec, events);
+    expect(await loadRun(id)).toMatchObject({ id, spec, events });
+    expect((await listRuns()).map((r) => r.id)).toContain(id);
   });
 
-  it("refuses unsafe ids and returns null for missing runs", () => {
-    expect(loadRun("../../etc/passwd")).toBeNull();
-    expect(loadRun("nope")).toBeNull();
-    expect(() => saveRun("../x", spec, [])).toThrow();
+  it("refuses unsafe ids and returns null for missing runs", async () => {
+    expect(await loadRun("../../etc/passwd")).toBeNull();
+    expect(await loadRun("nope")).toBeNull();
+    await expect(saveRun("../x", spec, [])).rejects.toThrow();
   });
 });
 
 describe("spec url encoding", () => {
-  it("round-trips a spec through a URL-safe string", () => {
+  it("round-trips a spec through a URL-safe string", async () => {
     const s = encodeSpec(spec);
     expect(s).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(decodeSpec(s)).toEqual(spec);
   });
 
-  it("returns null for garbage or schema-invalid input", () => {
+  it("returns null for garbage or schema-invalid input", async () => {
     expect(decodeSpec("!!!")).toBeNull();
     expect(decodeSpec(encodeSpec({ ...spec, city: "paris" } as never))).toBeNull();
   });

@@ -13,7 +13,7 @@ export function parseZoningResponse(json: unknown): { zone: string; apn: string 
 export async function lookupZoning(lat: number, lon: number, fetchFn: typeof fetch = fetch): Promise<ParcelZone | null> {
   if (!inLA(lat, lon)) return null;
   const key = `zoning:${lat.toFixed(5)},${lon.toFixed(5)}`;
-  const hit = getCached<ParcelZone | { none: true }>(key);
+  const hit = await getCached<ParcelZone | { none: true }>(key);
   if (hit) return "none" in hit ? null : hit;
   const q = new URLSearchParams({
     geometry: `${lon.toFixed(5)},${lat.toFixed(5)}`, geometryType: "esriGeometryPoint", inSR: "4326",
@@ -26,7 +26,7 @@ export async function lookupZoning(lat: number, lon: number, fetchFn: typeof fet
     if (!Array.isArray((json as { features?: unknown }).features)) return null;
     const parsed = parseZoningResponse(json);
     const out = parsed ? { ...parsed, source: `scag Zoning_poly_LA (ZN24_CITY, APN ${parsed.apn})` } : null;
-    putCached(key, out ?? { none: true }, 30);
+    await putCached(key, out ?? { none: true }, 30);
     return out;
   } catch {
     return null;

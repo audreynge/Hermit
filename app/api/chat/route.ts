@@ -33,15 +33,15 @@ export async function POST(req: Request) {
 
   if ("open" in b) {
     const turn = openChat(b.spec);
-    const id = createConversation(vid, turn.state);
-    appendMessages(id, [...(b.userText ? [{ role: "user", kind: "text", payload: { text: b.userText } } as StoredMsg] : []), botMsg(turn)]);
+    const id = await createConversation(vid, turn.state);
+    await appendMessages(id, [...(b.userText ? [{ role: "user", kind: "text", payload: { text: b.userText } } as StoredMsg] : []), botMsg(turn)]);
     return NextResponse.json({ conversationId: id, turn });
   }
 
-  const conv = loadConversation(b.conversationId);
+  const conv = await loadConversation(b.conversationId);
   if (!conv) return NextResponse.json({ error: "unknown conversation" }, { status: 404 });
   if (conv.viewerId !== vid) return NextResponse.json({ error: "not your conversation" }, { status: 403 });
-  appendMessages(conv.id, [{ role: "user", kind: "text", payload: { text: b.text } }]);
+  await appendMessages(conv.id, [{ role: "user", kind: "text", payload: { text: b.text } }]);
 
   const ctx: EditContext = { layout: b.layout ?? null };
   let fitoutNote = "";
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
       };
     }
   }
-  appendMessages(conv.id, [botMsg(turn, design)]);
-  saveState(conv.id, turn.state);
+  await appendMessages(conv.id, [botMsg(turn, design)]);
+  await saveState(conv.id, turn.state);
   return NextResponse.json({ conversationId: conv.id, turn, ...(design ? { design } : {}) });
 }

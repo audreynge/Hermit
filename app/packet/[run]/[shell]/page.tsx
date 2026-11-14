@@ -8,7 +8,7 @@ export const metadata = { title: "Broker packet · Hermit" };
 // One link a broker can open: the requirement, what the layers confirm, what's still open, and the drafted inquiry.
 export default async function Packet({ params }: { params: Promise<{ run: string; shell: string }> }) {
   const { run: runId, shell } = await params;
-  const run = loadRun(runId);
+  const run = await loadRun(runId);
   const report = run?.events.flatMap((e) => (e.type === "report" ? e.reports : [])).find((r) => r.shellId === shell);
   if (!run || !report) return <p className="card pad">Packet not found. It may come from a run on another server. <Link href="/">Start with Hermit</Link>.</p>;
   const s = run.spec;

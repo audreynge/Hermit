@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import postgres from "postgres";
 import { dataDir } from "../paths";
 import { SCHEMA, SCHEMA_VERSION } from "./schema";
 
@@ -12,7 +13,7 @@ export const generation = () => gen;
 export const bumpGeneration = () => { gen++; };
 
 // Vercel's deploy bundle is read-only; /tmp is the only writable path there.
-// ponytail: /tmp is per-instance and wiped on cold start, so chats and saves are not durable on Vercel; move to a hosted DB if they must persist.
+// /tmp is per-instance, so on Vercel it only holds the catalog rebuilt from the bundle; app state goes to Postgres via q().
 export const dbFile = () => process.env.HERMIT_DB ?? path.join(process.env.VERCEL ? "/tmp" : dataDir(), "hermit.db");
 
 export function db(): DatabaseSync {
@@ -29,6 +30,22 @@ export function db(): DatabaseSync {
   }
   handle = { file, db: d };
   return d;
+}
+
+let pg: postgres.Sql | null = null;
+export const usingPostgres = () => !!process.env.DATABASE_URL;
+
+// App state (conversations, saved spaces, runs, caches) must be shared across server instances, so it
+// lives in Postgres when DATABASE_URL is set; otherwise local SQLite keeps dev, tests and offline replay working.
+// SQL passed here must run on both: '?' placeholders, ON CONFLICT upserts, no engine-specific functions.
+export async function q<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+  if (!usingPostgres()) return db().prepare(sql).all(...(params as SQLInputValue[])) as T[];
+  // Supabase transaction pooler: no prepared statements; small pool per serverless instance.
+  pg ??= postgres(process.env.DATABASE_URL!, { prepare: false, max: 3, idle_timeout: 20 });
+  let i = 0;
+  const rows = await pg.unsafe(sql.replace(/\?/g, () => `$${++i}`), params as postgres.ParameterOrJSON<never>[]);
+  // timestamptz comes back as Date; callers expect the ISO strings SQLite stores.
+  return rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]))) as T[];
 }
 
 export function closeDb() {

@@ -16,7 +16,7 @@ if (!text) throw new Error(`no request for replay "${id}"`);
 const spec = { ...parseText(text, { city: "houston" }), input: "text" as const };
 const events: TraceEvent[] = [{ type: "run", id: "run", runId: id, replay: false }];
 const reports = await runAgent(spec, (e) => events.push(e), { shells: loadShells, graph: loadRoomGraph });
-saveRun(id, spec, events);
+await saveRun(id, spec, events);
 const vetoes = events.filter((e) => e.type === "veto").length;
 const planner = (events.at(-1) as Extract<TraceEvent, { type: "done" }>).planner;
 console.log(`recorded "${id}" in ${dataDir()}: ${reports.length} reports, ${vetoes} vetoes, planner ${planner}, ${events.length} events`);
