@@ -5,6 +5,11 @@ import { dataDir } from "../paths";
 import { SCHEMA, SCHEMA_VERSION } from "./schema";
 
 let handle: { file: string; db: DatabaseSync } | null = null;
+let gen = 0;
+
+// Bumped by bulk imports so in-memory caches built on top of the DB know to reload.
+export const generation = () => gen;
+export const bumpGeneration = () => { gen++; };
 
 export const dbFile = () => process.env.HERMIT_DB ?? path.join(dataDir(), "hermit.db");
 

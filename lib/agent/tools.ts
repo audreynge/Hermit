@@ -7,7 +7,7 @@ import { estimateWork } from "../reason/work";
 import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
 import { buildReport, finalScore, type Evaluation } from "./report";
 
-export type AgentDeps = { shells: () => Shell[]; graph: (sid: string) => RoomGraph | null };
+export type AgentDeps = { shells: (spec: RequirementSpec) => Shell[]; graph: (sid: string) => RoomGraph | null };
 export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
 
 let seq = 0;
@@ -73,7 +73,7 @@ export class Run {
   }
 
   private search() {
-    const out = searchShells(this.spec, this.deps.shells());
+    const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
     return {
       result: { considered: out.considered, rejected: out.rejected, top: out.results.slice(0, 20).map((c) => ({ id: c.shell.id, score: c.score, reasons: c.reasons.slice(0, 3), scan: !!c.shell.sid })) },

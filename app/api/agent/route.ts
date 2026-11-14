@@ -1,6 +1,6 @@
 import { runAgent } from "@/lib/agent/loop";
 import { listRuns, loadRun, newRunId, saveRun } from "@/lib/agent/replay";
-import { loadRoomGraph, loadShells } from "@/lib/query/load";
+import { loadRoomGraph, searchCandidates } from "@/lib/query/load";
 import { RequirementSpec, type TraceEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       };
       emit({ type: "run", id: "run", runId, replay: false });
       try {
-        await runAgent(spec, emit, { shells: loadShells, graph: loadRoomGraph });
+        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph });
       } catch (e) {
         emit({ type: "error", id: "fatal", message: e instanceof Error ? e.message : String(e) });
       }

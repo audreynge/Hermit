@@ -10,3 +10,5 @@ playwright-report/
 *.tsbuildinfo
 data/sample/replay/run-*
 .superpowers/
+data/sample/hermit.db*
+.claude/

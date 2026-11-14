@@ -60,6 +60,8 @@ async function main() {
   const events: TraceEvent[] = [{ type: "run", id: "run", runId: "demo", replay: false }];
   await runAgent(spec, (e) => events.push(e), { shells: loadShells, graph: loadRoomGraph }, { client: null });
   saveRun("demo", spec, events);
+  fs.mkdirSync(path.join(OUT, "replay"), { recursive: true });
+  fs.writeFileSync(path.join(OUT, "replay", "demo.json"), JSON.stringify({ id: "demo", createdAt: new Date().toISOString(), spec, events }));
   console.log(`wrote ${shells.length} sample shells, ${graphs.length} room graphs, demo replay`);
 }
 

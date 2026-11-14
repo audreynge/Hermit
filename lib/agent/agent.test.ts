@@ -90,7 +90,7 @@ describe("deterministic agent", () => {
 
   it("keeps a single fixable code gap as priced work and batches drops into one call", async () => {
     const d = deps();
-    const all = d.shells();
+    const all = d.shells(spec);
     const shells = [
       ...all.slice(0, 3),
       ...Array.from({ length: 10 }, (_, i) => shell(`X${i}`, { heavyPower: false, driveInBays: 0 })),

@@ -1,30 +1,30 @@
-import fs from "node:fs";
-import path from "node:path";
-import { dataDir, isSafeId } from "../query/load";
+import { db } from "../db";
+import { ensureImported, isSafeId } from "../query/load";
 import type { RequirementSpec, TraceEvent } from "../types";
 
 export type RecordedRun = { id: string; createdAt: string; spec: RequirementSpec; events: TraceEvent[] };
 
-const dir = () => path.join(dataDir(), "replay");
 export const newRunId = () => `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 export function saveRun(id: string, spec: RequirementSpec, events: TraceEvent[]) {
   if (!isSafeId(id)) throw new Error("unsafe run id");
-  fs.mkdirSync(dir(), { recursive: true });
-  const run: RecordedRun = { id, createdAt: new Date().toISOString(), spec, events };
-  fs.writeFileSync(path.join(dir(), `${id}.json`), JSON.stringify(run));
+  db().prepare("INSERT OR REPLACE INTO runs (id, created_at, spec_json, events_json) VALUES (?, ?, ?, ?)")
+    .run(id, new Date().toISOString(), JSON.stringify(spec), JSON.stringify(events));
 }
 
 export function loadRun(id: string): RecordedRun | null {
   if (!isSafeId(id)) return null;
-  const f = path.join(dir(), `${id}.json`);
-  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null;
+  ensureImported();
+  const r = db().prepare("SELECT id, created_at, spec_json, events_json FROM runs WHERE id = ?").get(id) as
+    | { id: string; created_at: string; spec_json: string; events_json: string } | undefined;
+  return r ? { id: r.id, createdAt: r.created_at, spec: JSON.parse(r.spec_json), events: JSON.parse(r.events_json) } : null;
 }
 
 export function listRuns(): { id: string; createdAt: string; useType: string; city: string }[] {
-  if (!fs.existsSync(dir())) return [];
-  return fs.readdirSync(dir()).filter((f) => f.endsWith(".json")).flatMap((f) => {
-    const r = loadRun(f.slice(0, -5));
-    return r ? [{ id: r.id, createdAt: r.createdAt, useType: r.spec.useType, city: r.spec.city }] : [];
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  ensureImported();
+  const rows = db().prepare("SELECT id, created_at, spec_json FROM runs ORDER BY created_at DESC LIMIT 200").all() as { id: string; created_at: string; spec_json: string }[];
+  return rows.map((r) => {
+    const s = JSON.parse(r.spec_json) as RequirementSpec;
+    return { id: r.id, createdAt: r.created_at, useType: s.useType, city: s.city };
+  });
 }
