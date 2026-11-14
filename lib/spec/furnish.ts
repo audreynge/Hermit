@@ -1,13 +1,13 @@
 import type { Pack } from "../uses/packs";
 import type { SketchRoom } from "./sketch";
 
-export type FurnType = "chair" | "desk" | "table" | "sofa" | "plant" | "reception desk" | "exam table" | "shelf" | "bed" | "styling chair" | "sink" | "toilet" | "shower" | "hood" | "shampoo sink";
+export type FurnType = "chair" | "desk" | "table" | "sofa" | "plant" | "reception desk" | "exam table" | "shelf" | "bed" | "styling chair" | "counter" | "stool" | "sink" | "toilet" | "shower" | "hood" | "shampoo sink";
 export type Furn = { id: string; type: FurnType; x: number; y: number; w: number; h: number };
 
 export const FURNITURE: { type: FurnType; w: number; h: number; fixture?: boolean }[] = [
   { type: "chair", w: 2, h: 2 }, { type: "desk", w: 5, h: 2.5 }, { type: "table", w: 4, h: 3 }, { type: "sofa", w: 6, h: 3 },
   { type: "reception desk", w: 7, h: 3 }, { type: "exam table", w: 6, h: 2.5 }, { type: "styling chair", w: 3, h: 3 }, { type: "bed", w: 5, h: 6.5 },
-  { type: "shelf", w: 4, h: 1.5 }, { type: "plant", w: 1.5, h: 1.5 },
+  { type: "shelf", w: 4, h: 1.5 }, { type: "plant", w: 1.5, h: 1.5 }, { type: "counter", w: 6, h: 2.5 }, { type: "stool", w: 1.5, h: 1.5 },
   { type: "sink", w: 2, h: 1.5, fixture: true }, { type: "toilet", w: 1.5, h: 2.5, fixture: true }, { type: "shower", w: 3, h: 3, fixture: true },
   { type: "hood", w: 6, h: 3, fixture: true }, { type: "shampoo sink", w: 2.5, h: 2.5, fixture: true },
 ];

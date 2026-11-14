@@ -126,6 +126,12 @@ function main() {
     if (g.totalAreaSqft > 30) s.measuredSqft = Math.round(g.totalAreaSqft);
     if (s.kind !== "home" && s.kind !== "unit") s.useTags = [...new Set([...s.useTags, ...(SCAN_CLASS_TAGS[g.classification] ?? [])])];
   }
+  // Coordinates the Census geocoder found for scans the index left blank (pipeline/geocode.ts).
+  const geo = path.join(OUT, "neighborhood-cache", "geocoded.json");
+  if (fs.existsSync(geo)) {
+    const g: Record<string, { lat: number; lon: number } | null> = JSON.parse(fs.readFileSync(geo, "utf8"));
+    for (const s of shells) { const c = s.sid ? g[s.sid] : null; if (c && s.lat == null) { s.lat = c.lat; s.lon = c.lon; } }
+  }
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, "shells.json"), JSON.stringify(shells));
   const by = (k: (s: Shell) => string) => shells.reduce<Record<string, number>>((a, s) => ((a[k(s)] = (a[k(s)] ?? 0) + 1), a), {});

@@ -13,7 +13,7 @@ function friendly(key: string, label: string, useLabel: string): { label: string
     case "city": return { label: label.replace(/^in /, "in "), why: "Set aside because they're in another city." };
     case "type": return { label: /homes/.test(label) ? "homes" : /industrial/.test(label) ? "industrial spaces" : "places to do business", why: "Set aside: apartments, pools, gyms and lobbies." };
     case "size": return { label: "the right size", why: "Set aside because they're much too big or too small." };
-    case "use": return { label: `already set up for a ${useLabel}`, why: `Set aside because they were built for something very different.` };
+    case "use": return { label: `set up for ${/^[aeiou]/i.test(useLabel) ? "an" : "a"} ${useLabel} or something close`, why: "Set aside because they were built for something very different." };
     case "beds": return { label: "enough bedrooms", why: "Set aside: not enough bedrooms." };
     case "veto": return { label, why: "My crew crawled inside and found a dealbreaker." };
     default: return { label, why: "" };

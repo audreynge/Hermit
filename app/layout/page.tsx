@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function LayoutRedirect() {
-  redirect("/?design=draw");
+export default function LayoutPage() {
+  redirect("/studio?design=draw");
 }

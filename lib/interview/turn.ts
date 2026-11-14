@@ -54,6 +54,12 @@ function answerField(spec: Draft, field: Field | null | undefined, text: string)
     case "bays":
       next.needs.driveInBays = /none|no/.test(t) ? 0 : n || 1;
       break;
+    case "price":
+      if (n > 0) next.avgPrice = n;
+      break;
+    case "days":
+      next.daysOpen = /every|7|seven|daily/.test(t) ? 7 : /weekday|5|five/.test(t) ? 5 : n >= 1 && n <= 7 ? n : undefined;
+      break;
     case "musts":
       for (const c of chipsIn(text, packFor(next).chips)) next = toggleChip(c, next, true);
       break;

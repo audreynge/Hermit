@@ -3,6 +3,7 @@ import { isLoopback, openaiClient } from "@/lib/llm/openai";
 import { geminiClient } from "@/lib/llm/gemini";
 import { listRuns, loadRun, newRunId, saveRun } from "@/lib/agent/replay";
 import { loadRoomGraph, searchCandidates } from "@/lib/query/load";
+import { loadSite } from "@/lib/neighborhood/load";
 import { lookupZoning } from "@/lib/regs/zoning";
 import { researchRegulations } from "@/lib/regs/research";
 import { RequirementSpec, type TraceEvent } from "@/lib/types";
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
       try {
         const gemini = process.env.ANTHROPIC_API_KEY ? null : await geminiClient().catch((e) => (emit({ type: "error", id: "gemini", message: `Gemini unavailable (${e instanceof Error ? e.message : e}); planning deterministically.` }), null));
         const openai = process.env.ANTHROPIC_API_KEY || gemini ? null : await openaiClient(isLoopback(req)).catch(() => null);
-        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) }, { gemini, openai });
+        await runAgent(spec, emit, { shells: (s) => searchCandidates(s.city, s.mode === "home" ? ["home"] : ["business", "enterprise"]), graph: loadRoomGraph, site: loadSite, zoning: (lat, lon) => lookupZoning(lat, lon), research: (q) => researchRegulations(q) }, { gemini, openai });
       } catch (e) {
         emit({ type: "error", id: "fatal", message: e instanceof Error ? e.message : String(e) });
       }

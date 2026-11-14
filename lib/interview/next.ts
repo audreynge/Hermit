@@ -3,7 +3,7 @@ import { packFor } from "../uses/packs";
 import { SIZE_OPTIONS, TIMING_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { Shell } from "../types";
 
-export type Field = "city" | "use" | "musts" | "rooms" | "accessibility" | "parking" | "size" | "moveIn" | "budget" | "beds" | "power" | "bays" | "sprinklers";
+export type Field = "city" | "use" | "musts" | "price" | "days" | "rooms" | "accessibility" | "parking" | "size" | "moveIn" | "budget" | "beds" | "power" | "bays" | "sprinklers";
 export type Question = { field: Field; text: string; why: string; quick: string[]; split?: [number, number]; multi?: boolean };
 
 const answered = (spec: Draft, f: Field, asked: string[]) => {
@@ -12,6 +12,8 @@ const answered = (spec: Draft, f: Field, asked: string[]) => {
     case "city": return !!spec.city;
     case "use": return !!spec.useType;
     case "musts": return false;
+    case "price": return spec.avgPrice != null;
+    case "days": return spec.daysOpen != null;
     case "size": return !!spec.sizeSqft || !!spec.headcount || (spec.mode === "home" && spec.beds != null);
     case "rooms": return spec.rooms.some((r) => r.label !== "bathroom") && spec.input !== "survey";
     case "accessibility": return spec.needs.wheelchair != null || spec.needs.stepFree != null;
@@ -49,6 +51,8 @@ function split(f: Field, pool: Shell[], spec: Draft): [number, number] | undefin
 const TEXT: Record<Field, (spec: Draft) => { text: string; quick: string[] }> = {
   city: () => ({ text: "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. Which city should I search?", quick: ["Houston", "Los Angeles"] }),
   use: () => ({ text: "What are you opening, or looking for?", quick: USE_OPTIONS.map((u) => u.label) }),
+  price: (spec) => ({ text: `What does a typical customer spend per visit${packFor(spec).key === "salon" ? " (a cut, a color)" : packFor(spec).key === "medical" ? " (what you collect per patient visit)" : ""}? I'll turn the rent into “customers a day”.`, quick: ["About $25", "About $55", "About $120", "Not sure yet"] }),
+  days: () => ({ text: "How many days a week will you be open?", quick: ["5 days", "6 days", "7 days"] }),
   musts: (spec) => ({ text: "Last one: any must-haves I haven't asked about? Pick any that matter, then tap Done.", quick: packFor(spec).chips }),
   rooms: (spec) => {
     const pack = packFor(spec);
@@ -105,6 +109,9 @@ export function nextQuestion(spec: Draft, pool: Shell[], asked: string[]): Quest
     return [{ field, score: crit * (0.35 + gain), sp }];
   });
   if (!options.length) {
+    // Two money inputs for walk-in businesses, so the report can say "you need about 14 customers a day".
+    if (spec.mode === "business") for (const f of ["price", "days"] as Field[]) if (!answered(spec, f, asked))
+      return { field: f, ...TEXT[f](spec), why: f === "price" ? "It's half of the break-even math." : "The other half: it spreads the rent across your open days." };
     if (asked.includes("musts")) return null;
     return { field: "musts", ...TEXT.musts(spec), why: "So nothing important slips through before the crew goes in.", multi: true };
   }

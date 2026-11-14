@@ -3,6 +3,9 @@ import { chairFor, checkAccess } from "../reason/access";
 import type { Finding } from "../regs/research";
 import { useCategory } from "../reason/rules";
 import { triangulate } from "../reason/triangulate";
+import { buildoutCheck } from "../reason/buildout";
+import { exclusiveScan } from "../reason/exclusive";
+import type { SiteFile } from "../neighborhood/types";
 import { packFor } from "../uses/packs";
 import { sqftOf } from "../query/shells";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
@@ -119,9 +122,11 @@ export function regulationHits(regs: Finding[]): RuleHit[] {
   });
 }
 
-export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, regs: Finding[] = []): ShellReport {
+export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, regs: Finding[] = [], site: SiteFile | null = null): ShellReport {
   const { shell, graph, fit, work } = e;
   const rules = [...e.rules, ...regulationHits(regs)];
+  const buildout = buildoutCheck(spec.useType, graph);
+  const exclusive = exclusiveScan(site, spec.useType);
   const pack = packFor(spec);
   const sources: Evidence[] = [
     ...(shell.propertyId ? [{ source: "costar", ref: `property ${shell.propertyId}`, confidence: 0.9 }] : []),
@@ -142,10 +147,15 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   raw.push(...(e.extraUnknowns ?? []));
   for (const v of e.verdicts) for (const q of v.questions) raw.push({ topic: v.agent, question: q });
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) raw.push({ topic: "scan detail", question: x.question });
+  for (const h of pack.hidden) if (!raw.some((u) => u.question.startsWith(h))) raw.push({ topic: "behind the walls", question: `${h}: what's in place today?` });
+  // Exclusive-use and unverified build-out questions (Skeptic / buildout check) lead with the proposed-change ones.
+  if (exclusive.question) raw.push({ topic: "exclusive use", question: exclusive.question });
+  for (const c of exclusive.conflicts.slice(0, 2)) raw.push({ topic: "competitor nearby", question: `${c.name} (${c.what}) is ${c.where}. Does it have an exclusive that would block my use?` });
+  for (const b of buildout) if (b.status !== "seen") raw.push({ topic: "unverified build-out", question: b.question });
   // Proposed-change and must-have questions lead (and are never cut from the draft); duplicates go.
   const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
-  const priority = (u: { topic: string }) => (u.topic === "proposed change" || u.topic === "door" ? 0 : mustTopics.has(u.topic) ? 1 : 2);
-  for (const h of pack.hidden) if (!raw.some((u) => u.question.startsWith(h))) raw.push({ topic: "behind the walls", question: `${h}: what's in place today?` });
+  const LEAD = new Set(["proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
+  const priority = (u: { topic: string }) => (LEAD.has(u.topic) ? 0 : mustTopics.has(u.topic) ? 1 : 2);
   const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
 
   const matched = fit.assignment.filter((a) => a.roomId).length;
@@ -195,6 +205,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ...(e.similarity ? { similarity: e.similarity } : {}),
     score: e.similarity ? [...e.lines, { factor: "Match to your drawn layout", earned: e.finalScore - total(e.lines), max: 0, note: `Layout ${e.similarity.score}% similar, blended 50/50 with the evidence score`, source: "match_layout" }] : e.lines,
     crew: e.verdicts, triangulation: triangulate(spec, shell, graph), defurnished: shell.defurnished,
+    buildout, conflicts: exclusive.conflicts,
   };
 }
 

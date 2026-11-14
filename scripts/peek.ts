@@ -1,0 +1,10 @@
+import { runAgent } from "../lib/agent/loop";
+import { concerns } from "../lib/crew/skeptic";
+import { loadSite } from "../lib/neighborhood/load";
+import { loadRoomGraph, loadShells } from "../lib/query/load";
+import type { RequirementSpec, TraceEvent } from "../lib/types";
+const spec: RequirementSpec = { mode: "business", city: "los_angeles", useType: "medical clinic", sizeSqft: [1200, 2500], rooms: [], needs: {}, priorities: {}, input: "chat" };
+const ev: TraceEvent[] = [];
+await runAgent(spec, (e) => ev.push(e), { shells: loadShells, graph: loadRoomGraph, site: loadSite }, { client: null, gemini: null });
+const r = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+for (const x of r) console.log(x.rank, x.name, x.matchScore, "conflicts", x.conflicts?.map((c) => `${c.name} ${c.meters}m`).join("; "));
