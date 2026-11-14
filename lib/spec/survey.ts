@@ -32,7 +32,7 @@ export const TIMING_OPTIONS = [
 ];
 
 export const REQUIREMENTS = [
-  { value: "ada", label: "ADA Accessible" },
+  { value: "ada", label: "Step-free / wheelchair access" },
   { value: "parking", label: "On-site Parking" },
   { value: "ground", label: "Ground Floor" },
   { value: "flexible", label: "Flexible Layout" },

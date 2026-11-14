@@ -1,3 +1,5 @@
+import { toJSONSchema, type z } from "zod";
+
 // Gemini as a planner/chat provider via the Gemini API (REST generateContent), keyed by GEMINI_API_KEY.
 const API = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -63,4 +65,46 @@ export async function geminiJson(g: GeminiClient, system: string, parts: GeminiP
     generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema },
   });
   return JSON.parse(geminiText(turn) || "null");
+}
+
+// Interview helpers (from the studio overhaul), routed through the same client so they get model re-picking too.
+
+export const hasGemini = () => !!process.env.GEMINI_API_KEY?.trim();
+export type Part = GeminiPart;
+export type Content = GeminiContent;
+
+// Gemini accepts a JSON-schema subset; strip keys it rejects.
+export function cleanSchema(s: unknown): unknown {
+  if (Array.isArray(s)) return s.map(cleanSchema);
+  if (!s || typeof s !== "object") return s;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(s)) {
+    if (["$schema", "additionalProperties", "$id", "$ref", "default", "exclusiveMinimum", "exclusiveMaximum"].includes(k)) continue;
+    out[k] = cleanSchema(v);
+  }
+  return out;
+}
+
+export async function generate(body: Record<string, unknown>, timeoutMs = 20_000): Promise<{ parts: Part[] }> {
+  const g = await geminiClient();
+  if (!g) throw new Error("GEMINI_API_KEY is not set");
+  const turn = await Promise.race([
+    g.generate(body),
+    new Promise<never>((_, no) => setTimeout(() => no(new Error(`Gemini: no answer in ${timeoutMs / 1000}s`)), timeoutMs)),
+  ]);
+  return { parts: turn.parts };
+}
+
+export async function generateJSON<T extends z.ZodType>(system: string, contents: Content[], schema: T, timeoutMs?: number): Promise<z.infer<T> | null> {
+  try {
+    const { parts } = await generate({
+      systemInstruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: { responseMimeType: "application/json", responseJsonSchema: cleanSchema(toJSONSchema(schema)), temperature: 0.4 },
+    }, timeoutMs);
+    const parsed = schema.safeParse(JSON.parse(parts.filter((p) => !p.thought).map((p) => p.text ?? "").join("")));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }

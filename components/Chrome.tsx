@@ -1,8 +1,9 @@
 "use client";
-import { Bookmark, MessageCircle } from "lucide-react";
+import { Bookmark, LayoutDashboard, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SettingsButton } from "./Settings";
 
 type Ai = { connected: boolean; email: string | null; model: string | null; apiKey: boolean; gemini: boolean; canSignIn: boolean };
 
@@ -28,6 +29,7 @@ function AiConnect() {
 
 const NAV = [
   { href: "/", label: "Chat", Icon: MessageCircle },
+  { href: "/studio", label: "Studio", Icon: LayoutDashboard },
   { href: "/saved", label: "Saved", Icon: Bookmark },
 ];
 
@@ -48,6 +50,7 @@ export function Header() {
         ))}
       </nav>
       <AiConnect />
+      <SettingsButton />
     </header>
   );
 }

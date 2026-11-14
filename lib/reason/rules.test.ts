@@ -83,7 +83,7 @@ describe("checkRules", () => {
   });
 
   it("does not call a property available without an active listing", () => {
-    expect(get(checkRules(spec(), shell()), "availability")?.status).toBe("warn");
+    expect(get(checkRules(spec(), shell()), "availability")?.status).toBe("unknown");
     const active = shell({ listing: { listingId: 9, status: "active" } });
     expect(get(checkRules(spec(), active), "availability")?.status).toBe("pass");
   });

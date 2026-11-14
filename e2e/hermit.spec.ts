@@ -34,7 +34,7 @@ test.describe("chat onboarding", () => {
   test("one Chat tab greets you and offers tap-to-answer choices", async ({ page }) => {
     await fresh(page);
     const nav = page.getByRole("navigation", { name: "Primary" });
-    await expect(nav.getByRole("link")).toHaveText(["Chat", "Saved"]);
+    await expect(nav.getByRole("link")).toHaveText(["Chat", "Studio", "Saved"]);
     await expect(nav.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
@@ -54,12 +54,12 @@ test.describe("chat onboarding", () => {
     await quick(page, "3 exam rooms with sinks").click();
     const card = page.getByRole("group", { name: "Choose all that apply" });
     await expect(card).toBeVisible();
-    await card.getByRole("button", { name: "ADA Accessible" }).click();
+    await card.getByRole("button", { name: "Step-free / wheelchair access" }).click();
     await card.getByRole("button", { name: "On-site Parking" }).click();
-    await expect(card.getByRole("button", { name: "ADA Accessible" })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByRole("button", { name: "Step-free / wheelchair access" })).toHaveAttribute("aria-pressed", "true");
     await axe(page);
     await card.getByRole("button", { name: "Done" }).click();
-    await expect(conversation(page)).toContainText("ADA Accessible, On-site Parking");
+    await expect(conversation(page)).toContainText("Step-free / wheelchair access, On-site Parking");
     await expect(conversation(page)).toContainText("Checking accessibility");
     await expect(conversation(page)).toContainText("Counting parking");
     await waitForResults(page);

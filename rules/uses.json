@@ -1,0 +1,574 @@
+{
+  "version": "hermit-uses-2026-11",
+  "note": "Per-use requirement packs: what a typical space for this use needs, so a missing fixture is a build item, not a pass. Screening defaults; the user edits them.",
+  "packs": {
+    "medical": {
+      "label": "Medical clinic",
+      "rooms": [
+        {
+          "label": "reception",
+          "count": 1,
+          "minSqft": 150,
+          "w": 16,
+          "h": 12
+        },
+        {
+          "label": "exam room",
+          "count": 2,
+          "minSqft": 90,
+          "fixtures": [
+            "sink"
+          ],
+          "w": 10,
+          "h": 11
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        },
+        {
+          "label": "office",
+          "count": 1,
+          "minSqft": 90,
+          "w": 10,
+          "h": 10
+        },
+        {
+          "label": "storage",
+          "count": 1,
+          "minSqft": 40,
+          "w": 8,
+          "h": 6
+        }
+      ],
+      "fixtures": [
+        "sink",
+        "toilet"
+      ],
+      "hidden": [
+        "Dedicated circuits for imaging or lab equipment",
+        "Medical gas or vacuum lines",
+        "Sharps and medical-waste handling"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 3,
+        "accessibility": 3,
+        "parking": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Step-free / wheelchair access",
+        "On-site parking",
+        "Ground floor",
+        "Patient restroom",
+        "Near transit"
+      ],
+      "priorUse": [
+        "medical"
+      ]
+    },
+    "salon": {
+      "label": "Salon",
+      "rooms": [
+        {
+          "label": "styling floor",
+          "count": 1,
+          "minSqft": 400,
+          "fixtures": [
+            "shampoo sink"
+          ],
+          "w": 24,
+          "h": 18
+        },
+        {
+          "label": "reception",
+          "count": 1,
+          "minSqft": 80,
+          "w": 10,
+          "h": 8
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        },
+        {
+          "label": "storage",
+          "count": 1,
+          "minSqft": 40,
+          "fixtures": [
+            "washer"
+          ],
+          "w": 8,
+          "h": 6
+        }
+      ],
+      "fixtures": [
+        "shampoo sink",
+        "toilet",
+        "sink"
+      ],
+      "hidden": [
+        "Hot-water capacity for shampoo bowls",
+        "Floor drains and hair traps",
+        "Ventilation for chemical services"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 2,
+        "parking": 2,
+        "accessibility": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Street-level storefront",
+        "On-site parking",
+        "Step-free / wheelchair access",
+        "Near transit"
+      ],
+      "priorUse": [
+        "salon",
+        "retail"
+      ]
+    },
+    "office": {
+      "label": "Office",
+      "rooms": [
+        {
+          "label": "open",
+          "count": 1,
+          "minSqft": 300,
+          "w": 20,
+          "h": 16
+        },
+        {
+          "label": "office",
+          "count": 2,
+          "minSqft": 100,
+          "w": 10,
+          "h": 10
+        },
+        {
+          "label": "conference",
+          "count": 1,
+          "minSqft": 150,
+          "w": 14,
+          "h": 12
+        },
+        {
+          "label": "kitchen",
+          "count": 1,
+          "minSqft": 60,
+          "fixtures": [
+            "sink"
+          ],
+          "w": 8,
+          "h": 8
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "sink",
+        "toilet"
+      ],
+      "hidden": [
+        "Data cabling and riser access",
+        "After-hours HVAC"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 2,
+        "parking": 1,
+        "accessibility": 1,
+        "moveIn": 1
+      },
+      "chips": [
+        "On-site parking",
+        "Step-free / wheelchair access",
+        "Near transit",
+        "Natural light"
+      ],
+      "priorUse": [
+        "office"
+      ]
+    },
+    "retail": {
+      "label": "Retail shop",
+      "rooms": [
+        {
+          "label": "open",
+          "count": 1,
+          "minSqft": 600,
+          "w": 28,
+          "h": 22
+        },
+        {
+          "label": "storage",
+          "count": 1,
+          "minSqft": 80,
+          "w": 10,
+          "h": 8
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "toilet"
+      ],
+      "hidden": [
+        "Storefront signage rights",
+        "Security and alarm wiring"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 1,
+        "parking": 2,
+        "accessibility": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Street-level storefront",
+        "On-site parking",
+        "Step-free / wheelchair access",
+        "Near transit"
+      ],
+      "priorUse": [
+        "retail",
+        "salon"
+      ]
+    },
+    "restaurant": {
+      "label": "Restaurant",
+      "rooms": [
+        {
+          "label": "dining",
+          "count": 1,
+          "minSqft": 600,
+          "w": 28,
+          "h": 22
+        },
+        {
+          "label": "kitchen",
+          "count": 1,
+          "minSqft": 300,
+          "fixtures": [
+            "hood",
+            "sink"
+          ],
+          "hard": true,
+          "w": 18,
+          "h": 16
+        },
+        {
+          "label": "bathroom",
+          "count": 2,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "hard": true,
+          "w": 7,
+          "h": 8
+        },
+        {
+          "label": "storage",
+          "count": 1,
+          "minSqft": 80,
+          "w": 10,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "hood",
+        "sink",
+        "toilet"
+      ],
+      "hidden": [
+        "Grease interceptor",
+        "Gas service size",
+        "Hood exhaust path to the roof",
+        "Wet sprinkler coverage"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 3,
+        "parking": 2,
+        "accessibility": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Patio / outdoor seating",
+        "On-site parking",
+        "Step-free / wheelchair access",
+        "Near transit"
+      ],
+      "priorUse": [
+        "restaurant"
+      ]
+    },
+    "fitness": {
+      "label": "Fitness studio",
+      "rooms": [
+        {
+          "label": "open",
+          "count": 1,
+          "minSqft": 800,
+          "w": 30,
+          "h": 26
+        },
+        {
+          "label": "bathroom",
+          "count": 2,
+          "minSqft": 60,
+          "fixtures": [
+            "toilet",
+            "shower"
+          ],
+          "w": 8,
+          "h": 8
+        },
+        {
+          "label": "reception",
+          "count": 1,
+          "minSqft": 80,
+          "w": 10,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "shower",
+        "toilet"
+      ],
+      "hidden": [
+        "Floor load and sound isolation",
+        "Added HVAC for exercise load"
+      ],
+      "critical": {
+        "size": 3,
+        "rooms": 2,
+        "parking": 2,
+        "accessibility": 1,
+        "moveIn": 1
+      },
+      "chips": [
+        "Showers",
+        "On-site parking",
+        "Ground floor",
+        "Step-free / wheelchair access"
+      ],
+      "priorUse": [
+        "fitness",
+        "warehouse",
+        "retail"
+      ]
+    },
+    "warehouse": {
+      "label": "Warehouse",
+      "rooms": [
+        {
+          "label": "open",
+          "count": 1,
+          "minSqft": 3000,
+          "w": 60,
+          "h": 50
+        },
+        {
+          "label": "office",
+          "count": 1,
+          "minSqft": 120,
+          "w": 12,
+          "h": 10
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "toilet"
+      ],
+      "hidden": [
+        "Electrical service (amps, volts, phase)",
+        "Sprinkler rating for storage height",
+        "Clear height"
+      ],
+      "critical": {
+        "size": 3,
+        "power": 3,
+        "bays": 3,
+        "sprinklers": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Heavy power",
+        "Drive-in doors",
+        "ESFR sprinklers",
+        "Truck court"
+      ],
+      "priorUse": [
+        "warehouse",
+        "manufacturing"
+      ]
+    },
+    "manufacturing": {
+      "label": "Light industrial",
+      "rooms": [
+        {
+          "label": "open",
+          "count": 1,
+          "minSqft": 2000,
+          "w": 50,
+          "h": 40
+        },
+        {
+          "label": "office",
+          "count": 1,
+          "minSqft": 120,
+          "w": 12,
+          "h": 10
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 45,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 7,
+          "h": 8
+        }
+      ],
+      "fixtures": [
+        "toilet"
+      ],
+      "hidden": [
+        "Three-phase power",
+        "Hazmat storage review",
+        "Floor slab rating"
+      ],
+      "critical": {
+        "size": 3,
+        "power": 3,
+        "bays": 2,
+        "sprinklers": 2,
+        "moveIn": 1
+      },
+      "chips": [
+        "Heavy power",
+        "Drive-in doors",
+        "ESFR sprinklers"
+      ],
+      "priorUse": [
+        "manufacturing",
+        "warehouse"
+      ]
+    },
+    "home": {
+      "label": "Home",
+      "rooms": [
+        {
+          "label": "bedroom",
+          "count": 2,
+          "minSqft": 100,
+          "w": 12,
+          "h": 11
+        },
+        {
+          "label": "bathroom",
+          "count": 1,
+          "minSqft": 40,
+          "fixtures": [
+            "toilet",
+            "sink"
+          ],
+          "w": 6,
+          "h": 8
+        },
+        {
+          "label": "kitchen",
+          "count": 1,
+          "minSqft": 80,
+          "fixtures": [
+            "sink"
+          ],
+          "w": 10,
+          "h": 9
+        },
+        {
+          "label": "living",
+          "count": 1,
+          "minSqft": 180,
+          "w": 16,
+          "h": 13
+        }
+      ],
+      "fixtures": [
+        "toilet",
+        "sink"
+      ],
+      "hidden": [
+        "Cooling system age",
+        "Laundry hookups"
+      ],
+      "critical": {
+        "beds": 3,
+        "size": 2,
+        "budget": 2,
+        "accessibility": 1,
+        "moveIn": 1
+      },
+      "chips": [
+        "In-unit laundry",
+        "Parking",
+        "Step-free / wheelchair access",
+        "Outdoor space"
+      ],
+      "priorUse": [
+        "home",
+        "apartment"
+      ]
+    }
+  }
+}

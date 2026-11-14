@@ -69,7 +69,7 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   const qty = "(\\d+|a|an|one|two|three|four|five|six|seven|eight)\\s+(?:[a-z]+\\s)?";
   for (const [re, label, hardByDefault] of ROOM_WORDS) {
     if (mode === "home" && (label === "bathroom" || label === "bedroom")) continue;
-    const m = t.match(new RegExp(`${qty}(${re.source})((?:\\s+with\\s+[a-z ]+?)?)(?=[,.;]|\\s+and\\b|$)`));
+    const m = t.match(new RegExp(`${qty}(${re.source})((?:\\s+with\\s+[a-z ]+?)?)(?=[,.;]|\\s|$)`));
     const bare = !m && label === "office" && mode === "home" && /home office/.test(t);
     if (!m && !bare) continue;
     const count = m ? num(m[1]) : 1;
@@ -81,7 +81,7 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   }
 
   const bays = t.match(/(\d+|a|one|two|three|four)\s+(?:grade-level\s+)?drive-?in\s+(?:doors?|bays?)/);
-  const stalls = t.match(/(\d+)\s+(?:parking\s+)?(?:spaces|stalls)/);
+  const stalls = t.match(/(\d+)\s+(?:parking\s+)?(?:spaces|stalls)/) ?? t.match(/parking for (\d+)/);
   if (/heavy power/.test(t)) spec.needs.heavyPower = true;
   if (/three-phase|3-phase|3 phase/.test(t)) spec.needs.threePhase = true;
   if (/esfr/.test(t)) spec.needs.esfr = true;

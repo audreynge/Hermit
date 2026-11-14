@@ -14,7 +14,8 @@ function resolve(from: string, spec: string): string | null {
 
 // Walks value imports (type-only imports are erased) from every client component.
 it("client components never pull in the database or node: modules", () => {
-  const clientFiles = fs.readdirSync(path.join(ROOT, "components")).map((f) => path.join(ROOT, "components", f))
+  const clientFiles = (fs.readdirSync(path.join(ROOT, "components"), { recursive: true }) as string[]).map((f) => path.join(ROOT, "components", f))
+    .filter((f) => f.endsWith(".tsx"))
     .filter((f) => fs.readFileSync(f, "utf8").startsWith('"use client"'));
   const bad: string[] = [];
   for (const entry of clientFiles) {
