@@ -40,7 +40,7 @@ server.registerTool("find_spaces", {
     const events: TraceEvent[] = [];
     const runId = newRunId();
     const reports = await runAgent(s, (e) => events.push(e), deps, { client: null, gemini: null, openai: null });
-    saveRun(runId, s, events);
+    await saveRun(runId, s, events);
     return json({ runId, replay: `/?replay=${runId}`, reports: reports.map(lean) });
   } catch (e) { return fail(e); }
 });
@@ -73,7 +73,7 @@ for (const name of Object.keys(ToolInputs) as ToolName[]) {
       r.seen = r.events.length;
       if (name === "submit_reports" && r.run.reports) {
         r.events.push({ type: "report", id: `rep_${runId}`, reports: r.run.reports });
-        saveRun(runId, r.run.spec, r.events);
+        await saveRun(runId, r.run.spec, r.events);
         return json({ runId, replay: `/?replay=${runId}`, reports: r.run.reports.map(lean) });
       }
       return json({ result, trace });

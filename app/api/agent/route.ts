@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         emit({ type: "error", id: "fatal", message: e instanceof Error ? e.message : String(e) });
       }
       try {
-        saveRun(runId, spec, events);
+        await saveRun(runId, spec, events);
       } catch {
         // read-only filesystem (e.g. serverless): replay of this run is unavailable
       }
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const asked = new URL(req.url).searchParams.get("replay") ?? "";
-  const run = loadRun(asked) ?? (asked === "demo" || asked === "latest" ? loadRun(listRuns()[0]?.id ?? "") : null);
+  const run = await loadRun(asked) ?? (asked === "demo" || asked === "latest" ? await loadRun((await listRuns())[0]?.id ?? "") : null);
   if (!run) return Response.json({ error: "unknown run" }, { status: 404 });
   const stream = new ReadableStream({
     async start(controller) {

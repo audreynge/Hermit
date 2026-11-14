@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function ShellPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ run?: string }> }) {
   const { id } = await params;
   const { run: runId } = await searchParams;
-  const run = loadRun(runId ?? "");
+  const run = await loadRun(runId ?? "");
   const report = run?.events.flatMap((e) => (e.type === "report" ? e.reports : [])).find((r) => r.shellId === id);
   if (!run || !report) return <p>Report not found. It may have come from a run on another server. <Link href="/">Start a search</Link>.</p>;
   return (

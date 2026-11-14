@@ -40,7 +40,7 @@ Write short plain-language notes. For every rule, say which page it came from.`;
 
 export async function researchRegulations(q: RegQuery, client?: Client | null): Promise<{ findings: Finding[]; fromCache: boolean }> {
   const key = `regs:${q.city}:${q.useType.toLowerCase().trim().replace(/\s+/g, " ")}`;
-  const cached = getCached<Finding[]>(key);
+  const cached = await getCached<Finding[]>(key);
   if (cached) return { findings: cached, fromCache: true };
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
   if (!c) return { findings: screeningFindings(q), fromCache: false };
@@ -74,7 +74,7 @@ export async function researchRegulations(q: RegQuery, client?: Client | null): 
       .map((f) => ({ ...f, retrievedAt: today() }));
     // Every finding can fail the citation gate; show the screening rules then, and retry research next time.
     if (!findings.length) return { findings: screeningFindings(q), fromCache: false };
-    putCached(key, findings, 30);
+    await putCached(key, findings, 30);
     return { findings, fromCache: false };
   } catch {
     return { findings: screeningFindings(q), fromCache: false };
