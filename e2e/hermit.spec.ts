@@ -528,8 +528,8 @@ test.describe("dream layout", () => {
     await expect(page.locator(".similar")).toContainText("scaled to 125%");
 
     await matches.first().click();
-    const dialog = page.getByRole("dialog").filter({ hasText: "layout similarity" });
-    await expect(dialog).toContainText("layout similarity");
+    const dialog = page.getByRole("dialog").filter({ hasText: "Your design" });
+    await expect(dialog).toContainText("Your design");
     await expect(dialog.getByRole("img", { name: /Matched scan .* in 3D/ })).toBeVisible();
     await axe(page);
     await page.keyboard.press("Escape");
