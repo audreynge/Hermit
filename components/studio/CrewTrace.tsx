@@ -1,5 +1,5 @@
 "use client";
-import { Accessibility, ClipboardCheck, Handshake, HardHat, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
+import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
 import { useSettings } from "@/lib/client/settings";
 import type { TraceEvent } from "@/lib/types";
 import { plain } from "./Counter";
@@ -13,6 +13,8 @@ export const CREW: Record<string, { name: string; role: string; Icon: typeof Sea
   systems: { name: "Systems", role: "power and AC", Icon: Zap },
   estimator: { name: "Estimator", role: "contractor", Icon: HardHat },
   advocate: { name: "Advocate", role: "your negotiator", Icon: Handshake },
+  skeptic: { name: "Skeptic", role: "devil's advocate", Icon: MessageCircleWarning },
+  scout2: { name: "Neighborhood scout", role: "reads the area", Icon: MapIcon },
   hermit: { name: "Hermit", role: "crew captain", Icon: Sparkles },
 };
 const TOOL_AGENT: Record<string, string> = { search_shells: "scout", screen_sites: "code", evaluate_candidates: "inspector", inspect_view: "inspector", drop_candidate: "hermit", submit_reports: "advocate" };
@@ -43,7 +45,7 @@ function friendlyRows(events: TraceEvent[], names: Map<string, string>, useLabel
       case "funnel": {
         const first = e.stages[0]?.count ?? 0, last = e.stages.at(-1)?.count ?? 0;
         const city = e.stages.find((s) => s.key === "city")?.label.replace(/^in /, "") ?? "town";
-        out.push({ id: e.id, agent: "scout", kind: "work", text: `Scuttled across all ${first.toLocaleString()} shells on the beach and sniffed out ${last.toLocaleString()} in ${city} that already feel like a ${useLabel}.` });
+        out.push({ id: e.id, agent: "scout", kind: "work", text: `Scuttled across all ${first.toLocaleString()} shells on the beach and sniffed out ${last.toLocaleString()} in ${city} that already feel like ${/^[aeiou]/i.test(useLabel) ? "an" : "a"} ${useLabel}.` });
         break;
       }
       case "tool": {
@@ -68,9 +70,15 @@ function friendlyRows(events: TraceEvent[], names: Map<string, string>, useLabel
         out.push({ id: e.id, agent: "inspector", kind: "look", text: `Pressed my eye-stalks to the glass at ${name}: ${e.question.replace(/\?$/, "")}?`, detail: seen });
         break;
       }
+      case "areas":
+        out.push({ id: e.id, agent: "scout2", kind: "work", text: `Sniffed the tide around town. The best water for you: ${e.areas.map((a) => `${a.zip} (${a.spaces} shell${a.spaces > 1 ? "s" : ""})`).join(", ")}.`, detail: e.areas[0]?.why });
+        break;
+      case "challenge":
+        out.push({ id: e.id, agent: "skeptic", kind: e.outcome === "swapped" ? "swap" : "look", text: `Wait a second! Before we fall for ${e.name}: ${e.concerns.join(" ")}`, detail: e.outcome === "swapped" ? `Convinced the crew. ${e.detail}` : `The crew heard me out. ${e.detail}` });
+        break;
       case "rerank": {
         const top = e.reason.match(/\. (.+?) takes the top spot/)?.[1] ?? e.reason.match(/After walking the scans, (.+?) outscored/)?.[1];
-        out.push({ id: e.id, agent: "hermit", kind: "swap", text: /vetoed|dropped/.test(e.reason) ? `Plot twist! The Scout's favorite didn't make it, so ${top ?? "a new shell"} takes the crown.` : `After crawling inside, ${top ?? "a new shell"} edged out the Scout's first pick.` });
+        out.push({ id: e.id, agent: "hermit", kind: "swap", text: /vetoed|dropped|Skeptic flagged/.test(e.reason) ? `Plot twist! The Scout's favorite didn't make it, so ${top ?? "a new shell"} takes the crown.` : `After crawling inside, ${top ?? "a new shell"} edged out the Scout's first pick.` });
         break;
       }
     }
@@ -93,6 +101,8 @@ function techRows(events: TraceEvent[], names: Map<string, string>): Row[] {
       case "drop": out.push({ id: e.id, agent: "hermit", kind: "veto", text: `Dropped ${names.get(e.shellId) ?? e.shellId}`, detail: e.reason }); break;
       case "escalate": out.push({ id: e.id, agent: "inspector", kind: "look", text: `inspect_view ${e.shellId}: ${e.question}`, detail: e.outcome }); break;
       case "rerank": out.push({ id: e.id, agent: "hermit", kind: "swap", text: "Top pick changed", detail: e.reason }); break;
+      case "areas": out.push({ id: e.id, agent: "scout2", kind: "work", text: `Areas ranked: ${e.areas.map((a) => a.zip).join(", ")}`, detail: e.areas.map((a) => `${a.zip}: ${a.why}`).join(" | ") }); break;
+      case "challenge": out.push({ id: e.id, agent: "skeptic", kind: "look", text: `Challenge ${e.shellId} → ${e.outcome}`, detail: `${e.concerns.join(" | ")} :: ${e.detail}` }); break;
       case "error": out.push({ id: e.id, agent: "hermit", kind: "error", text: e.message }); break;
     }
   }

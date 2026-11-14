@@ -1,6 +1,6 @@
 "use client";
 import { RotateCcw, Sparkles } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { IState, ITurn } from "@/lib/interview/turn";
@@ -29,6 +29,8 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export function Hermit() {
   const params = useSearchParams();
   const replay = params.get("replay");
+  const firstQ = params.get("q");
+  const router = useRouter();
   const [iv, setIv] = useState<IState>({ spec: EMPTY, asked: [], history: [] });
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [stages, setStages] = useState<FunnelStage[]>([]);
@@ -102,6 +104,14 @@ export function Hermit() {
       void runSearch({ ...EMPTY, city: "houston", useType: "space" } as RequirementSpec, replay);
       return;
     }
+    if (firstQ) {
+      // Started from the hero: a fresh search, and the typed request is the first answer.
+      save(KEYS.chat, null);
+      setMessages([{ id: uid(), role: "user", text: firstQ }]);
+      void ask({ spec: EMPTY, asked: [], history: [{ role: "hermit", text: "What are you opening, or looking for?" }] }, firstQ);
+      router.replace("/studio");
+      return;
+    }
     const p = load<Persist>(KEYS.chat);
     if (p?.iv?.spec && p.messages?.length) {
       setIv(p.iv); setMessages(p.messages); setLayout(p.layout ?? []); setFurniture(p.furniture ?? []); setReady(p.ready); setBasics(p.basics); setReports(p.reports); setEvents(p.events); setRunId(p.runId);
@@ -109,7 +119,7 @@ export function Hermit() {
       return;
     }
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
-  }, [replay, runSearch, recount, ask]);
+  }, [replay, runSearch, recount, ask, firstQ, router]);
 
   useEffect(() => {
     if (!started.current || replay || !messages.length) return;
@@ -197,7 +207,7 @@ export function Hermit() {
           {searched && (
             <>
               <div className="postcards" aria-label="Shells picked for you">
-                {reports.map((r) => <Postcard key={r.shellId} report={r} onOpen={() => setOpen(r)} />)}
+                {reports.map((r) => <Postcard key={r.shellId} report={r} onOpen={() => (runId ? router.push(`/shell/${r.shellId}?run=${runId}&tab=inside`) : setOpen(r))} />)}
                 {!running && !reports.length && <p className="card pad">No shell passed every check. Try relaxing a requirement in the chat.</p>}
               </div>
               <CrewTrace events={events} running={running} useLabel={pack.label.toLowerCase()} />

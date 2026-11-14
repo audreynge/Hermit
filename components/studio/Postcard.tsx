@@ -34,6 +34,8 @@ export function Postcard({ report, onOpen, vetoedBy }: { report: ShellReport; on
           <ScoreRing value={report.matchScore} />
         </div>
         <p className="postcard-verdict"><strong>{report.verdict}.</strong> {built} of {report.fit.assignment.length} rooms already built · {report.work.length ? `${report.work.length} work items` : "no build-out found"} · <span className="num">{report.weeksToOpen[0]}–{report.weeksToOpen[1]}</span> weeks to open</p>
+        {report.conflicts?.[0] && <p className="postcard-flag" role="note">Heads up: {report.conflicts[0].name} ({report.conflicts[0].what}) is {report.conflicts[0].where}. Possible exclusive.</p>}
+        {(report.buildout ?? []).some((b) => b.status !== "seen") && <p className="chips-line">{(report.buildout ?? []).filter((b) => b.status !== "seen").slice(0, 3).map((b) => <span key={b.item} className="chip-unv">{b.item}: unverified</span>)}</p>}
         {vetoedBy && <p className="postcard-veto">{vetoedBy}</p>}
         <button type="button" className="btn primary" onClick={onOpen}>Step inside</button>
       </div>

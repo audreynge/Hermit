@@ -1,6 +1,9 @@
 import type { Verdict } from "../crew";
 import { useCategory } from "../reason/rules";
 import { triangulate } from "../reason/triangulate";
+import { buildoutCheck } from "../reason/buildout";
+import { exclusiveScan } from "../reason/exclusive";
+import type { SiteFile } from "../neighborhood/types";
 import { packFor } from "../uses/packs";
 import { sqftOf } from "../query/shells";
 import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, WorkItem } from "../types";
@@ -81,8 +84,10 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
 
 export const total = (lines: ScoreLine[]) => Math.max(0, Math.min(100, lines.reduce((s, l) => s + l.earned, 0)));
 
-export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number): ShellReport {
+export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, site: SiteFile | null = null): ShellReport {
   const { shell, graph, fit, rules, work } = e;
+  const buildout = buildoutCheck(spec.useType, graph);
+  const exclusive = exclusiveScan(site, spec.useType);
   const pack = packFor(spec);
   const sources: Evidence[] = [
     ...(shell.propertyId ? [{ source: "costar", ref: `property ${shell.propertyId}`, confidence: 0.9 }] : []),
@@ -97,6 +102,9 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
   for (const v of e.verdicts) for (const q of v.questions) unknowns.push({ topic: v.agent, question: q });
   for (const x of e.escalations) if (/unresolved|not observed/i.test(x.outcome)) unknowns.push({ topic: "scan detail", question: x.question });
   for (const h of pack.hidden) if (!unknowns.some((u) => u.question.startsWith(h))) unknowns.push({ topic: "behind the walls", question: `${h}: what's in place today?` });
+  for (const b of buildout) if (b.status !== "seen") unknowns.unshift({ topic: "unverified build-out", question: b.question });
+  for (const c of exclusive.conflicts.slice(0, 2)) unknowns.unshift({ topic: "competitor nearby", question: `${c.name} (${c.what}) is ${c.where}. Does it have an exclusive that would block my use?` });
+  if (exclusive.question) unknowns.unshift({ topic: "exclusive use", question: exclusive.question });
   const seen = new Set<string>();
   const dedup = unknowns.filter((u) => (seen.has(u.question) ? false : (seen.add(u.question), true)));
 
@@ -127,6 +135,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number):
     floorplan: graph ?? undefined,
     draftMessage, badge: graph ? "scan-verified" : "record-only", sources, listing: shell.listing,
     score: e.lines, crew: e.verdicts, triangulation: triangulate(spec, shell, graph), defurnished: shell.defurnished,
+    buildout, conflicts: exclusive.conflicts,
   };
 }
 

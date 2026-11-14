@@ -6,10 +6,14 @@ import { IMPLIED_FIXTURES } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
 import { seedRooms } from "../uses/packs";
+import { concerns, weight } from "../crew/skeptic";
+import { competitorCount, transitCount } from "../neighborhood/summarize";
+import { useCategory } from "../reason/rules";
+import type { SiteFile } from "../neighborhood/types";
 import type { Evidence, RequirementSpec, RoomGraph, Shell, ShellReport, TraceEvent } from "../types";
 import { buildReport, displayName, scoreLines, total, type Evaluation } from "./report";
 
-export type AgentDeps = { shells: () => Shell[]; graph: (sid: string) => RoomGraph | null };
+export type AgentDeps = { shells: () => Shell[]; graph: (sid: string) => RoomGraph | null; site?: (sid: string) => SiteFile | null };
 export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000 };
 
 let seq = 0;
@@ -48,6 +52,7 @@ export class Run {
   dropped = new Set<string>();
   consulted = new Set<AgentId>();
   vetoes = new Map<string, Verdict>();
+  swappedFrom: string | null = null;
   reports: ShellReport[] | null = null;
   spec: RequirementSpec;
 
@@ -88,11 +93,31 @@ export class Run {
     const out = searchShells(this.spec, this.deps.shells());
     this.candidates = out.results;
     this.emit({ type: "funnel", id: rid("ev"), stages: out.stages });
+    this.scoutAreas(out.results.map((c) => c.shell));
     const pathText = out.stages.map((s) => `${s.count.toLocaleString()} ${s.label}`).join(" → ");
     return {
       result: { stages: out.stages.map((s) => ({ label: s.label, count: s.count })), top: out.results.slice(0, 20).map((c) => ({ id: c.shell.id, name: displayName(c.shell.name), score: c.score, reasons: c.reasons.slice(0, 3), scan: !!c.shell.sid })) },
       summary: `${pathText}; top ${out.results.length} kept`,
     };
+  }
+
+  // Neighborhood scout: before any building is picked, which ZIP codes in the pool suit a walk-in business.
+  private scoutAreas(shells: Shell[]) {
+    if (!this.deps.site) return;
+    const use = useCategory(this.spec.useType);
+    const byZip = new Map<string, { spaces: number; transit: number; traffic: number; rivals: number }>();
+    for (const s of shells) {
+      const zip = s.address.match(/\b(77\d{3}|9[01]\d{3})\b/)?.[1];
+      const site = s.sid ? this.deps.site(s.sid) : null;
+      if (!zip || !site) continue;
+      const z = byZip.get(zip) ?? { spaces: 0, transit: 0, traffic: 0, rivals: 0 };
+      z.spaces++; z.transit += transitCount(site) ?? 0; z.traffic = Math.max(z.traffic, site.traffic?.aadt ?? 0); z.rivals += competitorCount(site, use) ?? 0;
+      byZip.set(zip, z);
+    }
+    const ranked = [...byZip].map(([zip, z]) => ({ zip, z, score: z.transit / z.spaces + z.traffic / 15000 - (z.rivals / z.spaces) / 6 + Math.min(2, z.spaces / 3) }))
+      .sort((a, b) => b.score - a.score).slice(0, 3);
+    if (ranked.length < 2) return;
+    this.emit({ type: "areas", id: rid("ev"), areas: ranked.map(({ zip, z }) => ({ zip, spaces: z.spaces, why: [z.transit ? `${Math.round(z.transit / z.spaces)} transit stops per space` : "few transit stops", z.traffic ? `up to ${Math.round(z.traffic / 1000)}k cars a day` : null, `${Math.round(z.rivals / z.spaces)} competitor${Math.round(z.rivals / z.spaces) === 1 ? "" : "s"} nearby on average`].filter(Boolean).join(", ") })) });
   }
 
   private shell(id: string) {
@@ -234,6 +259,35 @@ export class Run {
     this.emit({ type: "drop", id: rid("ev"), shellId: id, reason, evidence });
   }
 
+  // The Skeptic argues against the top pick. It keeps the spot only if the runner-up isn't clearly less risky.
+  private skeptic(chosen: string[]) {
+    if (!chosen.length) return;
+    const site = (id: string) => { const sid = this.evaluated.get(id)!.shell.sid; return sid && this.deps.site ? this.deps.site(sid) : null; };
+    const top = this.evaluated.get(chosen[0])!;
+    const mine = concerns(this.spec, top, site(chosen[0]));
+    if (!mine.length) return;
+    for (const c of mine) top.lines.push({ factor: "Skeptic's concern", earned: -c.weight, max: 0, note: c.text, source: c.source });
+    top.finalScore = total(top.lines);
+    const killer = (c: typeof mine) => c.some((x) => x.weight >= 3);
+    // A deal-killer (a possible exclusive next door) hands the top spot to the best finalist without one, if it's
+    // close on score; otherwise the runner-up must be clearly less risky overall.
+    const others = chosen.slice(1).map((id) => ({ id, e: this.evaluated.get(id)!, c: concerns(this.spec, this.evaluated.get(id)!, site(id)) }));
+    const clean = killer(mine) ? others.find((o) => !killer(o.c) && o.e.finalScore >= top.finalScore - 10) : undefined;
+    const second = others[0];
+    const alt = clean ?? (second && weight(mine) >= 3 && weight(second.c) + 2 <= weight(mine) && second.e.finalScore >= top.finalScore - 6 ? second : undefined);
+    if (alt) {
+      this.swappedFrom = top.shell.id;
+      for (const c of alt.c) alt.e.lines.push({ factor: "Skeptic's concern", earned: -c.weight, max: 0, note: c.text, source: c.source });
+      alt.e.finalScore = total(alt.e.lines);
+      chosen.splice(chosen.indexOf(alt.id), 1);
+      chosen.unshift(alt.id);
+    }
+    const name = displayName(top.shell.name);
+    this.emit({ type: "challenge", id: rid("ev"), shellId: top.shell.id, name, concerns: mine.map((c) => c.text), outcome: alt ? "swapped" : "survived",
+      detail: alt ? `${displayName(alt.e.shell.name)} has ${clean ? "no competitor on its block" : "fewer red flags"}, so it moves to the top.`
+        : second ? `${name} still wins: ${second.c.length ? `the alternatives have their own problems (${second.c[0].text.toLowerCase()})` : "its strengths outweigh these"}.` : `${name} is the only finalist.` });
+  }
+
   private submit(ids: string[]) {
     // Guardrail: a specialist with veto power that the user's needs call for reviews every finalist, whatever the planner chose.
     for (const agent of ["code", "access"] as const) {
@@ -251,12 +305,16 @@ export class Run {
       const e = this.evaluated.get(id)!;
       for (const a of ["estimator", "advocate"] as const) if (!e.verdicts.some((v) => v.agent === a)) e.verdicts.push(consult(a, this.spec, e));
     }
-    this.reports = chosen.map((id, i) => buildReport(this.spec, this.evaluated.get(id)!, i + 1));
+    this.skeptic(chosen);
+    this.reports = chosen.map((id, i) => { const e = this.evaluated.get(id)!; return buildReport(this.spec, e, i + 1, e.shell.sid && this.deps.site ? this.deps.site(e.shell.sid) : null); });
     const first = this.candidates[0];
     if (first && chosen[0] && chosen[0] !== first.shell.id) {
       const veto = this.vetoes.get(first.shell.id);
       const top = displayName(this.evaluated.get(chosen[0])!.shell.name), scout = displayName(first.shell.name);
-      this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: veto
+      const skeptic = this.swappedFrom === first.shell.id;
+      this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: skeptic
+        ? `The Skeptic flagged a possible exclusive conflict at the Scout's first pick, ${scout}. ${top} takes the top spot.`
+        : veto
         ? `${AGENTS[veto.agent].name} vetoed the Scout's first pick, ${scout} (${veto.headline.charAt(0).toLowerCase()}${veto.headline.slice(1)}). ${top} takes the top spot.`
         : this.dropped.has(first.shell.id) ? `The Scout's first pick, ${scout}, was dropped. ${top} takes the top spot.`
         : `After walking the scans, ${top} outscored the Scout's first pick, ${scout}.` });

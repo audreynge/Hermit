@@ -312,3 +312,4 @@ header.top { justify-content: space-between; }
 @media (max-width: 560px) { .guide-crab { width: 54px; } .guide-bubble { font-size: 14px; } }
 .postcard-rank { background: #14213d; color: #fff; }
 .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--ink); color: var(--card); }
+.crab .hat[data-agent="skeptic"] { background: #9d174d; } .crab .hat[data-agent="advocate"] { background: #155e75; }

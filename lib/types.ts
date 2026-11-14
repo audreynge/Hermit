@@ -48,6 +48,8 @@ export const RequirementSpec = z.object({
   tiPerSqft: z.number().nonnegative().optional(),
   freeRentMonths: z.number().nonnegative().optional(),
   transaction: z.enum(["lease", "buy"]).optional(),
+  avgPrice: z.number().positive().optional(),
+  daysOpen: z.number().min(1).max(7).optional(),
   preferences: z.array(z.string()).optional(),
   input: z.enum(["voice", "text", "layout", "survey", "chat"]),
   rawText: z.string().optional(),
@@ -201,6 +203,8 @@ export type ShellReport = {
   crew: CrewVerdict[];
   triangulation: TriRow[];
   defurnished?: boolean;
+  buildout?: { item: string; status: "seen" | "mentioned" | "unverified"; evidence: string; question: string }[];
+  conflicts?: { name: string; what: string; meters: number; where: string }[];
 };
 
 export type TraceEvent =
@@ -215,6 +219,8 @@ export type TraceEvent =
   | { type: "verdict"; id: string; verdict: CrewVerdict }
   | { type: "veto"; id: string; agent: string; shellId: string; name: string; reason: string; evidence: Evidence[] }
   | { type: "tradeoff"; id: string; relax: string; gain: number; detail: string }
+  | { type: "areas"; id: string; areas: { zip: string; spaces: number; why: string }[] }
+  | { type: "challenge"; id: string; shellId: string; name: string; concerns: string[]; outcome: "survived" | "swapped"; detail: string }
   | { type: "report"; id: string; reports: ShellReport[] }
   | { type: "error"; id: string; message: string }
   | { type: "done"; id: string; ms: number; toolCalls: number; planner: "claude" | "gemini" | "deterministic" | "replay" };

@@ -1,6 +1,7 @@
 // Run one search against the local bundle and print the trace. Usage: npx tsx --env-file=.env scripts/try.ts ["spoken request"] [--det]
 import { runAgent } from "../lib/agent/loop";
 import { loadRoomGraph, loadShells } from "../lib/query/load";
+import { loadSite } from "../lib/neighborhood/load";
 import { parseText } from "../lib/spec/parse";
 import type { TraceEvent } from "../lib/types";
 
@@ -21,4 +22,4 @@ const show = (e: TraceEvent) => {
   } })();
   if (s) console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${e.type.padEnd(8)} ${s}`);
 };
-runAgent(spec, show, { shells: loadShells, graph: loadRoomGraph }, process.argv.includes("--det") ? { client: null, gemini: false } : {});
+runAgent(spec, show, { shells: loadShells, graph: loadRoomGraph, site: loadSite }, process.argv.includes("--det") ? { client: null, gemini: false } : {});
