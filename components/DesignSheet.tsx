@@ -9,7 +9,8 @@ export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>("button")?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    // Escape closes only the topmost dialog: leave it to a pop-up opened from inside the sheet.
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && document.querySelectorAll('[role="dialog"]').length < 2) onClose(); };
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus(); };
   }, [onClose]);

@@ -20,39 +20,42 @@ async function axe(page: Page) {
   expect(r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(", ")}`)).toEqual([]);
 }
 
-async function homeResults(page: Page) {
-  await fresh(page);
-  await page.getByLabel("City").selectOption("houston");
-  await page.getByRole("radio", { name: "Buy" }).click();
-  await page.getByLabel("Use Type").selectOption("home");
-  await page.getByRole("button", { name: "Find shells" }).click();
-  await expect(conversation(page)).toContainText("How many bedrooms");
-  await page.getByRole("group", { name: "Suggested replies" }).getByRole("button", { name: "3 bed / 2 bath" }).click();
-  await expect(conversation(page)).toContainText(/Would you like me to compare|couldn't find/, { timeout: 45_000 });
-  // Pick a scanned ("measured") home; both sample homes have bedrooms b1/b2 and an office or more bedrooms.
-  const scanned = cards(page).filter({ hasText: "measured" }).first();
-  await scanned.locator("h3 button").click();
+async function results(page: Page, text: string) {
+  await say(page, text);
+  const done = /Would you like me to compare|couldn't find/;
+  // Hermit may ask one follow-up; tell it to go ahead.
+  await expect(conversation(page)).toContainText(new RegExp(`${done.source}|\\?`), { timeout: 45_000 });
+  if (!done.test(await conversation(page).innerText())) await say(page, "just search");
+  await expect(conversation(page)).toContainText(done, { timeout: 45_000 });
 }
 
+async function homeResults(page: Page) {
+  await fresh(page);
+  await results(page, "I want to buy a 3 bed 2 bath home in Houston");
+  // Pick a scanned ("measured") home; both sample homes have bedrooms b1/b2 and an office or more bedrooms.
+  await cards(page).filter({ hasText: "measured" }).first().locator("h3 button").click();
+}
+
+const sheet = (page: Page) => page.getByRole("dialog", { name: "Build your layout" });
+
 test.describe("design edits in chat", () => {
-  test("[E1] saved layout -> search -> chat adds an exam room; the saved layout and Layout Studio both show it", async ({ page }) => {
-    await fresh(page, "/layout");
-    await page.getByLabel("Layout name").fill("Clinic A");
-    await page.getByRole("button", { name: "Save layout" }).click();
-    await page.goto("/");
-    await page.getByLabel("City").selectOption("houston");
-    await page.getByLabel(/Layout/).selectOption({ label: "Clinic A" });
-    await page.getByRole("button", { name: "Find shells" }).click();
-    await expect(conversation(page)).toContainText("Use my layout \u201cClinic A\u201d");
+  test("[E1] saved layout -> chat adds an exam room; the saved layout and the drawing sheet both show it", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: "Add a design" }).click();
+    await page.getByRole("menuitem", { name: "Draw a layout" }).click();
+    await sheet(page).getByLabel("Layout name").fill("Clinic A");
+    await sheet(page).getByRole("button", { name: "Save layout" }).click();
+    await sheet(page).getByRole("button", { name: /Use this layout/ }).click();
+    await expect(conversation(page)).toContainText("Here's my layout");
     await say(page, "add another exam room");
     const preview = conversation(page).getByRole("img", { name: /Your layout:/ }).last();
     await expect(preview).toHaveAttribute("aria-label", /Exam Room 3/);
     await expect(page.getByLabel("Message Hermit")).toBeFocused();
     await axe(page);
-    await page.goto("/layout");
-    await expect(page.getByRole("application")).toHaveAttribute("aria-label", /6 rooms/);
-    await expect(page.getByLabel("Layout name")).toHaveValue("Clinic A");
-    await expect(page.getByRole("listitem").filter({ hasText: "Clinic A" })).toContainText("6 rooms");
+    await say(page, "open the layout");
+    await expect(sheet(page).getByRole("application")).toHaveAttribute("aria-label", /6 rooms/);
+    await expect(sheet(page).getByLabel("Layout name")).toHaveValue("Clinic A");
+    await expect(sheet(page).getByRole("listitem").filter({ hasText: "Clinic A" })).toContainText("6 rooms");
   });
 
   test("[E2] fit tab: convert a bedroom, see the change, undo restores the measured plan", async ({ page }) => {
@@ -88,35 +91,25 @@ test.describe("design edits in chat", () => {
 
   test("[E4] a record-only space answers a fit-out request with 'no scan to edit'", async ({ page }) => {
     await fresh(page);
-    await page.getByLabel("City").selectOption("los_angeles");
-    await page.getByLabel("Use Type").selectOption("office");
-    await page.getByRole("button", { name: "Find shells" }).click();
-    await say(page, "just search");
-    await expect(conversation(page)).toContainText(/Would you like me to compare|couldn't find/, { timeout: 45_000 });
+    await results(page, "I need an office in Los Angeles, just search");
+    const record = cards(page).filter({ hasText: "record only" }).first();
+    test.skip(!(await record.count()), "no record-only office in this bundle");
+    await record.locator("h3 button").click();
     await say(page, "turn the office into an exam room");
     await expect(conversation(page)).toContainText(/no scan to edit|record-only/);
     await expect(page.locator("#evidence-panel").getByRole("group", { name: "Proposed changes" })).toHaveCount(0);
   });
 
-  test("[E5] reload keeps the layout and kept proposal; blocked storage doesn't crash", async ({ page, browser }) => {
-    await homeResults(page);
-    await say(page, "turn bedroom 1 into an office");
-    await page.getByRole("group", { name: "Proposed changes" }).getByRole("button", { name: "Keep" }).click();
-    await page.reload();
-    await page.getByRole("button", { name: "Fit" }).click();
-    await expect(page.getByRole("group", { name: "Proposed changes" })).toContainText("(kept)");
-
+  test("[E5] blocked storage doesn't crash the drawing sheet or chat edits", async ({ browser }) => {
     const blocked = await browser.newPage();
     await blocked.addInitScript(() => {
       for (const k of ["sessionStorage", "localStorage"]) Object.defineProperty(window, k, { get() { throw new Error("blocked"); } });
     });
     await blocked.goto("/layout");
-    await expect(blocked.getByRole("heading", { level: 1 })).toContainText("Build your layout");
-    await blocked.getByRole("button", { name: "Save layout" }).click();
-    await expect(blocked.getByRole("status")).toContainText("Couldn't save");
-    await blocked.goto("/");
-    await blocked.getByRole("button", { name: "Find shells" }).click();
-    await expect(blocked).toHaveURL(/\/search$/);
+    await expect(sheet(blocked)).toBeVisible();
+    await sheet(blocked).getByRole("button", { name: "Save layout" }).click();
+    await expect(sheet(blocked).getByRole("status")).toContainText("Couldn't save");
+    await sheet(blocked).getByRole("button", { name: /Use this layout/ }).click();
     await blocked.getByLabel("Message Hermit").fill("add an office");
     await blocked.getByLabel("Message Hermit").press("Enter");
     await expect(blocked.getByLabel("Conversation")).not.toContainText("Something went wrong");

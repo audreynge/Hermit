@@ -364,13 +364,14 @@ test.describe("layout studio navigation", () => {
     await expect.poll(pct).toBeLessThan(50);
 
     // Drag on empty space pans.
-    await page.getByRole("button", { name: "Fit" }).click();
+    await page.getByRole("dialog", { name: "Build your layout" }).getByRole("button", { name: "Fit", exact: true }).click();
     const [fx] = await vb();
     await page.locator(".canvas").evaluate((el) => el.scrollIntoView({ block: "center" }));
     const c = (await page.locator(".canvas").boundingBox())!; // clicking Fit may have scrolled the page
-    await page.mouse.move(c.x + 12, c.y + 12);
+    // Middle of the left edge: Fit leaves a margin there, and it's clear of the sheet's header.
+    await page.mouse.move(c.x + 12, c.y + c.height / 2);
     await page.mouse.down();
-    await page.mouse.move(c.x + 112, c.y + 12, { steps: 5 });
+    await page.mouse.move(c.x + 112, c.y + c.height / 2, { steps: 5 });
     await page.mouse.up();
     await expect.poll(async () => (await vb())[0]).toBeLessThan(fx);
 
@@ -527,11 +528,12 @@ test.describe("dream layout", () => {
     await expect(page.locator(".similar")).toContainText("scaled to 125%");
 
     await matches.first().click();
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog").filter({ hasText: "layout similarity" });
     await expect(dialog).toContainText("layout similarity");
     await expect(dialog.getByRole("img", { name: /Matched scan .* in 3D/ })).toBeVisible();
     await axe(page);
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Build your layout" })).toBeVisible();
   });
 });

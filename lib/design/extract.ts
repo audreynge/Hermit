@@ -40,7 +40,7 @@ export function designToDraft(x: FloorPlanExtraction | Block[], base: Draft): Dr
   if (Array.isArray(x)) {
     const useType = base.useType || inferUse(x.filter((b) => b.kind !== "object").map((b) => b.label), "");
     const s = fromLayout(x, { mode: base.mode, city: base.city ?? "houston", useType });
-    return { ...base, useType, rooms: s.rooms, sizeSqft: s.sizeSqft, input: "layout" };
+    return { ...base, useType, rooms: s.rooms, sizeSqft: s.sizeSqft, layout: s.layout, input: "layout" };
   }
   const rooms: RoomReq[] = x.rooms.filter((r) => r.label.trim()).map((r) => ({
     label: r.label.toLowerCase(), count: Math.max(1, Math.round(r.count)), hard: false,
