@@ -7,10 +7,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatState, Turn } from "@/lib/chat/converse";
 import { compareRows, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "@/lib/chat/present";
+import { loadLayouts, putLayout } from "@/lib/client/layouts";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
 import type { Block } from "@/lib/spec/parse";
-import { surveyToSpec, type Draft, type Survey } from "@/lib/spec/survey";
+import { layoutSummary, surveyToSpec, withLayout, type Draft, type Survey } from "@/lib/spec/survey";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Aerial } from "./Aerial";
 import { EmailDraft } from "./EmailDraft";
@@ -37,7 +38,7 @@ const COMMANDS = { search: /^search with this$/i, undo: /^undo( (that|it|the las
 type Saved = Record<string, { report: ShellReport; spec: RequirementSpec; savedAt: string }>;
 type Persist = {
   messages: Msg[]; chat: ChatState; spec: RequirementSpec | null; reports: ShellReport[]; events: TraceEvent[]; runId: string | null;
-  layout?: Block[] | null; layoutPast?: Block[][]; fitouts?: Record<string, Fitout[]>; lastEdit?: "layout" | "fitout" | null;
+  layout?: Block[] | null; layoutId?: string | null; layoutPast?: Block[][]; fitouts?: Record<string, Fitout[]>; lastEdit?: "layout" | "fitout" | null;
 };
 
 const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bolt: Zap, flame: Flame, car: Car, accessible: Accessibility, tag: Tag, ruler: Ruler, layout: LayoutGrid, dollar: DollarSign, x: CircleX, eye: Eye, sort: ArrowUpDown, doc: FileText };
@@ -75,7 +76,14 @@ export function SearchChat() {
   const [runKey, setRunKey] = useState("");
   const [resultsReady, setResultsReady] = useState(false);
   const [layout, setLayout] = useState<Block[] | null>(null);
+  const [layoutId, setLayoutId] = useState<string | null>(null);
   const [layoutPast, setLayoutPast] = useState<Block[][]>([]);
+  // Chat edits write back to the saved layout, so Layout Studio and the next search see them.
+  const storeLayout = useCallback((blocks: Block[]) => {
+    save(KEYS.layout, blocks);
+    const saved = layoutId ? loadLayouts().find((l) => l.id === layoutId) : undefined;
+    if (saved) putLayout({ ...saved, items: blocks });
+  }, [layoutId]);
   const [fitouts, setFitouts] = useState<Record<string, Fitout[]>>({});
   const [lastEdit, setLastEdit] = useState<"layout" | "fitout" | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -147,7 +155,7 @@ export function SearchChat() {
       if (d.applied) {
         if (layout) setLayoutPast((p) => [...p.slice(-49), layout]);
         setLayout(d.blocks);
-        save(KEYS.layout, d.blocks);
+        storeLayout(d.blocks);
         setLastEdit("layout");
       }
       const stale = d.applied && reports.length ? ["These results are from before this change. Tap \u201cSearch with this\u201d to update them."] : [];
@@ -170,7 +178,7 @@ export function SearchChat() {
     if (turn.action === "compare" && reports.length) push({ id: uid(), role: "bot", kind: "compare", reports });
     if (turn.action === "email" && reports.length) setEmailFor(reports[selected] ?? reports[0]);
     if (turn.ready && turn.state.spec.city && turn.state.spec.useType) await runSearch(turn.state.spec as RequirementSpec);
-  }, [reports, selected, runSearch, layout]);
+  }, [reports, selected, runSearch, layout, storeLayout]);
 
   const undo = (kind = lastEdit) => {
     const id = reports[selected]?.shellId;
@@ -183,7 +191,7 @@ export function SearchChat() {
     if (!prev) return push(bot(["There's nothing to undo."]));
     setLayoutPast((p) => p.slice(0, -1));
     setLayout(prev);
-    save(KEYS.layout, prev);
+    storeLayout(prev);
     push(bot(["Undone. Here's your layout again."]), { id: uid(), role: "bot", kind: "layout", blocks: prev });
   };
   const keep = () => {
@@ -198,7 +206,7 @@ export function SearchChat() {
     if (started.current) return;
     started.current = true;
     setSaved(load<Saved>(KEYS.saved, "local") ?? {});
-    const pending = load<{ source: "survey" | "layout"; spec?: Draft; summary?: string; items?: Block[] }>(KEYS.pending);
+    const pending = load<{ source: "survey" }>(KEYS.pending);
     const restored = load<Persist>(KEYS.chat);
     if (replay) {
       push({ id: uid(), role: "user", text: "Show me the recorded demo search." });
@@ -211,20 +219,26 @@ export function SearchChat() {
       setChat(restored.chat); setSpec(restored.spec); setReports(restored.reports); setEvents(restored.events); setRunId(restored.runId);
       setShown(Number.MAX_SAFE_INTEGER);
       setResultsReady(restored.reports.length > 0);
-      setLayout(restored.layout ?? null); setLayoutPast(restored.layoutPast ?? []); setFitouts(restored.fitouts ?? {}); setLastEdit(restored.lastEdit ?? null);
+      setLayout(restored.layout ?? null); setLayoutId(restored.layoutId ?? null); setLayoutPast(restored.layoutPast ?? []); setFitouts(restored.fitouts ?? {}); setLastEdit(restored.lastEdit ?? null);
       return;
     }
     save(KEYS.pending, null);
-    const draft = pending?.source === "layout" && pending.spec ? pending.spec : pending?.source === "survey" ? surveyToSpec(load<Survey>(KEYS.survey) ?? { transaction: "lease", accessibility: false, requirements: [] }) : EMPTY_DRAFT;
-    if (pending?.summary) push({ id: uid(), role: "user", text: pending.summary });
-    if (pending?.source === "layout" && pending.items?.length) setLayout(pending.items);
+    const survey = pending ? load<Survey>(KEYS.survey) ?? { transaction: "lease" as const, accessibility: false, requirements: [] } : null;
+    let draft = survey ? surveyToSpec(survey) : EMPTY_DRAFT;
+    const picked = survey?.layoutId ? loadLayouts().find((l) => l.id === survey.layoutId) : undefined;
+    if (picked) {
+      draft = withLayout(draft, picked.items);
+      push({ id: uid(), role: "user", text: layoutSummary(picked.name, draft, picked.items) }, { id: uid(), role: "bot", kind: "layout", blocks: picked.items });
+      setLayout(picked.items); setLayoutId(picked.id);
+      save(KEYS.layout, picked.items); save(KEYS.layoutOpen, picked.id);
+    }
     postJSON<Turn>("/api/chat", { open: true, spec: draft }).then(respond).catch(() => push(bot(["I couldn't reach the Hermit server. Check that it's running and try again."])));
   }, [replay, respond, runSearch]);
 
   useEffect(() => {
     if (!started.current || replay || !messages.length) return;
-    save(KEYS.chat, { messages, chat, spec, reports, events, runId, layout, layoutPast, fitouts, lastEdit } satisfies Persist);
-  }, [messages, chat, spec, reports, events, runId, replay, layout, layoutPast, fitouts, lastEdit]);
+    save(KEYS.chat, { messages, chat, spec, reports, events, runId, layout, layoutId, layoutPast, fitouts, lastEdit } satisfies Persist);
+  }, [messages, chat, spec, reports, events, runId, replay, layout, layoutId, layoutPast, fitouts, lastEdit]);
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }); }, [messages, shown]);
 

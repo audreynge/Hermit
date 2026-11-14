@@ -1,7 +1,9 @@
 "use client";
-import { Accessibility, CalendarDays, Car, ChevronDown, DoorOpen, Expand, Heart, Layers, ListChecks, MapPin, Sparkles, ArrowRight, Stethoscope, TramFront, Wallet } from "lucide-react";
+import { Accessibility, CalendarDays, Car, ChevronDown, DoorOpen, Expand, Heart, Layers, LayoutGrid, ListChecks, MapPin, Sparkles, ArrowRight, Stethoscope, TramFront, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { loadLayouts, type SavedLayout } from "@/lib/client/layouts";
 import { drop, KEYS, load, save } from "@/lib/client/store";
 import { REQUIREMENTS, SIZE_OPTIONS, TIMING_OPTIONS, USE_OPTIONS, type Survey as SurveyT } from "@/lib/spec/survey";
 import type { City } from "@/lib/types";
@@ -25,7 +27,13 @@ function Select({ id, value, placeholder, options, onChange }: { id: string; val
 export function Survey() {
   const router = useRouter();
   const [s, setS] = useState<SurveyT>(EMPTY);
-  useEffect(() => { const prev = load<SurveyT>(KEYS.survey); if (prev) setS(prev); }, []);
+  const [layouts, setLayouts] = useState<SavedLayout[]>([]);
+  useEffect(() => {
+    const all = loadLayouts();
+    const prev = load<SurveyT>(KEYS.survey);
+    if (prev) setS({ ...prev, layoutId: all.some((l) => l.id === prev.layoutId) ? prev.layoutId : undefined });
+    setLayouts(all);
+  }, []);
   const set = (patch: Partial<SurveyT>) => setS((x) => ({ ...x, ...patch }));
   const toggleReq = (v: string) => set({ requirements: s.requirements.includes(v) ? s.requirements.filter((r) => r !== v) : [...s.requirements, v] });
 
@@ -71,6 +79,12 @@ export function Survey() {
             <span className="switch" aria-hidden="true" />
             <span id="access-text">I need accessibility accommodations</span>
           </button>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="layout"><LayoutGrid aria-hidden="true" /> Layout <span className="opt">(optional)</span></label>
+          {layouts.length
+            ? <Select id="layout" value={s.layoutId} placeholder="No layout" options={layouts.map((l) => ({ value: l.id, label: l.name }))} onChange={(v) => set({ layoutId: v || undefined })} />
+            : <p className="muted" id="layout">No saved layouts yet. <Link href="/layout">Draw one in Layout Studio</Link> and save it to search with it.</p>}
         </div>
       </div>
 

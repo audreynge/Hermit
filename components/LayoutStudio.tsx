@@ -1,14 +1,13 @@
 "use client";
 import {
-  Archive, ArrowRight, Armchair, Columns2, ConciergeBell, CookingPot, Layers, Monitor, Redo2, Sparkles, SquarePlus,
-  Stethoscope, Toilet, Undo2, Users, ZoomIn, ZoomOut,
+  Archive, Armchair, Columns2, ConciergeBell, CookingPot, FilePlus2, Layers, Monitor, Redo2, Save, SquarePlus,
+  Stethoscope, Toilet, Trash2, Undo2, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KEYS, load, save } from "@/lib/client/store";
+import { loadLayouts, putLayout, removeLayout, type SavedLayout } from "@/lib/client/layouts";
+import { drop, KEYS, load, save } from "@/lib/client/store";
 import { OBJECT_TYPES, ROOM_TYPES } from "@/lib/design/rooms";
-import { fromLayout, type Block } from "@/lib/spec/parse";
-import { surveyToSpec, type Survey } from "@/lib/spec/survey";
+import type { Block } from "@/lib/spec/parse";
 
 type Item = Block & { kind: "room" | "object" };
 
@@ -47,7 +46,6 @@ const TEMPLATE: Item[] = [
 const PX = 14;
 
 export function LayoutStudio() {
-  const router = useRouter();
   const [items, setItems] = useState<Item[]>(TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);
   const [future, setFuture] = useState<Item[][]>([]);
@@ -60,7 +58,19 @@ export function LayoutStudio() {
 
   // Save only after the stored layout has loaded, or the template overwrites it (effects run twice in dev).
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => { const prev = load<Item[]>(KEYS.layout); if (prev?.length) setItems(prev); setLoaded(true); }, []);
+  const [library, setLibrary] = useState<SavedLayout[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [status, setStatus] = useState("");
+  useEffect(() => {
+    const prev = load<Item[]>(KEYS.layout);
+    if (prev?.length) setItems(prev);
+    const all = loadLayouts();
+    const open = all.find((l) => l.id === load<string>(KEYS.layoutOpen));
+    if (open) { setOpenId(open.id); setName(open.name); }
+    setLibrary(all);
+    setLoaded(true);
+  }, []);
   useEffect(() => { if (loaded) save(KEYS.layout, items); }, [items, loaded]);
 
   const commit = useCallback((next: Item[], before = items) => {
@@ -109,19 +119,26 @@ export function LayoutStudio() {
   const bounds = rooms.length ? { x: Math.min(...rooms.map((r) => r.x)), y: Math.min(...rooms.map((r) => r.y)), x2: Math.max(...rooms.map((r) => r.x + r.w)), y2: Math.max(...rooms.map((r) => r.y + r.h)) } : null;
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
 
-  const analyze = () => {
-    const survey = load<Survey>(KEYS.survey);
-    const base = survey ? surveyToSpec(survey) : null;
-    const types = new Set(rooms.map((r) => r.label));
-    const useType = types.has("exam room") || types.has("procedure room") ? "medical clinic" : base?.useType || (types.has("kitchen") && !types.has("office") ? "restaurant" : "office");
-    const s = fromLayout(items, { mode: base?.mode ?? "business", city: (base?.city ?? "houston"), useType });
-    const draft = { ...s, ...(base?.city ? {} : { city: undefined }), needs: { ...(base?.needs ?? {}) }, ...(base?.budgetMonthly ? { budgetMonthly: base.budgetMonthly } : {}), ...(base?.budgetTotal ? { budgetTotal: base.budgetTotal } : {}), transaction: base?.transaction ?? "lease" };
-    const one: Record<string, string> = { reception: "a reception area", storage: "storage", kitchen: "a kitchen", office: "an office" };
-    const parts = s.rooms.map((r) => `${r.count > 1 ? `${r.count} ${r.label}s` : one[r.label] ?? `a ${r.label}`}${r.fixtures?.length ? ` with ${r.fixtures.join(" and ")}s` : ""}`);
-    const summary = `Here's my layout: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "an open space"}${types.has("hallway") ? ", connected by a hallway" : ""} (about ${area.toLocaleString()} sq ft). Find the closest match.`;
-    save(KEYS.pending, { source: "layout", spec: draft, summary, items });
-    save(KEYS.chat, null);
-    router.push("/search");
+  const store = () => {
+    const id = putLayout({ id: openId ?? undefined, name, items });
+    const all = loadLayouts();
+    const saved = all.find((l) => l.id === id);
+    if (!saved) return setStatus("Couldn't save: this browser is blocking site storage.");
+    setOpenId(id); setName(saved.name); setLibrary(all); save(KEYS.layoutOpen, id);
+    setStatus(`Saved \u201c${saved.name}\u201d. Pick it under Layout when you search.`);
+  };
+  const open = (l: SavedLayout) => {
+    setItems(l.items as Item[]); setPast([]); setFuture([]); setSel(null);
+    setOpenId(l.id); setName(l.name); save(KEYS.layoutOpen, l.id); setStatus(`Opened \u201c${l.name}\u201d.`);
+  };
+  const startNew = () => {
+    setItems(TEMPLATE); setPast([]); setFuture([]); setSel(null);
+    setOpenId(null); setName(""); drop(KEYS.layoutOpen); setStatus("Started a new layout.");
+  };
+  const remove = (l: SavedLayout) => {
+    removeLayout(l.id); setLibrary(loadLayouts());
+    if (l.id === openId) { setOpenId(null); drop(KEYS.layoutOpen); }
+    setStatus(`Deleted \u201c${l.name}\u201d.`);
   };
 
   return (
@@ -213,9 +230,27 @@ export function LayoutStudio() {
           </div>
         </section>
       </div>
-      <div className="layout-cta">
-        <button type="button" className="cta" onClick={analyze} disabled={!rooms.length}><Sparkles aria-hidden="true" /> Analyze &amp; match layout <ArrowRight aria-hidden="true" /></button>
-      </div>
+      <section className="card panel layout-library" aria-labelledby="library-title">
+        <h2 id="library-title">Your layouts</h2>
+        <div className="layout-save">
+          <label className="field-label" htmlFor="layout-name">Layout name</label>
+          <input id="layout-name" className="control" placeholder="e.g., Clinic with 3 exam rooms" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+          <button type="button" className="cta" onClick={store} disabled={!rooms.length}><Save aria-hidden="true" /> {openId ? "Save changes" : "Save layout"}</button>
+          <button type="button" className="btn" onClick={startNew}><FilePlus2 aria-hidden="true" /> New layout</button>
+        </div>
+        <p className="muted" role="status">{status}</p>
+        {library.length ? (
+          <ul className="layout-list">
+            {library.map((l) => (
+              <li key={l.id} aria-current={l.id === openId ? "true" : undefined}>
+                <span><strong>{l.name}</strong> <span className="muted">· {l.items.filter((b) => b.kind !== "object").length} rooms</span></span>
+                <button type="button" className="btn small" onClick={() => open(l)} aria-label={`Open ${l.name}`}>Open</button>
+                <button type="button" className="btn small" onClick={() => remove(l)} aria-label={`Delete ${l.name}`}><Trash2 aria-hidden="true" /> Delete</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="muted">No saved layouts yet. Save this one to use it when you search.</p>}
+      </section>
     </>
   );
 }

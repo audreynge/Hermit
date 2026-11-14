@@ -35,10 +35,15 @@ async function homeResults(page: Page) {
 }
 
 test.describe("design edits in chat", () => {
-  test("[E1] layout -> chat -> add another exam room; preview and Layout Studio both show it", async ({ page }) => {
+  test("[E1] saved layout -> search -> chat adds an exam room; the saved layout and Layout Studio both show it", async ({ page }) => {
     await fresh(page, "/layout");
-    await page.getByRole("button", { name: /Analyze & match layout/ }).click();
-    await expect(page).toHaveURL(/\/search$/);
+    await page.getByLabel("Layout name").fill("Clinic A");
+    await page.getByRole("button", { name: "Save layout" }).click();
+    await page.goto("/");
+    await page.getByLabel("City").selectOption("houston");
+    await page.getByLabel(/Layout/).selectOption({ label: "Clinic A" });
+    await page.getByRole("button", { name: "Find shells" }).click();
+    await expect(conversation(page)).toContainText("Use my layout \u201cClinic A\u201d");
     await say(page, "add another exam room");
     const preview = conversation(page).getByRole("img", { name: /Your layout:/ }).last();
     await expect(preview).toHaveAttribute("aria-label", /Exam Room 3/);
@@ -46,6 +51,8 @@ test.describe("design edits in chat", () => {
     await axe(page);
     await page.goto("/layout");
     await expect(page.getByRole("application")).toHaveAttribute("aria-label", /6 rooms/);
+    await expect(page.getByLabel("Layout name")).toHaveValue("Clinic A");
+    await expect(page.getByRole("listitem").filter({ hasText: "Clinic A" })).toContainText("6 rooms");
   });
 
   test("[E2] fit tab: convert a bedroom, see the change, undo restores the measured plan", async ({ page }) => {
@@ -105,7 +112,10 @@ test.describe("design edits in chat", () => {
     });
     await blocked.goto("/layout");
     await expect(blocked.getByRole("heading", { level: 1 })).toContainText("Build your layout");
-    await blocked.getByRole("button", { name: /Analyze & match layout/ }).click();
+    await blocked.getByRole("button", { name: "Save layout" }).click();
+    await expect(blocked.getByRole("status")).toContainText("Couldn't save");
+    await blocked.goto("/");
+    await blocked.getByRole("button", { name: "Find shells" }).click();
     await expect(blocked).toHaveURL(/\/search$/);
     await blocked.getByLabel("Message Hermit").fill("add an office");
     await blocked.getByLabel("Message Hermit").press("Enter");

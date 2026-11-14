@@ -203,9 +203,13 @@ test.describe("layout studio", () => {
     await expect(snap).toHaveAttribute("aria-checked", "false");
     await axe(page);
 
-    await page.getByRole("button", { name: /Analyze & match layout/ }).click();
-    await expect(page).toHaveURL(/\/search$/);
-    await expect(conversation(page)).toContainText("Here's my layout");
+    await page.getByLabel("Layout name").fill("Clinic A");
+    await page.getByRole("button", { name: "Save layout" }).click();
+    await expect(page.getByRole("status")).toContainText("Saved \u201cClinic A\u201d");
+    await page.goto("/");
+    await page.getByLabel(/Layout/).selectOption({ label: "Clinic A" });
+    await page.getByRole("button", { name: "Find shells" }).click();
+    await expect(conversation(page)).toContainText("Use my layout \u201cClinic A\u201d");
     await expect(conversation(page)).toContainText("2 exam rooms with sinks");
     await quick(page, "Houston").click();
     await waitForResults(page);
