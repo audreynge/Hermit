@@ -47,6 +47,16 @@ describe("converse while gathering", () => {
     expect(t2.state.spec.city).toBe("los_angeles");
   });
 
+  it("recognizes an office even though office is the parser's default", () => {
+    expect(converse(openChat(fromSurvey()).state, "office in Houston").state.spec.useType).toBe("office");
+  });
+
+  it("stops asking and searches when the user keeps saying just search", () => {
+    let t = openChat(fromSurvey());
+    for (let i = 0; i < 6 && !t.ready; i++) t = converse(t.state, "just search");
+    expect(t.ready).toBe(true);
+  });
+
   it("lets the user skip optional questions", () => {
     const t0 = openChat(fromSurvey({ city: "houston", useType: "office" }));
     const t1 = converse(t0.state, "just search");

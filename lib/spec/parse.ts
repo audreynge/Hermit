@@ -19,7 +19,7 @@ const ROOM_WORDS: [RegExp, string, boolean][] = [
   [/bedrooms?/, "bedroom", false],
 ];
 const FIXTURES = ["sink", "toilet", "shower", "hood", "drain"];
-const USE_NOUN = /\b([a-z]+\s)?(clinic|office|salon|studio|warehouse|restaurant|cafe|shop|store|gym|bakery|lab|showroom|practice|spa|brewery|distribution center|daycare|boutique)\b/;
+export const USE_NOUN = /\b([a-z]+\s)?(clinic|office|salon|studio|warehouse|restaurant|cafe|shop|store|gym|bakery|lab|showroom|practice|spa|brewery|distribution center|daycare|boutique)\b/;
 const NOT_QUALIFIER = new Set(["sf", "ft", "a", "an", "the", "small", "new", "need", "my", "our", "big", "large", "feet", "for"]);
 
 export function parseText(text: string, d: Defaults = {}): RequirementSpec {

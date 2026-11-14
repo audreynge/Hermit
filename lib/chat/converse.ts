@@ -1,5 +1,5 @@
 import { useCategory } from "../reason/rules";
-import { parseText } from "../spec/parse";
+import { parseText, USE_NOUN } from "../spec/parse";
 import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
 
@@ -108,7 +108,7 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   if (/houston/.test(t)) set("city", "houston");
   else if (/los angeles|\bl\.?a\.?\b/.test(t)) set("city", "los_angeles");
   if (option) { set("useType", option.useType); set("mode", option.mode); }
-  else if (p.useType !== blank.useType || (p.mode !== spec.mode && p.mode !== "business")) {
+  else if (USE_NOUN.test(t) || p.useType !== blank.useType || (p.mode !== spec.mode && p.mode !== "business")) {
     set("useType", p.useType);
     set("mode", p.mode);
   }
@@ -147,9 +147,9 @@ export function mergeText(spec: Draft, text: string, awaiting: Slot | null = nul
   return { spec: next, changed };
 }
 
-export function ask(state: ChatState, lead: string): Turn {
+export function ask(state: ChatState, lead: string, force = false): Turn {
   const slot = missing(state.spec, state.asked);
-  const budgetLeft = state.asked.length >= MAX_QUESTIONS;
+  const budgetLeft = force || state.asked.length >= MAX_QUESTIONS;
   if (!slot || budgetLeft) {
     const spec = { ...state.spec, city: state.spec.city ?? "houston", useType: state.spec.useType || "office" };
     const assumed = !state.spec.city ? " I'll start with Houston; say the word if you'd rather search Los Angeles." : "";
@@ -186,7 +186,8 @@ export function converse(state: ChatState, text: string): Turn {
     };
   }
 
-  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts"])] }, "");
+  // "Just search" means search now: defaults fill anything still missing (ask() picks Houston/office and says so).
+  if (SKIP.test(text)) return ask({ ...state, spec, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts"])] }, "", true);
   // One message that answers everything at once searches right away (wireframe 2); must-haves are asked only in Q&A mode.
   const oneShot = missing(state.spec, state.asked) === "use" && missing(spec, state.asked) === "musts";
   return ask({ ...state, spec, asked: oneShot ? [...state.asked, "musts"] : state.asked }, changed ? "Got it. " : "No problem. ");

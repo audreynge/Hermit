@@ -13,7 +13,8 @@
     "matterport": "tsx --env-file=.env pipeline/matterport.ts",
     "sample": "tsx pipeline/sample.ts",
     "demo": "tsx scripts/record-demo.ts",
-    "db:import": "tsx pipeline/import-db.ts"
+    "db:import": "tsx pipeline/import-db.ts",
+    "explore": "tsx scripts/explore.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
