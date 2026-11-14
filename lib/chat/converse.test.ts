@@ -22,8 +22,10 @@ describe("openChat", () => {
 });
 
 describe("converse while gathering", () => {
-  it("asks once for the chair width when wheelchair access is needed, and reads a tapped answer", () => {
-    const t1 = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true }));
+  it("asks once for the chair width after the rooms, and reads a tapped answer", () => {
+    const t0 = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true }));
+    expect(t0.reply).toMatch(/bedrooms/i);
+    const t1 = converse(t0.state, "3 bed / 2 bath");
     expect(t1.reply).toMatch(/how wide is the wheelchair/i);
     expect(t1.quickReplies).toContain("Manual (~25 in)");
     const t2 = converse(t1.state, "Manual (~25 in)");
@@ -33,12 +35,18 @@ describe("converse while gathering", () => {
   });
 
   it("does not ask for the chair width when it is known or the user skips it", () => {
-    const known = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true, chairWidth: "26" }));
+    const spec = fromSurvey({ city: "houston", useType: "home", accessibility: true });
+    const known = converse(openChat({ ...spec, needs: { ...spec.needs, chairWidthIn: 26 } }).state, "3 bed / 2 bath");
     expect(known.reply).not.toMatch(/how wide/i);
-    const t1 = openChat(fromSurvey({ city: "houston", useType: "home", accessibility: true }));
+    const t1 = converse(openChat(spec).state, "3 bed / 2 bath");
     const later = converse(t1.state, "I'll measure later");
     expect(later.ready).toBe(true);
     expect(later.state.spec.needs.chairWidthIn).toBeUndefined();
+  });
+
+  it("asks for the chair width even when the 5-question budget is spent", () => {
+    const state = { spec: { ...fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }), needs: { wheelchair: true } }, asked: ["use", "city", "size", "rooms", "musts"] as const, phase: "gathering" as const };
+    expect(converse({ ...state, asked: [...state.asked] }, "3 exam rooms").reply).toMatch(/how wide is the wheelchair/i);
   });
 
   it("understands a rich first message and only asks what is still missing", () => {
