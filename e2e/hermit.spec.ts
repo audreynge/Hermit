@@ -67,7 +67,7 @@ test.describe("chat onboarding", () => {
     const n = await cards(page).count();
     expect(n).toBeGreaterThan(0);
     expect(n).toBeLessThanOrEqual(5);
-    await expect(cards(page).first().locator(".fit-badge")).toContainText(/\d+% Fit/);
+    await expect(cards(page).first().locator(".space-facts")).toContainText(/sq ft/);
     await expect(cards(page).first().locator("li")).toHaveCount(3);
     const trace = page.getByRole("region", { name: "Agent trace" });
     await expect(trace).toContainText(/Shortlisted \d+ of [\d,]+ spaces/);

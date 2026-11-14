@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, Mail, MapPin, Sparkles } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, Mail, MapPin } from "lucide-react";
 import { useState } from "react";
 import { areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
@@ -48,10 +48,10 @@ function status(r: ShellReport) {
   return { listed, evidence };
 }
 
-function facts(r: ShellReport, area: number | undefined, priced: boolean): string[] {
+function facts(r: ShellReport, area: number | undefined, price?: string): string[] {
   const out: string[] = [];
-  if (area && priced) out.push(`${Math.round(area).toLocaleString()} sq ft`);
-  out.push(`${r.matchScore}% match`);
+  if (price) out.push(price);
+  if (area) out.push(`${Math.round(area).toLocaleString()} sq ft`);
   const a = r.fit?.assignment ?? [];
   if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
   const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/^(\d+) recorded stalls/)?.[1];
@@ -80,14 +80,10 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEm
         </button>
       </div>
       <div className="space-body">
-        <div className="space-top">
-          {head && <p className="space-head num">{head.text}</p>}
-          <span className="fit-badge">{report.rank === 1 && <Sparkles aria-hidden="true" />}{report.matchScore}% Fit</span>
-        </div>
-        <p className="space-facts num">{facts(report, area, !!head?.priced).join(" · ")}</p>
         <h3 id={`sp-${report.shellId}`}>
           <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
         </h3>
+        <p className="space-facts num">{facts(report, area, head?.priced ? head.text : undefined).join(" · ")}</p>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
         <ul>{highlights(report, spec).map((h) => <li key={h}><Check aria-hidden="true" /> {h}</li>)}</ul>
         <div className="space-actions">
