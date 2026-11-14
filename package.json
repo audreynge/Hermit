@@ -14,6 +14,7 @@
     "sample": "tsx pipeline/sample.ts",
     "demo": "tsx scripts/record-demo.ts",
     "db:import": "tsx pipeline/import-db.ts",
+    "db:push-catalog": "tsx --env-file=.env pipeline/push-catalog.ts",
     "explore": "tsx scripts/explore.ts",
     "mcp": "tsx mcp/hermit-server.ts",
     "mcp:check": "tsx mcp/smoke.ts",
