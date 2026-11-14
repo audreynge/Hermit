@@ -24,7 +24,7 @@ function table() {
     const shells: Shell[] = rows.map((r) => {
       const s = JSON.parse(r.json) as Shell;
       if (s.listing?.contact && isPlaceholderContact(s.listing.contact.name)) delete s.listing.contact;
-      s.address = tidyAddress(s.address);
+      if (s.address) s.address = tidyAddress(s.address);
       return s;
     });
     cache = { key, shells, byId: new Map(shells.map((s) => [s.id, s])) };

@@ -187,7 +187,8 @@ export class Run {
       const base = finalScore(fit, rules, c.score, !!graph);
       const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, finalScore: similarity ? Math.round(base * 0.5 + similarity.score * 0.5) : base, escalations: [], similarity };
       this.evaluated.set(id, e);
-      this.enforce(id, rules, fit.hardFails);
+      // A missing room is work to build, not a failed must-have; only a far-too-small measured area drops here.
+      this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")));
       return [this.row(e)];
     });
     return { result: { rows }, summary: `evaluated ${rows.length} (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
