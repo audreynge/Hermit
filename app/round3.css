@@ -242,3 +242,31 @@ nav.primary svg { width: 21px; height: 21px; }
 .fit-twoup-summary { margin: 12px 0 0; font-size: 16px; line-height: 1.5; }
 @media (max-width: 720px) { .fit-twoup { grid-template-columns: 1fr; } .fit-twoup svg { height: 240px; } }
 /* == end W4b == */
+/* == W4c: aerial site facts + foot-traffic heatmap == */
+.aerial-facts { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 8px; flex: none; background: var(--card); border-bottom: 1px solid var(--line); }
+.aerial-facts div { flex: 1 1 90px; }
+.aerial-facts dt { font-size: 12px; color: var(--muted); }
+.aerial-facts dd { margin: 0; font-size: 18px; font-weight: 800; color: var(--ink); }
+.postcard .aerial-facts, .evidence .media .aerial-facts { display: none; }
+.heat-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.heat-card.open { position: fixed; inset: 16px; z-index: 60; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+.heat-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 16px 10px; }
+.heat-head h3 { margin: 0; font-size: 20px; color: var(--ink); }
+.heat-head p { margin: 4px 0 0; font-size: 15px; }
+.heat-map { position: relative; height: 280px; overflow: hidden; background: var(--sea-wash); }
+.heat-card.open .heat-map { height: auto; flex: 1; min-height: 0; }
+.heat-world { position: absolute; left: 50%; top: 50%; }
+.heat-world img { position: absolute; max-width: none; }
+.heat-world svg { position: absolute; inset: 0; }
+.heat-empty { display: grid; place-items: center; height: 100%; margin: 0; padding: 16px; text-align: center; font-size: 17px; color: var(--ink-soft); }
+.heat-note { position: absolute; left: 10px; bottom: 10px; font-size: 13px; font-weight: 600; background: var(--card); color: var(--ink); padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line); }
+.heat-note-b { bottom: 40px; font-weight: 500; }
+.heat-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 12px 16px; }
+.heat-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.heat-chips .btn[aria-pressed="true"] { background: var(--coral-wash); border-color: var(--coral); color: var(--coral-ink); }
+.heat-slider { display: flex; flex-direction: column; gap: 4px; flex: 1 1 220px; font-size: 16px; color: var(--ink); }
+.heat-slider input { width: 100%; accent-color: var(--coral); }
+/* == end W4c == */
+/* == W4c: heat backdrop == */
+.heat-backdrop { position: fixed; inset: 0; z-index: 59; background: rgb(0 0 0 / 0.5); }
+/* == end W4c backdrop == */

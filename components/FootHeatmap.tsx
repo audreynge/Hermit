@@ -1,8 +1,100 @@
 "use client";
+import { useEffect, useId, useRef, useState } from "react";
+import { esriStreetTile, tileFor } from "@/lib/geometry/tiles";
+import { DEFAULT_HOURS, useCoords } from "@/lib/neighborhood/heat";
 import type { SiteFile } from "@/lib/neighborhood/types";
 import type { ShellReport } from "@/lib/types";
 
-// Contract stub (W4c replaces): street map at the approximate location with a foot-traffic heatmap by time of day.
-export function FootHeatmap(_: { report: ShellReport; site: SiteFile | null }) {
-  return null;
+const CHIPS = [["Morning", 8], ["Midday", 12], ["Evening", 18], ["Night", 22]] as const;
+const Z = 16, SPAN = 5 * 256;
+const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+const world = (lat: number, lon: number) => { const t = tileFor(lat, lon, Z); return { x: (t.x + t.fx) * 256, y: (t.y + t.fy) * 256 }; };
+
+export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteFile | null }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [hour, setHour] = useState(12);
+  const expandBtn = useRef<HTMLButtonElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  const { pt, byAddress, fail, dead: lost } = useCoords(report.address, report.above?.lat ?? site?.lat, report.above?.lon ?? site?.lon, 25);
+  useEffect(() => {
+    if (!open) return;
+    const prev = expandBtn.current;
+    closeBtn.current?.focus();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", k);
+    return () => { window.removeEventListener("keydown", k); prev?.focus(); };
+  }, [open]);
+  const hours = site?.busyness?.hours?.length === 24 ? site.busyness.hours : DEFAULT_HOURS;
+  const busy = hours[hour] / 100;
+  const dead = pt === null || lost;
+  const t = pt ? tileFor(pt.lat, pt.lon, Z) : null;
+  const c = pt ? world(pt.lat, pt.lon) : null;
+  const ox = t ? 2 * 256 + t.fx * 256 : 0, oy = t ? 2 * 256 + t.fy * 256 : 0;
+
+  return (
+    <>
+    {open && <div className="heat-backdrop" onClick={() => setOpen(false)} />}
+    <section className={`heat-card${open ? " open" : ""}`} aria-label="Estimated foot traffic map" role={open ? "dialog" : undefined} aria-modal={open || undefined}>
+      <header className="heat-head">
+        <div>
+          <h3>Foot traffic by time of day</h3>
+          <p className="muted">Estimated foot traffic, based on nearby places and typical busyness.</p>
+        </div>
+        {open && <button ref={closeBtn} type="button" className="btn small" onClick={() => setOpen(false)}>Close</button>}
+        <button ref={expandBtn} type="button" className="btn small" hidden={open} aria-expanded={open} onClick={() => setOpen(true)}>Expand</button>
+      </header>
+      <div className="heat-map">
+        {dead ? (
+          <p className="heat-empty">We couldn&apos;t place this address on a map right now. Try again later.</p>
+        ) : !pt || !t || !c ? (
+          <p className="heat-empty">Finding the location...</p>
+        ) : (
+          <>
+            <div className="heat-world" style={{ width: SPAN, height: SPAN, marginLeft: -ox, marginTop: -oy }} role="img" aria-label={`Street map near ${report.address} with estimated foot traffic at ${hourLabel(hour)}`}>
+              {Array.from({ length: 25 }, (_, i) => {
+                const dx = (i % 5) - 2, dy = Math.floor(i / 5) - 2;
+                return (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} alt="" width={256} height={256} src={esriStreetTile(Z, t.x + dx, t.y + dy)} style={{ left: (dx + 2) * 256, top: (dy + 2) * 256 }}
+                    onError={fail} />
+                );
+              })}
+              <svg width={SPAN} height={SPAN} aria-hidden="true">
+                <defs>
+                  <radialGradient id={`${id}-g`}>
+                    <stop offset="0" stopColor="#f26a4b" stopOpacity="0.9" />
+                    <stop offset="0.5" stopColor="#f2a44b" stopOpacity="0.4" />
+                    <stop offset="1" stopColor="#f2a44b" stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+                <g opacity={0.15 + 0.85 * busy}>
+                  {(site?.pois ?? []).map((p, i) => {
+                    const w = world(p.lat, p.lon);
+                    return <circle key={i} cx={ox + w.x - c.x} cy={oy + w.y - c.y} r={30 + 40 * busy} fill={`url(#${id}-g)`} />;
+                  })}
+                </g>
+                <g transform={`translate(${ox - 16} ${oy - 40}) scale(1.35)`}>
+                  <path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" fill="#f26a4b" stroke="#fff" strokeWidth={1.5} />
+                  <circle cx={12} cy={9} r={2.6} fill="#fff" />
+                </g>
+              </svg>
+            </div>
+            <span className="heat-note">Approximate location{byAddress ? " · Location checked by address" : ""}</span>
+            {!site?.pois?.length && <span className="heat-note heat-note-b">No nearby places on record, so no heat is shown.</span>}
+          </>
+        )}
+      </div>
+      <div className="heat-controls">
+        <div role="group" aria-label="Time of day" className="heat-chips">
+          {CHIPS.map(([l, h]) => <button key={l} type="button" className="btn small" aria-pressed={hour === h} onClick={() => setHour(h)}>{l}</button>)}
+        </div>
+        <label className="heat-slider">
+          <span>{hourLabel(hour)}: <b>{busy < 0.34 ? "Quiet" : busy < 0.67 ? "Steady" : "Busy"}</b></span>
+          <input type="range" min={0} max={23} step={1} value={hour} aria-valuetext={hourLabel(hour)} onChange={(e) => setHour(Number(e.target.value))} />
+        </label>
+      </div>
+    </section>
+    </>
+  );
 }
