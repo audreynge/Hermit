@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, Home, MapPin, MessageSquare, Search } from "lucide-react";
+import { Bookmark, Home, MapPin, MessageCircle, MessageSquare, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -30,6 +30,7 @@ function AiConnect() {
 const NAV = [
   { href: "/", label: "Home", Icon: Home },
   { href: "/studio", label: "Find a space", Icon: Search },
+  { href: "/chat", label: "Chat", Icon: MessageCircle },
   { href: "/address", label: "Check an address", Icon: MapPin },
   { href: "/saved", label: "Saved", Icon: Bookmark },
   { href: "/messages", label: "Messages", Icon: MessageSquare },
