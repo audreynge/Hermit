@@ -1,11 +1,16 @@
 "use client";
 import { Send } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Block } from "@/lib/spec/parse";
+import type { Finding } from "@/lib/regs/research";
+import type { ShellReport } from "@/lib/types";
 import { Mic, Speak } from "../Voice";
 
-export type ChatMsg = { id: string; role: "hermit" | "user"; text: string; why?: string; quick?: string[]; multi?: boolean; cta?: boolean; agent?: string };
+export type ChatMsg = { id: string; role: "hermit" | "user"; text: string; why?: string; quick?: string[]; multi?: boolean; cta?: boolean; agent?: string;
+  // Follow-up answers after results: a comparison, rules, an edited layout, or a proposed change to a scanned space.
+  compare?: ShellReport[]; findings?: Finding[]; blocks?: Block[]; fitout?: string };
 
-export function Interview({ messages, busy, onSend, children, placeholder }: { messages: ChatMsg[]; busy: boolean; onSend: (t: string) => void; children?: React.ReactNode; placeholder?: string }) {
+export function Interview({ messages, busy, onSend, children, placeholder, extra, attach }: { messages: ChatMsg[]; busy: boolean; onSend: (t: string) => void; children?: ReactNode; placeholder?: string; extra?: (m: ChatMsg) => ReactNode; attach?: ReactNode }) {
   const [text, setText] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
@@ -27,6 +32,7 @@ export function Interview({ messages, busy, onSend, children, placeholder }: { m
             <div className="bubbles">
               <div className="bubble"><span className="sr-only">{m.role === "hermit" ? "Hermit: " : "You: "}</span>{m.text}</div>
               {m.why && <p className="why">{m.why}</p>}
+              {extra?.(m)}
               {m.role === "hermit" && m.agent !== "sketch" && <Speak text={m.text} />}
             </div>
           </div>
@@ -47,8 +53,9 @@ export function Interview({ messages, busy, onSend, children, placeholder }: { m
       ) : null}
       {children}
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
+        {attach}
         <label className="sr-only" htmlFor="composer">Message Hermit</label>
-        <input id="composer" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder ?? "Answer, or describe anything else you need…"} autoComplete="off" />
+        <input id="composer" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder ?? "Answer, or describe anything else you need…"} autoComplete="off" maxLength={2000} />
         <Mic disabled={busy} onText={(t) => setText((v) => (v ? `${v} ${t}` : t).slice(0, 2000))} />
         <button type="submit" className="send" disabled={!text.trim() || busy} aria-label="Send"><Send aria-hidden="true" /></button>
       </form>
