@@ -7,19 +7,19 @@ import type { RoomGraph } from "../types";
 import { clampSize, type Size } from "./catalog";
 import { underCeiling } from "./ops";
 
-export const PLACES = ["wall", "corner", "center", "grid", "beside", "front", "behind", "around", "facing"] as const;
+export const PLACES = ["wall", "corner", "center", "grid", "beside", "front", "behind", "around", "facing", "on"] as const;
 export type Place = (typeof PLACES)[number];
-export const DEPENDENT: readonly Place[] = ["beside", "front", "behind", "around", "facing"];
+export const DEPENDENT: readonly Place[] = ["beside", "front", "behind", "around", "facing", "on"];
 export type PlanItem = { key: string; name: string; terms: string[]; size: Size; count: number; place: Place; of?: string; wall?: "near-door" | "far-from-door"; priority: number };
 export type Door = { at: Pt; width: number }; // meters, plan coords
 export type LayoutRoom = { id: string; label: string; polygon: Pt[]; ceiling?: number; doors: Door[] };
 export type Obstacle = { pos: Pt; size: Size; rotY: number };
-export type Laid = { key: string; name: string; terms: string[]; size: Size; pos: Pt; rotY: number };
+export type Laid = { key: string; name: string; terms: string[]; size: Size; pos: Pt; rotY: number; elevation?: number }; // elevation: meters above the floor ("on" items)
 export type Layout = { placed: Laid[]; dropped: { name: string; count: number }[]; capped: boolean }; // capped: stopped at the item budget, not for lack of room
 
 type Box = { c: Pt; f: Pt; w: number; d: number }; // center, unit front direction, width across f, depth along f
 type Entry = { box: Box; group: string; zone?: Box; grid?: boolean };
-type Inst = { item: PlanItem; box: Box; group: string };
+type Inst = { item: PlanItem; box: Box; group: string; top: number; tops?: Laid[] }; // top: height of its upper surface; tops: "on" items standing on it
 
 const WALL_GAP = 0.03; // back of a wall item to the wall
 const WALL_ZONE = 0.6; // kept clear in front of wall items
@@ -33,6 +33,7 @@ export type Clearances = { aisle?: number; frontClear?: number; turn?: number };
  *  space (§304.3) at each door. */
 export const wheelchairClearances = (chairWidthIn: number): Clearances =>
   ({ aisle: Math.max(36, chairWidthIn + 4) * 0.0254, frontClear: 48 * 0.0254, turn: 60 * 0.0254 });
+const ON_GAP = 0.05; // between items sharing a top
 const FLAT_H = 0.1; // rugs (sizes are clamped to ≥ 0.1 m): no collisions, not obstacles
 const SEAT = /\b(chair|stool|seat|bench|sofa|couch|loveseat|recliner)\b/;
 
@@ -275,6 +276,17 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
       .sort((a, b) => Math.abs(dot(a.v, r)) - Math.abs(dot(b.v, r))).map(({ box }) => box);
   }
 
+  /** On top of an anchor: one row across its width, centered and facing as it does; earlier items on it shift over to make
+   *  room. Null when the row would overhang the top. */
+  function onTop(size: Size, a: Inst): Box | null {
+    const k = a.box, tops = a.tops ?? [], r = right(k.f);
+    const total = tops.reduce((n, t) => n + t.size.w + ON_GAP, size.w);
+    if (size.d > k.d || total > k.w + 1e-9) return null;
+    let s = -total / 2;
+    for (const t of tops) { t.pos = add(k.c, r, s + t.size.w / 2); s += t.size.w + ON_GAP; }
+    return { c: add(k.c, r, s + size.w / 2), f: k.f, w: size.w, d: size.d };
+  }
+
   // Dependents need a real anchor in this plan: beside/facing without one stand on a wall, a chair "around" nothing is dropped.
   const keys = new Set(plan.map((p) => p.key));
   const items: PlanItem[] = [];
@@ -286,11 +298,12 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
   }
 
   const sizeOf = (it: PlanItem) => underCeiling(clampSize(it.size), room.ceiling);
-  const put = (it: PlanItem, box: Box, group: string, flat: boolean): Inst => {
-    const inst = { item: it, box, group };
+  const put = (it: PlanItem, box: Box, group: string, flat: boolean, h: number, elevation = 0): Inst => {
+    const inst: Inst = { item: it, box, group, top: elevation + h };
     insts.push(inst);
-    if (!flat) entries.push({ box, group, zone: zoneOf(it, box), grid: it.place === "grid" });
-    placed.push({ key: it.key, name: it.name, terms: it.terms, size: { w: box.w, d: box.d, h: sizeOf(it).h }, pos: box.c, rotY: yawOf(box.f) });
+    // Items standing on another piece aren't floor obstacles.
+    if (!flat && !elevation) entries.push({ box, group, zone: zoneOf(it, box), grid: it.place === "grid" });
+    placed.push({ key: it.key, name: it.name, terms: it.terms, size: { w: box.w, d: box.d, h }, pos: box.c, rotY: yawOf(box.f), ...(elevation && { elevation }) });
     return inst;
   };
 
@@ -301,16 +314,19 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
   /** Places an item's instances for one anchor instance (or as an anchor), each followed straight away by its own
    *  companions, so a mirror's chair claims its spot before the next mirror goes down. */
   function placeFor(it: PlanItem, a: Inst | null, pri: number) {
-    const size = sizeOf(it), flat = size.h <= FLAT_H;
+    // On top of the anchor: the item's top stays under the ceiling too.
+    const elev = a && it.place === "on" ? a.top : 0;
+    const size = elev ? underCeiling(clampSize(it.size), room.ceiling && Math.max(1e-3, room.ceiling - elev)) : sizeOf(it), flat = size.h <= FLAT_H;
     const groupSize = 1 + items.filter((d) => d.of === it.key && prio(d) <= pri).reduce((n, d) => n + d.count, 0);
     for (let i = 0; i < it.count; i++) {
       // Repeats (the 7th table) must leave one slot for every other kind still to come (the host stand).
       const reserve = a || i === 0 ? 0 : items.filter((x) => !x.of && !handled.has(x) && x !== it).length;
       if (placed.length + (a ? 1 : i === 0 ? 1 : groupSize) > budget - reserve) { capped = true; break; }
       const group = a?.group ?? `${it.key}#${insts.filter((x) => x.item.key === it.key).length}`;
-      const box = a ? dependentSpots(it, size, a.box).find((b) => free(b, group, flat)) : anchorSpot(it, size, group, flat);
+      const box = !a ? anchorSpot(it, size, group, flat) : it.place === "on" ? (size.h >= 0.05 ? onTop(size, a) : null) : dependentSpots(it, size, a.box).find((b) => free(b, group, flat));
       if (!box) { miss(it.name, 1); continue; } // its companions go unmentioned: "no room for the table" says it
-      const inst = put(it, box, group, flat);
+      const inst = put(it, box, group, flat, size.h, elev);
+      if (elev) (a!.tops ??= []).push(placed[placed.length - 1]);
       for (const d of kids(it, pri)) placeFor(d, inst, pri);
     }
   }

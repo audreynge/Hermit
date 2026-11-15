@@ -37,7 +37,8 @@ Per item:
   behind = the seat of someone who works at the anchor facing the room (receptionist's chair at a reception desk, the lawyer's chair at an executive desk); code leaves room between the anchor and the wall
   around = seats around its anchor (chairs around a table)
   facing = across the room facing its anchor (TV stand facing a sofa)
-- of: the anchor's key for beside/front/behind/around/facing, else null.
+  on = standing on top of its anchor (TV on a TV stand, table lamp on a nightstand, monitor on a desk, microwave or espresso machine on a counter); never on seats or beds
+- of: the anchor's key for beside/front/behind/around/facing/on, else null.
 - Seats always belong to what they're used at: chairs and stools are front/behind/around a table, desk, counter or mirror; booths and benches are around a table. Only waiting, lounge or living-room seating stands alone. A salon station is a mirror (wall) with a styling chair in front.
 - wall: "near-door" for what greets people (reception desk, host stand, checkout), "far-from-door" for beds, sofas, desks and treatment chairs, else null.
 - priority: 1 essential for this use, 2 useful, 3 nice to have. Code drops 3s first when space runs out.
@@ -49,7 +50,7 @@ Rules:
 - No walls, built-ins, plumbing, wiring, light fixtures, art or decor. Never use vague words like "furniture" or "equipment".
 - Use only the listed room ids. A room that needs nothing gets an empty list.`;
 
-export type PlacedIn = { name: string; pos: { x: number; z: number }; size: Size; rotY: number }; // world coords
+export type PlacedIn = { name: string; pos: { x: number; z: number; y?: number }; size: Size; rotY: number }; // world coords; y: meters above the floor
 export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[]; access?: { chairWidthIn: number } };
 export type PlanOut = { ops: object[]; reply: string; dropped: { name: string; count: number }[]; source: "gemini" | "offline" };
 
@@ -91,8 +92,8 @@ function toItem(raw: unknown, seen: Set<string>): PlanItem | null {
 // once: one per place (front desk, shampoo station), not one per room like a dental chair per operatory.
 type T = [string, string, Place, { of?: string; count?: number; pri?: number; wall?: "near" | "far"; terms?: string[]; once?: true }?];
 const HOME: Record<string, T[]> = {
-  bedroom: [["bed", "bed", "wall", { wall: "far" }], ["ns", "nightstand", "beside", { of: "bed", count: 2, pri: 2 }], ["dr", "dresser", "wall", { pri: 2 }], ["lamp", "floor lamp", "corner", { pri: 3 }]],
-  living: [["sofa", "sofa", "wall", { wall: "far" }], ["ct", "coffee table", "front", { of: "sofa" }], ["tv", "tv stand", "facing", { of: "sofa", pri: 2 }], ["ac", "armchair", "beside", { of: "sofa", pri: 3 }], ["rug", "rug", "front", { of: "sofa", pri: 3 }], ["plant", "plant", "corner", { pri: 3 }]],
+  bedroom: [["bed", "bed", "wall", { wall: "far" }], ["ns", "nightstand", "beside", { of: "bed", count: 2, pri: 2 }], ["tl", "table lamp", "on", { of: "ns", pri: 3 }], ["dr", "dresser", "wall", { pri: 2 }], ["lamp", "floor lamp", "corner", { pri: 3 }]],
+  living: [["sofa", "sofa", "wall", { wall: "far" }], ["ct", "coffee table", "front", { of: "sofa" }], ["ts", "tv stand", "facing", { of: "sofa", pri: 2 }], ["tv", "tv", "on", { of: "ts", pri: 2 }], ["ac", "armchair", "beside", { of: "sofa", pri: 3 }], ["rug", "rug", "front", { of: "sofa", pri: 3 }], ["plant", "plant", "corner", { pri: 3 }]],
   dining: [["t", "dining table", "center"], ["c", "dining chair", "around", { of: "t", count: 6 }], ["cab", "cabinet", "wall", { pri: 3 }]],
   kitchen: [["t", "round table", "center", { pri: 2 }], ["c", "dining chair", "around", { of: "t", count: 4, pri: 2 }]],
   office: [["desk", "desk", "wall", { wall: "far" }], ["ch", "office chair", "front", { of: "desk" }], ["bs", "bookshelf", "wall", { pri: 2 }], ["fc", "filing cabinet", "beside", { of: "desk", pri: 3 }]],
@@ -151,6 +152,7 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
   const rooms = input.rooms.filter((r) => r.polygon.length >= 3);
   if (!rooms.length) return { ops: [], dropped: [], reply: "I need a room with a floor plan to lay out. Walk into a room that's on the plan and try again.", source: "offline" };
   const existing: (Obstacle & { name: string })[] = input.placed.map((p) => ({ name: p.name, pos: { x: p.pos.x, y: -p.pos.z }, size: p.size, rotY: p.rotY }));
+  const floorItems = existing.filter((_, i) => (input.placed[i].pos.y ?? 0) <= 0.05); // what stands on other pieces isn't in the way
   const inRoom = (id: string) => { const r = rooms.find((x) => x.id === id)!; return existing.filter((p) => pointInPolygon(p.pos, r.polygon)).map((p) => p.name); };
 
   const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);
@@ -172,18 +174,18 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
   const share = Math.floor(MAX_ITEMS / rooms.length), plans: Planned[][] = [], lays: Layout[] = [];
   rooms.forEach((r, i) => {
     plans[i] = planFor(r);
-    lays[i] = layoutRoom(plans[i], r, existing, share + (i < MAX_ITEMS % rooms.length ? 1 : 0), clear);
+    lays[i] = layoutRoom(plans[i], r, floorItems, share + (i < MAX_ITEMS % rooms.length ? 1 : 0), clear);
     for (const l of lays[i].placed) if (plans[i].find((t) => t.key === l.key)?.once) once.add(l.name);
   });
   for (let i = 0; i < rooms.length; i++) {
     const spare = MAX_ITEMS - lays.reduce((n, l) => n + l.placed.length, 0);
     // Leave out "once" items this room didn't place that a later room has since taken.
     const plan = plans[i].filter((t) => !t.once || !once.has(t.name) || lays[i].placed.some((l) => l.key === t.key));
-    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], existing, lays[i].placed.length + spare, clear);
+    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], floorItems, lays[i].placed.length + spare, clear);
   }
   const ops: object[] = [], dropped: PlanOut["dropped"] = [];
   for (const l of lays) {
-    for (const p of l.placed) ops.push({ op: "add", name: p.name, terms: p.terms, size: p.size, pos: { x: p.pos.x, z: -p.pos.y }, rotY: p.rotY });
+    for (const p of l.placed) ops.push({ op: "add", name: p.name, terms: p.terms, size: p.size, pos: { x: p.pos.x, z: -p.pos.y, ...(p.elevation && { y: p.elevation }) }, rotY: p.rotY });
     for (const x of l.dropped.filter((d) => !once.has(d.name))) { const hit = dropped.find((y) => y.name === x.name); if (hit) hit.count += x.count; else dropped.push({ ...x }); }
   }
   const capped = lays.some((l) => l.capped);

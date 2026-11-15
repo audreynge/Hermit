@@ -177,4 +177,20 @@ describe("planRooms", () => {
     const a = (desk.rotY * Math.PI) / 180, f = { x: Math.sin(a), z: Math.cos(a) }; // world front
     expect((chair.pos.x - desk.pos.x) * f.x + (chair.pos.z - desk.pos.z) * f.z).toBeLessThan(0); // behind it
   });
+
+  it("offline living room: the TV stands on the TV stand (raised), not on the floor", async () => {
+    const out = await planFurnish({ text: "furnish", use: "home", rooms: [room("l", "living", 5, 4)], placed: [] }, null);
+    const ops = out.ops as (Add & { pos: { y?: number } })[];
+    const tv = ops.find((o) => o.name === "tv"), stand = ops.find((o) => o.name === "tv stand");
+    expect(stand?.pos.y).toBeUndefined();
+    expect(tv?.pos.y).toBeCloseTo(stand!.size.h, 6);
+    expect(tv!.pos.x).toBeCloseTo(stand!.pos.x, 6);
+  });
+
+  it("items standing on other pieces aren't floor obstacles for the planner", async () => {
+    const r = room("l", "living", 5, 4);
+    const a = await planFurnish({ text: "furnish", use: "home", rooms: [r], placed: [] }, null);
+    const b = await planFurnish({ text: "furnish", use: "home", rooms: [r], placed: [{ name: "vase", pos: { x: 2.5, z: -2, y: 1 }, size: { w: 3, d: 3, h: 0.3 }, rotY: 0 }] }, null);
+    expect(names(b.ops)).toEqual(names(a.ops));
+  });
 });

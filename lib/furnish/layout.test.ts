@@ -303,4 +303,47 @@ describe("layoutRoom", () => {
     const [t] = layoutRoom([item("conference table", 3, 1.2, 0.75, "center")], r).placed;
     expect(Math.hypot(t.pos.x - 8, t.pos.y - 7)).toBeLessThan(0.5);
   });
+
+  it("on: a TV stands centered on its stand, facing the same way, raised by the stand's height, off the floor plan", () => {
+    const r = room(rect(4, 4), [{ at: { x: 2, y: 0 }, width: 0.9 }]);
+    const { placed, dropped } = layoutRoom([
+      item("tv stand", 1.5, 0.45, 0.55, "wall", { key: "ts" }),
+      item("tv", 1.25, 0.1, 0.75, "on", { of: "ts" }),
+      item("chair", 0.5, 0.5, 0.8, "front", { of: "ts" }),
+    ], r);
+    expect(dropped).toEqual([]);
+    const [ts] = of(placed, "tv stand"), [tv] = of(placed, "tv"), [ch] = of(placed, "chair");
+    expect(tv.pos.x).toBeCloseTo(ts.pos.x, 6);
+    expect(tv.pos.y).toBeCloseTo(ts.pos.y, 6);
+    expect(tv.rotY).toBe(ts.rotY);
+    expect(tv.elevation).toBeCloseTo(0.55, 6);
+    expect(ts.elevation).toBeUndefined();
+    expect(ch).toBeDefined();
+    sane(placed.filter((p) => !p.elevation), r); // floor items only: the TV overlaps its stand's footprint by design
+  });
+
+  it("on: several items share a top without overhanging; what doesn't fit, or is bigger than the top, is dropped", () => {
+    const r = room(rect(4, 4));
+    const { placed, dropped } = layoutRoom([
+      item("desk", 1.2, 0.6, 0.75, "wall", { key: "desk" }),
+      item("monitor", 0.55, 0.2, 0.4, "on", { of: "desk", count: 3 }),
+      item("nightstand", 0.5, 0.4, 0.55, "wall", { key: "ns" }),
+      item("table lamp", 0.6, 0.6, 0.55, "on", { of: "ns" }),
+    ], r);
+    const [desk] = of(placed, "desk"), mons = of(placed, "monitor");
+    expect(mons).toHaveLength(2);
+    expect(dropped).toEqual(expect.arrayContaining([{ name: "monitor", count: 1 }, { name: "table lamp", count: 1 }]));
+    const across = (p: Laid) => { const f = front(desk); return (p.pos.x - desk.pos.x) * f.y - (p.pos.y - desk.pos.y) * f.x; };
+    for (const m of mons) expect(Math.abs(across(m)) + m.size.w / 2).toBeLessThanOrEqual(desk.size.w / 2 + 1e-9);
+    expect(Math.abs(across(mons[0]) - across(mons[1]))).toBeGreaterThanOrEqual(0.55);
+    expect(Math.abs(across(mons[0]) + across(mons[1]))).toBeLessThan(1e-9); // the row stays centered
+  });
+
+  it("on: the item's top stays under the ceiling, scaled down otherwise", () => {
+    const r = room(rect(4, 4), [], 2.0);
+    const { placed } = layoutRoom([item("cabinet", 1, 0.5, 1.5, "wall", { key: "cab" }), item("vase", 0.3, 0.3, 0.6, "on", { of: "cab" })], r);
+    const [v] = of(placed, "vase");
+    expect(v.elevation! + v.size.h).toBeLessThanOrEqual(2.0 - 0.05 + 1e-9);
+    expect(v.size.h).toBeLessThan(0.6);
+  });
 });

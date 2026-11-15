@@ -241,11 +241,12 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
     if (!ready || !el) return;
     let drag: { id: string; x: number; y: number; moved: boolean; rotY: number; startRot: number; pos?: Vec } | null = null;
     const block = (e: Event) => { if (drag) { e.stopPropagation(); e.preventDefault(); } };
-    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint).
+    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint) and at its
+    // own height, so a TV dragged off its stand stays TV-high (it follows the floor point, not the furniture under it).
     const floorPoint = (e: { clientX: number; clientY: number }, item?: { id: string; rotY: number }) => {
       const p = scene.current!.floorAt(e.clientX, e.clientY, el.getBoundingClientRect(), floorY.current);
       const it = item && state.current.items.find((x) => x.id === item.id);
-      return p && it ? settle(p, dims(it), item!.rotY, makeView()) : p;
+      return p && it ? settle({ ...p, y: it.pos.y }, dims(it), item!.rotY, makeView()) : p;
     };
     const onDown = (e: PointerEvent) => {
       if (state.current.measuring) return; // clicks belong to Matterport's measure tool
@@ -432,7 +433,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
       ? targets.reduce((cur, t) => applyFurnishOps(cur, [{ op: "clear", scope: "room" }], { ...makeView(), room: t }).value, list) : list;
     const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
       text: message, use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
-      placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
+      placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z, y: p.pos.y - floorY.current }, size: dims(p), rotY: p.rotY })),
       ...(chairIn && { access: { chairWidthIn: chairIn } }),
     });
     // The outlines carry no fixtures: probe each new piece against the tour's surfaces (only what's in view, within

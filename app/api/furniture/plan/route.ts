@@ -17,7 +17,7 @@ const In = z.object({
     id: z.string().max(60), label: Plain, polygon: z.array(P).min(3).max(200), ceiling: N.positive().max(20).optional(),
     doors: z.array(z.object({ at: P, width: N.positive().max(5) })).max(20), objects: z.array(Plain).max(30),
   })).min(1).max(12),
-  placed: z.array(z.object({ name: Plain, pos: z.object({ x: N, z: N }), size: Size, rotY: N })).max(60),
+  placed: z.array(z.object({ name: Plain, pos: z.object({ x: N, z: N, y: N.optional() }), size: Size, rotY: N })).max(60),
   access: z.object({ chairWidthIn: N.min(16).max(40) }).optional(), // same plausible range as Needs.chairWidthIn
 });
 
