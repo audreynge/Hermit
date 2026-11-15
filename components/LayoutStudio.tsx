@@ -3,7 +3,7 @@ import {
   Archive, ArrowRight, Armchair, BedDouble, Box, Car, Columns2, ConciergeBell, CookingPot, Eraser, Maximize, Minus, Monitor, Plus, Sofa,
   Sparkles, SquarePlus, Stethoscope, Toilet, Trash2, Undo2, Users, UtensilsCrossed, WashingMachine,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { loadLayouts, putLayout, removeLayout, type SavedLayout } from "@/lib/client/layouts";
 import { drop, KEYS, load, save } from "@/lib/client/store";
 import { OBJECT_TYPES, ROOM_TYPES, roomType } from "@/lib/design/rooms";
@@ -136,12 +136,13 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
   const [cam, setCam] = useState<Camera>({ x: 0, y: 0, z: BASE_Z });
   const [vp, setVp] = useState({ w: 0, h: 0 });
   const drag = useRef<
-    | { mode: "move" | "resize"; id: string; dx: number; dy: number; before: Item[]; moved: boolean }
+    | { mode: "move" | "resize"; id: string; dx: number; dy: number; before: Item[]; live: Item[]; moved: boolean }
     | { mode: "pan"; sx: number; sy: number; from: Camera }
     | null
   >(null);
   const svg = useRef<SVGSVGElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
+  const helpId = useId(), namesId = useId();
   const current = useRef(items);
   useEffect(() => { current.current = items; }, [items]);
 
@@ -169,7 +170,8 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
   const rooms = items.filter((i) => i.kind === "room");
   const objects = items.filter((i) => i.kind === "object");
   const types = rooms.map((r) => typeOf(r.label));
-  const use: Use = /home|house|apartment|condo/.test(useType ?? "") || types.some((t) => HOME_ONLY.has(t)) ? "home"
+  const home = useType ? /home|house|apartment|condo/.test(useType) : types.some((t) => HOME_ONLY.has(t));
+  const use: Use = home ? "home"
     : /clinic|medical|dental|doctor|practice|therap|vet/.test(useType ?? "") || types.some((t) => t === "exam room" || t === "procedure room") ? "clinic"
     : "office";
   const area = Math.round(rooms.reduce((s, r) => s + r.w * r.h, 0));
@@ -233,13 +235,18 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
   const rename = (id: string, label: string) => {
     const it = items.find((x) => x.id === id);
     const typed = label.trim();
-    const next = typed && (roomType(typed) ?? typed);
-    if (it && next && next !== it.label && typed !== nameOf(it)) patch(id, { label: next });
+    // Keep the user's words; icon, colour and tile set resolve the type via roomType().
+    if (it && typed && typed !== it.label && typed !== nameOf(it)) patch(id, { label: typed });
   };
 
   const toFt = (clientX: number, clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
     return toFeet(cam, clientX - r.left, clientY - r.top);
+  };
+  const endDrag = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d && d.mode !== "pan" && d.moved && sig(d.before) !== sig(d.live)) { setPast((p) => [...p.slice(-49), d.before]); setItems(d.live); onChange?.(d.live); }
   };
   const zoomBy = (f: number) => setCam((c) => zoomAt(c, f, vp.w / 2, vp.h / 2));
 
@@ -247,7 +254,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
     if (view === "3d" || (e.target as HTMLElement).closest("input, select, textarea")) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
     const it = items.find((x) => x.id === sel);
-    if (it) {
+    if (it && svg.current?.contains(e.target as Node)) {
       const step = e.shiftKey ? 5 : 1;
       const moves: Record<string, Partial<Item>> = {
         ArrowLeft: { x: Math.max(0, it.x - step) }, ArrowRight: { x: it.x + step }, ArrowUp: { y: Math.max(0, it.y - step) }, ArrowDown: { y: it.y + step },
@@ -255,7 +262,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
       };
       if (moves[e.key]) { e.preventDefault(); patch(it.id, moves[e.key]); return; }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(it.id); svg.current?.focus(); return; }
-      if (e.key === "Escape") { setSel(null); svg.current?.focus(); return; }
+      if (e.key === "Escape") { e.stopPropagation(); setSel(null); svg.current?.focus(); return; }
     }
     if (e.target !== svg.current) return;
     const step = e.shiftKey ? 200 : 40;
@@ -280,7 +287,9 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
     const el = canvas.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault(); // keep the page (and browser zoom) still while the pointer is over the plan
+      // Inline, a plain scroll belongs to the page; the plan zooms only on pinch or Ctrl/Cmd+scroll.
+      if (inline && !e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
       const r = el.getBoundingClientRect();
       const k = e.deltaMode === 1 ? 16 : 1;
       // Trackpad pinch arrives as ctrl+wheel in Chrome/Firefox; Cmd/Ctrl+scroll zooms with a mouse.
@@ -301,7 +310,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
     el.addEventListener("gesturestart", onStart);
     el.addEventListener("gesturechange", onGesture);
     return () => { el.removeEventListener("wheel", onWheel); el.removeEventListener("gesturestart", onStart); el.removeEventListener("gesturechange", onGesture); };
-  }, []);
+  }, [inline]);
 
   const nameOf = (it: Item) => {
     if (it.kind === "object") return objSpec(it.label)?.label ?? it.label;
@@ -390,10 +399,10 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
       </div>
 
       {view === "3d" && <Plan3D solids={solids} label={`Your layout: ${rooms.length} rooms, about ${area.toLocaleString()} square feet`} height={inline ? 420 : 520} wallScale={0.45} />}
-      <p className="sr-only" id="ls-help">Each room and piece of furniture is a button. Arrow keys move the selected one (Shift for 5 feet), plus and minus resize, Delete removes, Escape deselects. Drag with a mouse or finger to move; drag the corner square to resize. Scroll or drag empty space to look around; pinch or Ctrl+scroll to zoom.</p>
+      <p className="sr-only" id={helpId}>Each room and piece of furniture is a button. Arrow keys move the selected one (Shift for 5 feet), plus and minus resize, Delete removes, Escape deselects. Drag with a mouse or finger to move; drag the corner square to resize. Scroll or drag empty space to look around; pinch or Ctrl+scroll to zoom.</p>
       <div className="canvas ls-canvas" ref={canvas} hidden={view === "3d"} style={{ backgroundSize: `${cam.z * 2}px ${cam.z * 2}px`, backgroundPosition: `${-cam.x * cam.z}px ${-cam.y * cam.z}px` }}>
         <svg ref={svg} className="plan" width="100%" height="100%" viewBox={`${cam.x} ${cam.y} ${Math.max(1, vp.w) / cam.z} ${Math.max(1, vp.h) / cam.z}`} preserveAspectRatio="xMinYMin meet"
-          role="application" aria-describedby="ls-help" tabIndex={0}
+          role="application" aria-describedby={helpId} tabIndex={0}
           aria-label={`Floor plan: ${rooms.length} rooms, about ${area.toLocaleString()} square feet`}
           onPointerMove={(e) => {
             const d = drag.current;
@@ -401,20 +410,18 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
             if (d.mode === "pan") { setCam({ ...d.from, x: d.from.x - (e.clientX - d.sx) / d.from.z, y: d.from.y - (e.clientY - d.sy) / d.from.z }); return; }
             d.moved = true;
             const p = toFt(e.clientX, e.clientY);
-            setItems((xs) => xs.map((x) => {
+            // The live result lives on the drag so pointer-up emits the last move even before it renders.
+            d.live = d.live.map((x) => {
               if (x.id !== d.id) return x;
               // Rooms snap to whole feet, furniture to half feet.
               const q = (v: number) => (x.kind === "room" ? Math.round(v) : Math.round(v * 2) / 2);
               const min = x.kind === "room" ? 3 : 1;
               return d.mode === "move" ? { ...x, x: Math.max(0, q(p.x - d.dx)), y: Math.max(0, q(p.y - d.dy)) } : { ...x, w: Math.max(min, q(p.x - x.x)), h: Math.max(min, q(p.y - x.y)) };
-            }));
+            });
+            setItems(d.live);
           }}
-          onPointerUp={() => {
-            const d = drag.current;
-            drag.current = null;
-            if (d && d.mode !== "pan" && d.moved && sig(d.before) !== sig(items)) { setPast((p) => [...p.slice(-49), d.before]); onChange?.(items); }
-          }}
-          onPointerCancel={() => { drag.current = null; }}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
           onPointerDown={(e) => {
             if (e.target !== svg.current) return;
             setSel(null);
@@ -431,7 +438,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
             return (
               <g key={it.id} tabIndex={0} role="button" aria-pressed={isSel} aria-label={room ? `${nameOf(it)}, about ${sqft(it)} square feet` : nameOf(it)}
                 className="ls-item" onFocus={() => setSel(it.id)}
-                onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture?.(e.pointerId); const p = toFt(e.clientX, e.clientY); drag.current = { mode: "move", id: it.id, dx: p.x - it.x, dy: p.y - it.y, before: items, moved: false }; setSel(it.id); }}>
+                onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture?.(e.pointerId); const p = toFt(e.clientX, e.clientY); drag.current = { mode: "move", id: it.id, dx: p.x - it.x, dy: p.y - it.y, before: items, live: items, moved: false }; setSel(it.id); }}>
                 {room ? (
                   <>
                     <rect x={it.x} y={it.y} width={it.w} height={it.h} rx={0.6} fill={fillOf(it.label)} stroke={isSel ? "#f26a4b" : "#6b4a3a"} strokeWidth={isSel ? 0.5 : 0.3} />
@@ -447,7 +454,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
                   </g>
                 )}
                 {isSel && <rect x={it.x + it.w - hs * 0.75} y={it.y + it.h - hs * 0.75} width={hs} height={hs} rx={hs * 0.2} fill="#f26a4b" stroke="#fff" strokeWidth={0.15} style={{ cursor: "nwse-resize" }}
-                  onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { mode: "resize", id: it.id, dx: 0, dy: 0, before: items, moved: false }; }} />}
+                  onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { mode: "resize", id: it.id, dx: 0, dy: 0, before: items, live: items, moved: false }; }} />}
               </g>
             );
           })}
@@ -470,14 +477,14 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
           {selected.kind === "room" ? (
             <>
               <label className="ls-name">Name
-                <input key={`${selected.id}:${selected.label}`} className="control" defaultValue={nameOf(selected)} list="ls-room-names" maxLength={40}
+                <input key={`${selected.id}:${selected.label}`} className="control" defaultValue={nameOf(selected)} list={namesId} maxLength={40}
                   onBlur={(e) => rename(selected.id, e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
               </label>
-              <datalist id="ls-room-names">{ROOM_TYPES.map((r) => <option key={r.type} value={r.label} />)}</datalist>
+              <datalist id={namesId}>{ROOM_TYPES.map((r) => <option key={r.type} value={r.label} />)}</datalist>
               <span className="ls-size">{sqft(selected)} sq ft</span>
             </>
           ) : <strong>{nameOf(selected)}</strong>}
-          <button type="button" className="btn small" onClick={() => remove(selected.id)}><Trash2 aria-hidden="true" /> Delete</button>
+          <button type="button" className="btn small" onClick={() => { remove(selected.id); svg.current?.focus(); }}><Trash2 aria-hidden="true" /> Delete</button>
         </div>
       )}
 
