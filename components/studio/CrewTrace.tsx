@@ -2,13 +2,12 @@
 import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
 import { useSettings } from "@/lib/client/settings";
 import type { TraceEvent } from "@/lib/types";
-import { plain } from "./Counter";
 
 export const CREW: Record<string, { name: string; role: string; Icon: typeof Search }> = {
   scout: { name: "Scout", role: "broker", Icon: Search },
   inspector: { name: "Inspector", role: "walks the scan", Icon: Ruler },
   surveyor: { name: "Surveyor", role: "reads from above", Icon: Satellite },
-  code: { name: "Code", role: "rules and zoning", Icon: ClipboardCheck },
+  code: { name: "Code", role: "city, state, federal rules", Icon: ClipboardCheck },
   access: { name: "Access", role: "accessibility", Icon: Accessibility },
   systems: { name: "Systems", role: "power and AC", Icon: Zap },
   estimator: { name: "Estimator", role: "contractor", Icon: HardHat },
@@ -32,53 +31,58 @@ export function CrabBadge({ agent, size = 40 }: { agent: string; size?: number }
 
 type Row = { id: string; agent: string; kind: "plan" | "work" | "veto" | "look" | "swap" | "skip" | "error"; text: string; detail?: string };
 const num = (s: string, re: RegExp) => Number(s.match(re)?.[1] ?? 0);
-const QUIP: Record<string, string> = {
-  access: "If you can't roll in, it isn't your shell.",
-  inspector: "Looked roomy online. Shells can be deceiving.",
-  code: "Rules are rules, even for crabs.",
-};
+
+function plain(reason: string): string {
+  let m;
+  if ((m = reason.match(/Measured area (\d+) sf is far below the (\d+) sf/))) return `it measured only ${Number(m[1]).toLocaleString()} sf inside, much smaller than you need.`;
+  if ((m = reason.match(/spans (\d+) floors/))) return `it's split over ${m[1]} levels with no elevator in sight.`;
+  if ((m = reason.match(/about (\d+) in clear/))) return `the hallway is only about ${m[1]} inches wide, too tight for a wheelchair.`;
+  if (/bathroom not found/i.test(reason)) return "there's no restroom anywhere in the scan.";
+  if (/zon/i.test(reason)) return "local zoning doesn't look friendly to your use.";
+  return reason.charAt(0).toLowerCase() + reason.slice(1);
+}
 
 function friendlyRows(events: TraceEvent[], names: Map<string, string>, useLabel: string): Row[] {
   const out: Row[] = [];
   for (const e of events) {
     switch (e.type) {
       case "funnel": {
-        const first = e.stages[0]?.count ?? 0, last = e.stages.at(-1)?.count ?? 0;
+        const last = e.stages.at(-1)?.count ?? 0;
         const city = e.stages.find((s) => s.key === "city")?.label.replace(/^in /, "") ?? "town";
-        out.push({ id: e.id, agent: "scout", kind: "work", text: `Scuttled across all ${first.toLocaleString()} shells on the beach and sniffed out ${last.toLocaleString()} in ${city} that already feel like ${/^[aeiou]/i.test(useLabel) ? "an" : "a"} ${useLabel}.` });
+        out.push({ id: e.id, agent: "scout", kind: "work", text: `Found ${last.toLocaleString()} spaces in ${city} already set up for ${/^[aeiou]/i.test(useLabel) ? "an" : "a"} ${useLabel}.` });
         break;
       }
       case "tool": {
         const agent = e.tool === "consult_specialist" ? String((e.args as { agent?: string })?.agent ?? "hermit") : TOOL_AGENT[e.tool];
-        if (e.tool === "screen_sites") { const bad = num(e.summary, /(\d+) with a recorded/); out.push({ id: e.id, agent: "code", kind: "work", text: `Skimmed the paperwork on the top ${num(e.summary, /screened (\d+)/)}. ${bad ? `${bad} had red flags.` : "No red flags so far."}` }); }
-        else if (e.tool === "evaluate_candidates") out.push({ id: e.id, agent: "inspector", kind: "work", text: `Crawled inside ${num(e.summary, /walked (\d+)/)} shells with a tiny tape measure and counted every room.` });
-        else if (e.tool === "submit_reports") out.push({ id: e.id, agent: "advocate", kind: "work", text: `Wrote up ${num(e.summary, /(\d+) Shell/)} Shell Reports and drafted a note for the broker. Nothing gets sent without you.` });
-        else if (agent === "code") out.push({ id: e.id, agent, kind: "work", text: "Read the local rulebook (zoning, parking, sprinklers) so you don't have to." });
-        else if (agent === "access") out.push({ id: e.id, agent, kind: "work", text: "Measured every hallway for a 36-inch wheelchair path and looked for sneaky stairs." });
-        else if (agent === "systems") out.push({ id: e.id, agent, kind: "work", text: "Knocked on the walls. Power and AC hide behind them, so I added questions for the landlord." });
-        else if (agent === "surveyor") out.push({ id: e.id, agent, kind: "work", text: "Flew over the top picks for a bird's-eye (well, crab's-eye) view." });
+        if (e.tool === "screen_sites") { const bad = num(e.summary, /(\d+) with a recorded/); out.push({ id: e.id, agent: "code", kind: "work", text: bad ? `Checked the rules. ${bad} had red flags.` : "Checked the rules. No red flags." }); }
+        else if (e.tool === "evaluate_candidates") out.push({ id: e.id, agent: "inspector", kind: "work", text: "Measured the rooms in each scan." });
+        else if (e.tool === "submit_reports") out.push({ id: e.id, agent: "advocate", kind: "work", text: "Wrote your reports and a note for the broker. Nothing is sent without you." });
+        else if (agent === "code") out.push({ id: e.id, agent, kind: "work", text: "Checked city, county, state and federal rules." });
+        else if (agent === "access") out.push({ id: e.id, agent, kind: "work", text: "Checked hallways and doors for wheelchair access." });
+        else if (agent === "systems") out.push({ id: e.id, agent, kind: "work", text: "Added power and AC questions for the landlord." });
+        else if (agent === "surveyor") out.push({ id: e.id, agent, kind: "work", text: "Looked at the top picks from above." });
         break;
       }
       case "handoff":
-        if (e.skipped) out.push({ id: e.id, agent: e.to, kind: "skip", text: e.to === "access" ? "Stayed on the beach this time. You don't need step-free access, so no hallway measuring." : `Sat this one out: ${e.why}.` });
-        else if (/^Hermit's rule/.test(e.why)) out.push({ id: e.id, agent: "hermit", kind: "work", text: `Made sure ${CREW[e.to]?.name ?? e.to} double-checked every finalist. No shell skips inspection.` });
+        if (e.skipped) out.push({ id: e.id, agent: e.to, kind: "skip", text: e.to === "access" ? "Skipped the access check. You don't need step-free entry." : `Skipped: ${e.why}.` });
+        else if (/^Hermit's rule/.test(e.why)) out.push({ id: e.id, agent: "hermit", kind: "work", text: `${CREW[e.to]?.name ?? e.to} double-checked every finalist.` });
         break;
-      case "veto": out.push({ id: e.id, agent: e.agent, kind: "veto", text: `Nope! ${e.name}: ${plain(e.reason)}`, detail: QUIP[e.agent] }); break;
+      case "veto": out.push({ id: e.id, agent: e.agent, kind: "veto", text: `Ruled out ${e.name}: ${plain(e.reason)}` }); break;
       case "escalate": {
-        const name = names.get(e.shellId) ?? "one shell";
-        const seen = e.outcome.startsWith("observed") ? "Spotted it!" : e.outcome.startsWith("described") ? "The scan's notes mention it, so I'll ask the broker to confirm." : "Couldn't see one, so it's on your question list.";
-        out.push({ id: e.id, agent: "inspector", kind: "look", text: `Pressed my eye-stalks to the glass at ${name}: ${e.question.replace(/\?$/, "")}?`, detail: seen });
+        const name = names.get(e.shellId) ?? "one space";
+        const seen = e.outcome.startsWith("observed") ? "Found it." : e.outcome.startsWith("described") ? "Only the notes mention it. Ask the broker." : "Couldn't see one. Added to your questions.";
+        out.push({ id: e.id, agent: "inspector", kind: "look", text: `Looked at ${name}: ${e.question.replace(/\?$/, "")}?`, detail: seen });
         break;
       }
       case "areas":
-        out.push({ id: e.id, agent: "scout2", kind: "work", text: `Sniffed the tide around town. The best water for you: ${e.areas.map((a) => `${a.zip} (${a.spaces} shell${a.spaces > 1 ? "s" : ""})`).join(", ")}.`, detail: e.areas[0]?.why });
+        out.push({ id: e.id, agent: "scout2", kind: "work", text: `Best areas for you: ${e.areas.map((a) => a.zip).join(", ")}.`, detail: e.areas[0]?.why });
         break;
       case "challenge":
-        out.push({ id: e.id, agent: "skeptic", kind: e.outcome === "swapped" ? "swap" : "look", text: `Wait a second! Before we fall for ${e.name}: ${e.concerns.join(" ")}`, detail: e.outcome === "swapped" ? `Convinced the crew. ${e.detail}` : `The crew heard me out. ${e.detail}` });
+        out.push({ id: e.id, agent: "skeptic", kind: e.outcome === "swapped" ? "swap" : "look", text: `Second look at ${e.name}: ${e.concerns.join(" ")}`, detail: e.outcome === "swapped" ? `Top pick changed. ${e.detail}` : `Top pick stayed. ${e.detail}` });
         break;
       case "rerank": {
         const top = e.reason.match(/\. (.+?) takes the top spot/)?.[1] ?? e.reason.match(/After walking the scans, (.+?) outscored/)?.[1];
-        out.push({ id: e.id, agent: "hermit", kind: "swap", text: /vetoed|dropped|Skeptic flagged/.test(e.reason) ? `Plot twist! The Scout's favorite didn't make it, so ${top ?? "a new shell"} takes the crown.` : `After crawling inside, ${top ?? "a new shell"} edged out the Scout's first pick.` });
+        out.push({ id: e.id, agent: "hermit", kind: "swap", text: `${top ?? "A new space"} is now the top pick.` });
         break;
       }
     }
@@ -121,7 +125,7 @@ export function CrewTrace({ events, running, useLabel = "space" }: { events: Tra
     <section className="card crew" aria-labelledby="crew-title">
       <header className="crew-head">
         <h2 id="crew-title">The crew at work</h2>
-        <p className="muted">{running ? "Scuttling…" : done ? (tech ? `${done.toolCalls} tool calls · ${(done.ms / 1000).toFixed(1)} s · ${vetoes} vetoes · planner: ${done.planner}` : `Done in ${(done.ms / 1000).toFixed(1)} seconds · ${vetoes} shell${vetoes === 1 ? "" : "s"} ruled out`) : ""}</p>
+        <p className="muted">{running ? "Working…" : done ? (tech ? `${done.toolCalls} tool calls · ${(done.ms / 1000).toFixed(1)} s · ${vetoes} vetoes · planner: ${done.planner}` : vetoes ? `${vetoes} ruled out` : "Done") : ""}</p>
       </header>
       <ol className="crew-list">
         {list.map((r) => {
@@ -136,7 +140,7 @@ export function CrewTrace({ events, running, useLabel = "space" }: { events: Tra
             </li>
           );
         })}
-        {running && <li className="crew-row" data-kind="plan"><CrabBadge agent="hermit" size={34} /><p className="muted">The crew is scuttling…</p></li>}
+        {running && <li className="crew-row" data-kind="plan"><CrabBadge agent="hermit" size={34} /><p className="muted">Working…</p></li>}
       </ol>
     </section>
   );
