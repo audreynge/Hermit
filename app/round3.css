@@ -499,6 +499,11 @@ nav.primary svg { width: 21px; height: 21px; }
 /* == end S8 == */
 /* F-B: Inside & furnish. Sizes read "145 sq ft", not "145 Sq Ft" (the room buttons capitalize their text). */
 .room-list .room-sqft { text-transform: none; white-space: nowrap; }
-.inside2-offline { margin: 0 0 10px; padding: 10px 14px; border-radius: 10px; background: var(--sand-1); color: var(--ink); font-size: 15px; }
+.inside2-offline { margin: 0; padding: 6px 12px; border-radius: 10px; background: var(--sand-1); color: var(--ink); font-size: 15px; }
 .inside2-plan { position: relative; z-index: 1; }
+/* The selected item's toolbar (now with Flip and Tip buttons) wraps instead of running under the guide card, and sits
+   above it: it only shows while you're editing a piece. */
+.furnish-toolbar { z-index: 7; flex-wrap: wrap; white-space: normal; justify-content: center; row-gap: 4px; width: max-content; max-width: min(760px, calc(100% - 20px)); }
+.furnish-toolbar .btn.small { white-space: nowrap; }
+.furnish-toolbar .btn.small svg { width: 16px; height: 16px; }
 /* == end F-B == */

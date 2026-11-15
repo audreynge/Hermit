@@ -22,6 +22,17 @@ const UPS: [Quaternion, number][] = [
 ];
 const YAWS = [0, Math.PI / 2];
 
+// A clearly tall item (a bookshelf, a floor lamp) must stand on the model's longest axis, and a clearly flat one (a
+// rug, a low table) on its shortest; a model exported lying down or on its side is turned upright here, once, on load.
+// (Bounds can't tell upside down from upright: the user's "Flip upright" handles that.)
+const TALL = 1.3, FLAT = 0.6, WRONG_AXIS = 0.6;
+export function axisPenalty(target: Size, box: { x: number; y: number; z: number }): number {
+  const longest = Math.max(box.x, box.y, box.z), shortest = Math.min(box.x, box.y, box.z);
+  if (target.h > TALL * Math.max(target.w, target.d) && box.y < longest * 0.9) return WRONG_AXIS;
+  if (target.h < FLAT * Math.min(target.w, target.d) && box.y > shortest * 1.1) return WRONG_AXIS;
+  return 0;
+}
+
 export function fitModel(b: Bounds, target: Size): Fit | null {
   const src = new Box3(new Vector3(b.min.x, b.min.y, b.min.z), new Vector3(b.max.x, b.max.y, b.max.z));
   let best: (Fit & { score: number }) | null = null;
@@ -34,7 +45,7 @@ export function fitModel(b: Bounds, target: Size): Fit | null {
       const scale = target.h / s3.y;
       const w = s3.x * scale, d = s3.z * scale;
       const error = (Math.abs(Math.log(w / target.w)) + Math.abs(Math.log(d / target.d))) / 2;
-      const score = error + penalty + (yaw ? 0.01 : 0);
+      const score = error + penalty + axisPenalty(target, s3) + (yaw ? 0.01 : 0);
       if (best && score >= best.score) continue;
       const c = box.getCenter(new Vector3());
       const e = new Euler().setFromQuaternion(q, "XYZ");

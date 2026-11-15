@@ -71,6 +71,9 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     : /\b(make|a bit|slightly|little)\b.*\b(bigger|larger)\b/.test(t) ? 1.2 : /\b(make|a bit|slightly|little)\b.*\bsmaller\b/.test(t) ? 0.8 : null;
   if (factor && factor > 0) return needTarget((id) => ({ op: "resize", id, scale: factor }));
 
+  // A model that loaded upside down or on its side: tip it over instead of spinning it.
+  if (/\bupside[- ]down\b|\bupright\b|\bflip (it |this |the \w+ )?over\b|\bright side up\b/.test(t)) return needTarget((id) => ({ op: "tip", id, axis: "x", degrees: 180 }));
+  if (/\b(on|onto) (its|it's|the) side\b|\blying (down|flat)\b|\bstand (it )?up\b/.test(t)) return needTarget((id) => ({ op: "tip", id, axis: "z", degrees: 90 }));
   if (/\b(rotate|turn|spin|flip)\b/.test(t)) {
     const deg = Number(t.match(/(-?\d{1,3})\s*(?:°|deg|degrees?)?/)?.[1] ?? NaN);
     const degrees = /\baround\b|\bflip\b/.test(t) ? 180 : Number.isFinite(deg) ? (/\bleft\b|counter/.test(t) ? -Math.abs(deg) : deg) : /\bleft\b|counter/.test(t) ? -90 : /\bslightly|a bit|a little\b/.test(t) ? 45 : 90;

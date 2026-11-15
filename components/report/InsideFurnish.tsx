@@ -196,6 +196,7 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
             <button type="button" aria-pressed={view === "2d"} disabled={!has2d} onClick={() => setView("2d")}><MapIcon aria-hidden="true" /> 2D plan</button>
             <button type="button" aria-pressed={view === "3d"} disabled={!show3d} onClick={() => setView("3d")}><Box aria-hidden="true" /> 3D tour</button>
           </div>
+          {offline && <p className="inside2-offline" role="status">The 3D tour needs internet; here&apos;s the measured plan.</p>}
           <span className="muted small">{view === "2d"
             ? approx ? "Rooms drawn as squares of their measured area (no wall outlines in this scan)." : "Measured from the scan. Tap a room to pick it."
             : plain ? "Basic tour: furniture is placed on the 2D plan." : "Drag furniture to move it. Furniture sizes are typical, not measured."}</span>
@@ -224,7 +225,6 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
               )}
             </div>
           )}
-          {offline && <p className="inside2-offline" role="status">The 3D tour needs internet; here&apos;s the measured plan.</p>}
           {show3d && opened3d && (
             <div className="inside2-3d guide-stage" style={view === "3d" ? undefined : { display: "none" }}>
               {plain ? (

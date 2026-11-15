@@ -12,12 +12,41 @@ export type Placed = {
   id: string; name: string; terms: string[]; size: Size; approxSize: boolean;
   model?: Model | null; // undefined: not looked up yet; null: no matching model, drawn as a labeled box
   pos: Vec; rotY: number; // degrees about the vertical axis
+  // Tipping, in 90° steps, for models that load upside down or on their side: pitch about the item's width axis
+  // (local x, "tip forward"), roll about its depth axis (local z, "tip sideways"). Missing = 0 (older saves).
+  pitch?: number; roll?: number;
   color?: string; material?: MaterialName;
   fitted?: Size; // size as rendered (the model's real proportions at the target height); used for picking and walls
 };
 export type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
-/** What the user sees: the rendered size once the model is fitted, else the target size. */
-export const dims = (p: Placed): Size => p.fitted ?? p.size;
+
+/** An angle snapped to a quarter turn, in [0, 360). */
+export const quarter = (deg?: number) => ((((Math.round((deg ?? 0) / 90) % 4) + 4) % 4) * 90);
+const tidy = (n: number) => (Math.abs(n) < 1e-9 ? 0 : n);
+/**
+ * An item's box (local x ∈ ±w/2, y ∈ [0, h], z ∈ ±d/2) tipped by pitch (about x), then roll (about z) — the matrix
+ * Rx(pitch)·Rz(roll), which is what the scene's "YXZ" Euler applies after the yaw. Returns the tipped box's extents
+ * (w across, d deep, h tall) and the local offset that puts its bottom-center back on the item's spot, so a flipped
+ * item stands on the floor instead of hanging through it.
+ */
+export function orient(size: Size, pitch = 0, roll = 0): { size: Size; offset: Vec } {
+  const p = (quarter(pitch) * Math.PI) / 180, r = (quarter(roll) * Math.PI) / 180;
+  const cp = Math.round(Math.cos(p)), sp = Math.round(Math.sin(p)), cr = Math.round(Math.cos(r)), sr = Math.round(Math.sin(r));
+  const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+  for (const x of [-size.w / 2, size.w / 2]) for (const y of [0, size.h]) for (const z of [-size.d / 2, size.d / 2]) {
+    const x1 = cr * x - sr * y, y1 = sr * x + cr * y; // roll about z
+    const v = { x: x1, y: cp * y1 - sp * z, z: sp * y1 + cp * z }; // then pitch about x
+    for (const k of ["x", "y", "z"] as const) { min[k] = Math.min(min[k], v[k]); max[k] = Math.max(max[k], v[k]); }
+  }
+  return {
+    size: { w: tidy(max.x - min.x), d: tidy(max.z - min.z), h: tidy(max.y - min.y) },
+    offset: { x: tidy(-(min.x + max.x) / 2), y: tidy(-min.y), z: tidy(-(min.z + max.z) / 2) },
+  };
+}
+/** What the user sees: the rendered size once the model is fitted, else the target size, as tipped. */
+export const dims = (p: Placed): Size => orient(p.fitted ?? p.size, p.pitch, p.roll).size;
+/** The same for a candidate size (a new model's fit) on an existing item's orientation. */
+export const dimsAs = (p: Placed, size: Size): Size => orient(size, p.pitch, p.roll).size;
 /** Where the user is and what they point at, read from the SDK when the ops are applied. */
 export type View = {
   camera: Vec; forward: { x: number; z: number }; floorY: number;
@@ -37,6 +66,8 @@ export const FurnishOp = z.discriminatedUnion("op", [
   z.object({ op: z.literal("add"), name: Name, terms: z.array(Name).max(4).optional(), size: z.object({ w: z.number(), d: z.number(), h: z.number() }).optional(), count: z.number().int().min(1).max(6).optional(), at: z.enum(ANCHORS).optional(), color: Paint.optional(), material: Paint.optional() }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
   z.object({ op: z.literal("rotate"), id: Id, degrees: z.number().min(-360).max(360) }),
+  // Tip over in quarter turns: x = forward/back (180 flips it upright), z = onto its side.
+  z.object({ op: z.literal("tip"), id: Id, axis: z.enum(["x", "z"]), degrees: z.number().min(-360).max(360).refine((d) => d % 90 === 0, "tip in 90° steps") }),
   z.object({ op: z.literal("remove"), id: Id }),
   z.object({ op: z.literal("recolor"), id: Id, color: Paint.optional(), material: Paint.optional() }).refine((o) => o.color || o.material, "give a color or a material"),
   z.object({ op: z.literal("swap"), id: Id, name: Name, terms: z.array(Name).max(4).optional() }),
@@ -190,13 +221,19 @@ export function applyFurnishOps(items: Placed[], raw: unknown[], view: View): Fu
       next = { ...cur, rotY, pos: settle(to.pos, dims(cur), rotY, view) };
     }
     if (op.op === "rotate") { const rotY = (((cur.rotY + op.degrees) % 360) + 360) % 360; next = { ...cur, rotY, pos: settle(cur.pos, dims(cur), rotY, view) }; }
+    if (op.op === "tip") {
+      const k = op.axis === "x" ? "pitch" : "roll";
+      const tipped = { ...cur, [k]: quarter((cur[k] ?? 0) + op.degrees) };
+      // Re-seat with the tipped footprint: inside the room and on the floor (the scene lifts it by orient().offset).
+      next = { ...tipped, pos: settle(cur.pos, dims(tipped), cur.rotY, view) };
+    }
     if (op.op === "resize") {
       const d = dims(cur);
       const k0 = op.scale ?? (op.w ? op.w / d.w : op.d ? op.d / d.d : op.h! / d.h);
       const size = underCeiling(clampSize({ w: cur.size.w * k0, d: cur.size.d * k0, h: cur.size.h * k0 }), roomAt(cur.pos, view)?.ceiling);
       const k = size.h / cur.size.h; // after clamping
       const fitted = cur.fitted && { w: cur.fitted.w * k, d: cur.fitted.d * k, h: cur.fitted.h * k };
-      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, fitted ?? size, cur.rotY, view) };
+      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, dimsAs(cur, fitted ?? size), cur.rotY, view) };
     }
     if (op.op === "remove") next = null;
     if (op.op === "swap") next = { ...cur, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], model: undefined };
