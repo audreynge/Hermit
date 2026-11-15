@@ -107,7 +107,7 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = Inf
     }
     if (spec.mode === "home") {
       const price = s.listing?.price;
-      // Meeting the room counts on record outweighs size and price.
+      // Room counts on record outweigh size and price; funnel() already removed records below the need.
       if (spec.beds != null && s.beds != null) { score += 25; reasons.push(`${s.beds} bedrooms on record (you need ${spec.beds})`); }
       if (spec.baths != null && s.baths != null) { score += 25; reasons.push(`${s.baths} bathrooms on record (you need ${spec.baths})`); }
       if (price && (spec.budgetTotal ?? spec.budgetMonthly) && price <= (spec.budgetTotal ?? spec.budgetMonthly)!) { score += 10; reasons.push(`$${price.toLocaleString()} within budget`); }

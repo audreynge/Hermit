@@ -47,7 +47,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first. (Scout.)",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
-  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Each row gives required room counts (rooms) and what's short (missing). Must-have failures, a missing bathroom or 2+ missing primary rooms are dropped automatically (dropped: true) unless fewer than 3 candidates would remain.",
+  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Each row gives required room counts (rooms) and what's short (missing). Must-have failures are dropped automatically (dropped: true). Rows with wouldDrop: true (a missing bathroom or 2+ missing primary rooms) are dropped at submit_reports unless fewer than 3 candidates would remain, in which case they are reported last.",
   consult_specialist: "Hand evaluated candidates to one specialist: code (zoning/parking/fire/power), access (corridor widths, floors, stairs; only useful if the user needs step-free access), systems (HVAC/power, hidden infrastructure), surveyor (aerial site check). A specialist veto removes the candidate.",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
@@ -82,7 +82,7 @@ export class Run {
   }
 
   counts(e: Evaluation) {
-    return roomCounts(this.spec, e.fit, !!e.graph);
+    return roomCounts(this.spec, e.fit, e.graph);
   }
 
   // Required room counts outrank everything: met, then unconfirmed, then short (fewest missing first); score breaks ties.
@@ -240,11 +240,10 @@ export class Run {
       const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, lines, finalScore: 0, escalations: [], verdicts: [], similarity };
       rescore(e);
       this.evaluated.set(id, e);
-      // Must-haves and a far-too-small measured area drop here; required room counts are enforced across the batch below.
+      // Must-haves and a far-too-small measured area drop here; required room counts are enforced at submit, after every veto.
       if (!this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")))) fresh.push(e);
       return [e];
     });
-    this.enforceCounts();
     for (const e of fresh) if (!this.dropped.has(e.shell.id)) this.verdict(consult("inspector", this.spec, e), e);
     const rows = seen.map((e) => this.row(e));
     return { result: { rows }, summary: `Inspector walked ${rows.filter((r) => r.scan).length} scans (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
@@ -306,7 +305,7 @@ export class Run {
     const counts = this.counts(e);
     return {
       id: e.shell.id, name: displayName(e.shell.name), dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
-      rooms: e.graph ? countLine(this.spec, counts) : "no scan: room counts unconfirmed", missing: shortfalls(this.spec, counts),
+      rooms: e.graph ? countLine(this.spec, counts) : "no scan: room counts unconfirmed", missing: shortfalls(this.spec, counts), wouldDrop: severe(counts),
       hardFails: e.fit.hardFails, roomUnknowns: e.fit.unknowns, ruleFails: e.rules.filter((r) => r.status === "fail").map((r) => r.rule),
       unknowns: e.rules.filter((r) => r.status === "unknown").map((r) => r.rule),
       unverifiedFixtures: unverifiedFixtures(this.spec, e),
@@ -421,9 +420,14 @@ export class Run {
       this.emit({ type: "handoff", id: rid("ev"), to: agent, shellIds: missed, why: `Hermit's rule: ${AGENTS[agent].name} reviews every finalist before a report goes out` });
       for (const id of missed) this.verdict(consult(agent, this.spec, this.evaluated.get(id)!), this.evaluated.get(id)!);
     }
+    this.enforceCounts();
     // The planner picks which spaces to report; rank follows room counts, then the evidence score.
-    const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id))
-      .sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
+    const picked = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id));
+    // Short spaces kept only because fewer than 3 would remain still go out, last, saying what's missing.
+    if (picked.length < 3) picked.push(...[...this.evaluated.values()]
+      .filter((e) => !this.dropped.has(e.shell.id) && !picked.includes(e.shell.id) && severe(this.counts(e)))
+      .sort(this.byRoomFit).slice(0, 3 - picked.length).map((e) => e.shell.id));
+    const chosen = picked.sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
     if (ids.length && !chosen.length && !ids.some((id) => this.vetoes.has(id))) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped/vetoed); call evaluate_candidates first`);
     for (const id of chosen) {
       const e = this.evaluated.get(id)!;
@@ -437,13 +441,19 @@ export class Run {
       const top = displayName(this.evaluated.get(chosen[0])!.shell.name), scout = displayName(first.shell.name);
       const skeptic = this.swappedFrom === first.shell.id;
       const firstEval = this.evaluated.get(first.shell.id);
-      const short = firstEval && !this.dropped.has(first.shell.id) ? shortfalls(this.spec, this.counts(firstEval))[0] : undefined;
+      const topEval = this.evaluated.get(chosen[0])!;
+      const roomsWin = firstEval && !this.dropped.has(first.shell.id) && (() => {
+        const a = this.counts(topEval), b = this.counts(firstEval);
+        const miss = (c: typeof a) => c.reduce((s, x) => s + missingOf(x), 0);
+        return countTier(a) < countTier(b) || miss(a) < miss(b);
+      })();
+      const short = roomsWin ? shortfalls(this.spec, this.counts(firstEval!))[0] ?? countLine(this.spec, this.counts(firstEval!)) : undefined;
       this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: skeptic
         ? `The Skeptic flagged a possible exclusive conflict at the Scout's first pick, ${scout}. ${top} takes the top spot.`
         : veto
         ? `${AGENTS[veto.agent].name} vetoed the Scout's first pick, ${scout} (${veto.headline.charAt(0).toLowerCase()}${veto.headline.slice(1)}). ${top} takes the top spot.`
         : this.dropped.has(first.shell.id) ? `The Scout's first pick, ${scout}, was dropped. ${top} takes the top spot.`
-        : short ? `${top} has more of the rooms you need. The Scout's first pick, ${scout}, ${short.charAt(0).toLowerCase()}${short.slice(1)}.`
+        : short ? `${top} has more of the rooms you need already built. The Scout's first pick, ${scout}: ${short.charAt(0).toLowerCase()}${short.slice(1)}.`
         : `After walking the scans, ${top} outscored the Scout's first pick, ${scout}.` });
     }
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
@@ -513,19 +523,20 @@ export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string
   return [...out];
 }
 
-// Bedrooms and baths typed as numbers override the pack's room counts; a half bath is still a room.
-// One bathroom line only: the user's "restroom" must not stack with the pack's "bathroom".
+// Bedrooms and baths typed as numbers override the pack's counts (0 = none required, e.g. a studio); a half bath is
+// still a room. Pack bathroom lines step aside when the user named their own, so "restroom" never stacks on "bathroom".
 function withRecordCounts(spec: RequirementSpec, rooms: RoomReq[]): RoomReq[] {
-  const firstBath = rooms.findIndex((r) => isBathroom(r.label));
-  const out = rooms.filter((r, i) => i === firstBath || !isBathroom(r.label));
-  const set = (match: (label: string) => boolean, label: string, n: number) => {
-    if (!n) return;
-    const i = out.findIndex((r) => match(r.label));
-    if (i < 0) out.push({ label, count: n, hard: false });
-    else out[i] = { ...out[i], count: n };
+  const mine = spec.rooms.length;
+  const userBath = rooms.slice(0, mine).some((r) => isBathroom(r.label));
+  let out = rooms.filter((r, i) => i < mine || !userBath || !isBathroom(r.label));
+  const set = (match: (label: string) => boolean, label: string, n: number | undefined) => {
+    if (n == null) return;
+    const first = out.find((r) => match(r.label));
+    out = out.filter((r) => !match(r.label));
+    if (n > 0) out.push({ ...(first ?? { hard: false }), label: first?.label ?? label, count: n });
   };
-  set(isBathroom, "bathroom", spec.baths ? Math.ceil(spec.baths) : 0);
-  set((l) => normalizeRoomLabel([l]) === "bedroom", "bedroom", spec.beds ?? 0);
+  set(isBathroom, "bathroom", spec.baths == null ? undefined : Math.ceil(spec.baths));
+  set((l) => normalizeRoomLabel([l]) === "bedroom", "bedroom", spec.beds);
   return out;
 }
 

@@ -35,7 +35,7 @@ describe("buildReport inquiry for a wheelchair user", () => {
 
 describe("buildReport room counts", () => {
   const biz: RequirementSpec = { mode: "business", city: "houston", useType: "dental clinic", rooms: [{ label: "exam room", count: 2, hard: false }, { label: "restroom", count: 2, hard: false }], needs: {}, priorities: {}, input: "survey" };
-  const g = { sid: "S", name: "S", totalAreaSqft: 600, rooms: [], edges: [], objects: [], panoCount: 1, floorCount: 1 };
+  const g = { sid: "S", name: "S", totalAreaSqft: 600, rooms: ["a", "b", "w", "v"].map((id) => ({ id, label: id < "c" ? "exam room" : "bathroom", rawTags: [], areaSqft: 100, polygon: [], floorId: "f" })), edges: [], objects: [], panoCount: 1, floorCount: 1 };
   const withFit = (assignment: { req: string; roomId: string | null; cost: number }[], unknowns: string[] = []): Evaluation =>
     ({ ...evaluation([]), shell: { ...shell, mode: "business" }, graph: g, finalScore: 85, fit: { score: 85, assignment, edits: [], breakdown: {}, hardFails: [], unknowns } });
 

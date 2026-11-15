@@ -71,7 +71,7 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
     });
     const asIs = credit.filter((c) => c === 1).length, partial = credit.filter((c) => c === 0.5).length;
     const missing = credit.length - asIs - partial;
-    const tally = countLine(spec, roomCounts(spec, fit, true));
+    const tally = countLine(spec, roomCounts(spec, fit, graph));
     lines.push({ factor: "Rooms already built", earned: Math.round((30 * credit.reduce((s: number, c) => s + c, 0)) / credit.length), max: 30,
       note: `${tally ? `${tally}. ` : ""}${asIs} ready as-is, ${partial} need changes, ${missing} not found of ${credit.length} rooms`, source: `matterport ${graph.sid} room graph` });
   } else lines.push({ factor: "Rooms already built", earned: 0, max: 30, note: graph ? "No rooms requested" : "Record-only: no scan to walk", source: graph ? "spec" : "none" });
@@ -90,7 +90,7 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
   lines.push({ factor: "Code and site screens", earned: Math.max(0, 20 - fails * 8 - warns * 3 - unk), max: 20, note: `${fails} fail, ${warns} warn, ${unk} unknown`, source: "rules/screening.json" });
 
   const sum = lines.reduce((s, l) => s + l.earned, 0);
-  const short = graph ? shortfalls(spec, roomCounts(spec, fit, true)) : [];
+  const short = graph ? shortfalls(spec, roomCounts(spec, fit, graph)) : [];
   const cap = fit.hardFails[0] ?? short[0];
   if (cap && sum > 40) lines.push({ factor: fit.hardFails.length ? "Hard fail cap" : "Missing rooms you need", earned: 40 - sum, max: 0, note: cap, source: graph ? `matterport ${graph.sid}` : "spec" });
   return lines;
@@ -145,7 +145,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
     .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }))];
   for (const f of regs) if (f.certainty === "applies") raw.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
-  const counts = roomCounts(spec, fit, !!graph);
+  const counts = roomCounts(spec, fit, graph);
   const short = shortfalls(spec, counts);
   for (const c of counts) if (graph && missingOf(c) > 0) raw.push({ topic: "rooms", question: `The 3D tour shows ${c.have || "no"} ${roomNoun(spec, c, c.have || 2)} and I need ${c.need}. Is there another one the scan missed, or space to add it?` });
   for (const u of fit.unknowns) raw.push({ topic: "room", question: `Can you confirm ${u.split(":")[0].replace(/ #\d+$/, "")} access within or next to the suite?` });

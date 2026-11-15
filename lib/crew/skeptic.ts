@@ -27,7 +27,7 @@ export function concerns(spec: RequirementSpec, e: Evaluation, site: SiteFile | 
   if (WALK_IN.has(use) && site && !site.traffic) out.push({ text: "No traffic count nearby, so passing traffic is unproven.", weight: 1, source: site.traffic === null ? "TxDOT / Caltrans" : "none" });
   const soon = spec.moveInBy === "asap" || spec.moveInBy === "1-3m";
   if (soon && e.work.weeksToOpen[1] > 14) out.push({ text: `You want to open soon, but this needs up to ${e.work.weeksToOpen[1]} weeks.`, weight: 2, source: "work estimate" });
-  if (e.graph) for (const s of shortfalls(spec, roomCounts(spec, e.fit, true))) out.push({ text: `${s}.`, weight: 2, source: "Matterport room graph" });
+  if (e.graph) for (const s of shortfalls(spec, roomCounts(spec, e.fit, e.graph))) out.push({ text: `${s}.`, weight: 2, source: "Matterport room graph" });
   if (e.fit.unknowns.length >= 2) out.push({ text: `${e.fit.unknowns.length} rooms you need couldn't be identified from the scan's room labels.`, weight: 1, source: "Matterport room graph" });
   if (!e.graph) out.push({ text: "No 3D scan, so nothing inside has been seen.", weight: 2, source: "none" });
   return out;

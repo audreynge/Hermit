@@ -56,7 +56,7 @@ const SPECIALISTS: Record<AgentId, (spec: RequirementSpec, e: Evaluation) => Out
     if (!g) return { status: "unknown", headline: "Record-only: no room scan to walk", claims: [], questions: ["Is there a 3D tour or floor plan of the space?"] };
     const claims: Claim[] = [{ text: `${g.rooms.length} measured rooms, ${Math.round(g.totalAreaSqft).toLocaleString()} sf net floor area`, evidence: [scanRef(e, "rooms[].dimensions.areaFloor", 0.85)] }];
     const matched = e.fit.assignment.filter((a) => a.roomId).length;
-    const counts = roomCounts(spec, e.fit, true);
+    const counts = roomCounts(spec, e.fit, g);
     const short = shortfalls(spec, counts);
     if (counts.length) claims.push({ text: countLine(spec, counts), evidence: [scanRef(e, "room labels (Hungarian assignment)", 0.7)] });
     if (e.fit.assignment.length) claims.push({ text: `${matched} of ${e.fit.assignment.length} rooms you need map onto measured rooms`, evidence: [scanRef(e, "room graph (Hungarian assignment)", 0.7)] });

@@ -211,7 +211,7 @@ describe("deterministic agent", () => {
 
 describe("required room counts", () => {
   const two = (sid: string, baths: number, exams = 3) => graph(sid, [
-    ...Array.from({ length: exams }, (_, i) => room(`${sid}e${i}`, "office", 120)),
+    ...Array.from({ length: exams }, (_, i) => room(`${sid}e${i}`, "exam room", 120)),
     ...Array.from({ length: baths }, (_, i) => room(`${sid}b${i}`, "bathroom", 50)),
     room(`${sid}s`, "storage", 40), room(`${sid}r`, "reception", 300),
   ]);
@@ -244,6 +244,30 @@ describe("required room counts", () => {
     expect(p.summary).toMatch(/1 of 2 restrooms already built.*Missing: Has 1 restroom; you need 2\./);
     expect(p.unknowns[0].question).toMatch(/shows 1 restroom and I need 2/);
     expect(reports.find((r) => r.shellId === "R")!.summary).toMatch(/Missing: Has 1 exam room; you need 3/);
+  });
+
+  it("decides count drops after every veto, so vetoes can't leave fewer than 3 when a short space could stay", async () => {
+    const needKitchen = { ...need2, rooms: [...need2.rooms, { label: "kitchen", count: 1, hard: true }] };
+    const withKitchen = (g: RoomGraph) => ({ ...g, rooms: [...g.rooms, room(`${g.sid}k`, "kitchen", 80)] });
+    const graphs = { P: withKitchen(two("P", 1)), Q: withKitchen(two("Q", 2)), R: two("R", 2), S: two("S", 2) };
+    const events: TraceEvent[] = [];
+    await runAgent(needKitchen, (e) => events.push(e), { shells: () => ["P", "Q", "R", "S"].map((id) => shell(id)), graph: (sid) => graphs[sid as keyof typeof graphs] ?? null });
+    expect(events.filter((e) => e.type === "veto").map((e) => (e as { shellId: string }).shellId).sort()).toEqual(["R", "S"]);
+    expect(events.some((e) => e.type === "drop" && e.shellId === "P")).toBe(false);
+    const reports = (events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports.map((r) => r.shellId)).toEqual(["Q", "P"]);
+    expect(reports[1].verdict).toBe("Short on rooms");
+  });
+
+  it("treats beds: 0 as a studio, not the home pack's 2 bedrooms", async () => {
+    const studio = graph("H", [room("l", "living", 300), room("k", "kitchen", 80), room("w", "bathroom", 50)]);
+    const events: TraceEvent[] = [];
+    const home = shell("H", { mode: "home", useTags: ["home"], propertyType: "Residential", subtype: "Residential" });
+    await runAgent({ ...spec, mode: "home", useType: "home", sizeSqft: undefined, beds: 0, baths: 1, needs: {}, rooms: [] }, (e) => events.push(e), { shells: () => [home], graph: (sid) => (sid === "H" ? studio : null) });
+    const r = (events.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports[0];
+    expect(r.reasons[0]).toBe("1 of 1 bathroom already built");
+    expect(r.summary).not.toMatch(/bedroom/);
+    expect(r.verdict).not.toBe("Short on rooms");
   });
 
   it("ranks a space with every count met above a higher-scoring one that is short a single exam room", async () => {

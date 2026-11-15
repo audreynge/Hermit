@@ -60,19 +60,20 @@ describe("fit", () => {
 
   it("reports a missing bathroom as a count shortfall, not a hard fail, and never fills it with a closet", () => {
     const s = spec([{ label: "restroom", count: 1, hard: true }]);
-    const r = fit(s, graph([room("r1", "office", 150), room("c", "storage", 40), room("x", "other", 30)]));
+    const g = graph([room("r1", "office", 150), room("c", "storage", 40), room("x", "other", 30)]);
+    const r = fit(s, g);
     expect(r.assignment[0].roomId).toBeNull();
     expect(r.hardFails).toEqual([]);
-    const counts = roomCounts(s, r, true);
+    const counts = roomCounts(s, r, g);
     expect(shortfalls(s, counts)).toEqual(["Has no restrooms; you need 1"]);
     expect(severe(counts)).toBe(true);
   });
 
   it("states real counts: 3 of 3 exam rooms, 1 of 2 restrooms", () => {
     const s = spec([{ label: "exam room", count: 3, hard: false }, { label: "restroom", count: 2, hard: false }, { label: "reception", count: 1, hard: false }]);
-    const g = graph([room("a", "office", 120), room("b", "office", 120), room("c", "office", 120), room("w", "bathroom", 50), room("cl", "storage", 30), room("r", "reception", 300)]);
+    const g = graph([room("a", "exam room", 120), room("b", "exam room", 120), room("c", "exam room", 120), room("w", "bathroom", 50), room("cl", "storage", 30), room("r", "reception", 300)]);
     const r = fit(s, g);
-    const counts = roomCounts(s, r, true);
+    const counts = roomCounts(s, r, g);
     expect(countLine(s, counts)).toBe("3 of 3 exam rooms, 1 of 2 restrooms already built");
     expect(shortfalls(s, counts)).toEqual(["Has 1 restroom; you need 2"]);
     expect(r.assignment.find((a) => a.roomId === "cl")).toBeUndefined();
@@ -81,18 +82,39 @@ describe("fit", () => {
 
   it("fills primary rooms before lesser rooms when the scan is short on rooms", () => {
     const s = spec([{ label: "exam room", count: 2, hard: false }, { label: "reception", count: 1, hard: false }, { label: "storage", count: 1, hard: false }]);
-    const r = fit(s, graph([room("a", "office", 120), room("b", "office", 120)]));
-    expect(shortfalls(s, roomCounts(s, r, true))).toEqual([]);
+    const g = graph([room("a", "exam room", 120), room("b", "office", 120)]);
+    const r = fit(s, g);
+    const counts = roomCounts(s, r, g);
+    expect(shortfalls(s, counts)).toEqual([]);
+    expect(counts[0]).toMatchObject({ have: 1, convert: ["office"] });
+  });
+
+  it("counts a substitute room as to convert, not built", () => {
+    const s = spec([{ label: "bedroom", count: 2, hard: false }], { mode: "home", useType: "home" });
+    const g = graph([room("b", "bedroom", 150), room("l", "living", 300)]);
+    const counts = roomCounts(s, fit(s, g), g);
+    expect(counts[0]).toMatchObject({ have: 1, convert: ["living room"] });
+    expect(countLine(s, counts)).toBe("1 of 2 bedrooms already built; the living room could become the second");
+    expect(countTier(counts)).toBe(1);
+    expect(severe(counts)).toBe(false);
+  });
+
+  it("sums separate bathroom lines and skips zero counts", () => {
+    const s = spec([{ label: "bathroom", count: 1, hard: false }, { label: "powder room", count: 1, hard: false }, { label: "exam room", count: 0 as never, hard: false }]);
+    const g = graph([room("w", "bathroom", 50), room("p", "bathroom", 30)]);
+    const counts = roomCounts(s, fit(s, g), g);
+    expect(countLine(s, counts)).toBe("2 of 2 restrooms already built");
   });
 
   it("treats counts as unknown, never met, without a readable scan", () => {
     const s = spec([{ label: "bathroom", count: 2, hard: false }]);
-    const sparse = fit(s, graph([room("r1", "other", 150), room("r2", "other", 140), room("r3", "office", 120)]));
-    const counts = roomCounts(s, sparse, true);
+    const sg = graph([room("r1", "other", 150), room("r2", "other", 140), room("r3", "office", 120)]);
+    const sparse = fit(s, sg);
+    const counts = roomCounts(s, sparse, sg);
     expect(counts[0]).toMatchObject({ have: 0, unknown: 2 });
     expect(shortfalls(s, counts)).toEqual([]);
     expect(countTier(counts)).toBe(1);
-    expect(countTier(roomCounts(s, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, false))).toBe(1);
+    expect(countTier(roomCounts(s, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, null))).toBe(1);
   });
 
   it("keeps a required room unknown, not failed, when the scan's labels are too sparse to tell", () => {

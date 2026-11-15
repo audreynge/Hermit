@@ -26,7 +26,7 @@ export function checkReport(spec: RequirementSpec, r: ShellReport): Verification
     else if ((!hit || hit.status === "unknown") && !r.unknowns.some((u) => u.topic === m.rule.replace(/_/g, " "))) issues.push(`${m.need} is unverified and has no landlord question`);
   }
   for (const f of r.fit.hardFails) violations.push(f);
-  if (r.floorplan) violations.push(...shortfalls(spec, roomCounts(spec, r.fit, true)));
+  if (r.floorplan) violations.push(...shortfalls(spec, roomCounts(spec, r.fit, r.floorplan ?? null)));
   for (const h of r.rules) if ((h.status === "pass" || h.status === "fail") && !h.evidence.length) issues.push(`${h.rule} ${h.status} has no cited record`);
   for (const w of r.work) if (!w.source) issues.push(`work item "${w.item}" has no source`);
   if (r.badge === "scan-verified" && !r.floorplan) issues.push("labelled scan-verified without a room graph");
@@ -52,10 +52,10 @@ export type Auditor = { name: string; audit: (prompt: string) => Promise<AuditRe
 export const auditInput = (spec: RequirementSpec, reports: ShellReport[]) => JSON.stringify({
   mustHaves: mustHaves(spec).map((m) => m.need),
   requiredRooms: spec.rooms.filter((r) => r.hard).map((r) => r.label),
-  requiredRoomCounts: needLine(spec, roomCounts(spec, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, false)),
+  requiredRoomCounts: needLine(spec, roomCounts(spec, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, null)),
   reports: reports.map((r) => ({
     shellId: r.shellId, verdict: r.verdict, summary: r.summary, badge: r.badge, hardFails: r.fit.hardFails,
-    roomCounts: r.floorplan ? countLine(spec, roomCounts(spec, r.fit, true)) : "no scan: unconfirmed", shortRooms: r.floorplan ? shortfalls(spec, roomCounts(spec, r.fit, true)) : [],
+    roomCounts: r.floorplan ? countLine(spec, roomCounts(spec, r.fit, r.floorplan ?? null)) : "no scan: unconfirmed", shortRooms: r.floorplan ? shortfalls(spec, roomCounts(spec, r.fit, r.floorplan ?? null)) : [],
     rules: r.rules.filter((h) => !h.rule.startsWith("reg_")).map((h) => ({ rule: h.rule, status: h.status, detail: h.detail, evidence: h.evidence.map((e) => `${e.source}: ${e.ref}`) })),
     unknowns: r.unknowns.map((u) => u.question),
   })),
