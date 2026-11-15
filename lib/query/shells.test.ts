@@ -71,6 +71,23 @@ describe("searchShells", () => {
     expect(out.stages.find((st) => st.key === "baths")!.removed[0].reason).toBe("Has 1 bathroom; you need 2");
   });
 
+  it("lifts a scan that is itself a medical suite, and scores size from the nearest edge of the range", () => {
+    // The x37 case: a medical scan measured 3,742 sf for a 1,500-3,500 sf ask used to sink below office suites.
+    const med = s("med", { sid: "m", kind: "medical", scanClass: "healthcare", useTags: ["medical", "office"], measuredSqft: 3742 });
+    const offices = Array.from({ length: 8 }, (_, i) => s(`o${i}`, { sid: `o${i}`, kind: "suite", useTags: ["medical", "office"], scanClass: "workspace", sqft: 2500, listing: { listingId: i, status: "active" } }));
+    const r = searchShells(spec({ sizeSqft: [1500, 3500] }), [...offices, med]).results;
+    expect(r.findIndex((x) => x.shell.id === "med")).toBeLessThan(8);
+    expect(r.find((x) => x.shell.id === "med")!.reasons).toContain("The scan is a medical suite");
+  });
+
+  it("quotes Matterport's classification only when it matches the use", () => {
+    const work = searchShells(spec(), [s("w", { sid: "w", useTags: ["medical"], scanClass: "workspace" })]).results[0];
+    expect(work.reasons.join(" ")).not.toMatch(/Matterport classifies/);
+    expect(work.reasons).toContain("Prior use matches (medical)");
+    const care = searchShells(spec(), [s("h", { sid: "h", useTags: ["medical"], scanClass: "healthcare" })]).results[0];
+    expect(care.reasons).toContain("Matterport classifies the scan as healthcare");
+  });
+
   it("keeps a shell with unknown size but says so", () => {
     const r = searchShells(spec({ sizeSqft: [2000, 3000] }), [s("nosize", { sid: "q" })]).results;
     expect(r[0].reasons.join(" ")).toMatch(/size unknown/i);
