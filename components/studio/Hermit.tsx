@@ -11,6 +11,7 @@ import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
 import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/blocks";
 import type { Block } from "@/lib/spec/parse";
 import { searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
+import { tidyReport } from "@/lib/agent/report";
 import { isLayoutEdit, localCommand, type LocalCommand } from "@/lib/chat/commands";
 import { chatAsked, type ChatState, type Turn } from "@/lib/chat/converse";
 import { validateUpload } from "@/lib/design/extract";
@@ -69,6 +70,7 @@ export function Hermit() {
   const [reports, setReports] = useState<ShellReport[]>([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [recorded, setRecorded] = useState(false); // the run event says this is a recorded replay
   const [viewIndex, setViewIndex] = useState<number | null>(null);
   const started = useRef(false);
   // Follow-ups run through the chat brain (/api/chat), which needs a server-side conversation.
@@ -132,7 +134,7 @@ export function Hermit() {
           const line = p.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
           const e = JSON.parse(line.slice(6)) as TraceEvent;
-          if (e.type === "run") { setRunId(e.runId); if (e.spec) setIv((x) => ({ ...x, spec: e.spec as Draft })); continue; }
+          if (e.type === "run") { setRunId(e.runId); setRecorded(!!e.replay); if (e.spec) setIv((x) => ({ ...x, spec: e.spec as Draft })); continue; }
           setEvents((x) => [...x, e]);
           if (e.type === "report") setReports(e.reports);
         }
@@ -424,7 +426,7 @@ export function Hermit() {
             <>
               <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
                 onOpen={(r) => setViewIndex(reports.indexOf(r))} design={blocks} viewIndex={viewIndex} onViewIndex={setViewIndex} />
-              <CrewTrace events={events} running={running} useLabel={(spec.useType || "space").toLowerCase()} />
+              <CrewTrace events={events} running={running} recorded={recorded} useLabel={(spec.useType || "space").toLowerCase()} />
               <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
                 <summary>Edit your layout</summary>
                 {studio}
@@ -438,7 +440,7 @@ export function Hermit() {
           )}
         </div>
       </div>
-      {emailReport && <EmailDraft report={emailReport} onClose={() => setEmailFor(null)} />}
+      {emailReport && <EmailDraft report={tidyReport(emailReport, runSpec)} onClose={() => setEmailFor(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </div>
   );

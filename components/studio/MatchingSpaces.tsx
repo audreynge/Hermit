@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { savedShells, toggleSaved } from "@/lib/client/persist";
 import type { Block } from "@/lib/spec/parse";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
+import { openingWeeks, openLine } from "@/lib/uses/rooms";
 import { isBuying, ParcelInfo } from "../ParcelInfo";
 import { PropertyViewer } from "../PropertyViewer";
 import { ResultsMap } from "../ResultsMap";
@@ -56,7 +57,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
               extra={
                 <div className="space-crew">
                   <div className="space-verdict">
-                    <p><strong>{r.verdict}.</strong> About <span className="num">{r.weeksToOpen[0]}–{r.weeksToOpen[1]}</span> weeks to open.</p>
+                    <p><strong>{r.verdict}.</strong> {openLine(openingWeeks(r, spec), spec.mode === "home")}</p>
                   </div>
                   {r.conflicts?.[0] && <p className="postcard-flag" role="note">Heads up: {r.conflicts[0].name} ({r.conflicts[0].what}) is {r.conflicts[0].where}. Possible exclusive.</p>}
                 </div>

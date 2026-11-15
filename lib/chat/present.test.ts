@@ -84,7 +84,7 @@ describe("summarizeResults", () => {
   it("writes the chat reply naming the best fit and offering next steps", () => {
     const s = summarizeResults([report(), report({ shellId: "B", name: "Suite 400", matchScore: 87 })], spec, { considered: 240, dropped: 6 });
     expect(s.paragraphs).toHaveLength(1);
-    expect(s.paragraphs[0]).toMatch(/2 strong matches.*Houston.*Suite 1202/);
+    expect(s.paragraphs[0]).toMatch(/2 matches.*Houston.*Suite 1202/);
     expect(s.paragraphs[0]).not.toMatch(/240|%/);
     expect(s.paragraphs[0]).toMatch(/1,650 sq ft/);
     expect(s.followUp).toMatch(/compare the layouts/);
@@ -185,7 +185,7 @@ describe("compareRows", () => {
     const rows = compareRows([report(), report({ shellId: "B", name: "Suite 400", matchScore: 80, weeksToOpen: [8, 20], costRange: [20000, 60000] })]);
     expect(rows.map((r) => r.label)).toEqual(["Size", "Rooms already built", "Weeks to open", "Known work", "Parking"]);
     expect(rows.flatMap((r) => r.values).some((v) => v.includes("%"))).toBe(false);
-    expect(rows[2].values).toEqual(["1–4", "8–20"]);
+    expect(rows[2].values).toEqual(["4–6", "4–6"]); // the opening plan (lib/crew/planner.ts), not the build-only estimate
   });
 
   it("names the layout-matching step when the agent compared a drawing", () => {

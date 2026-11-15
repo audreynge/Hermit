@@ -231,7 +231,8 @@ describe("required room counts", () => {
     expect(drop?.reason).toBe("Suite P, P Main St: has 1 restroom; you need 2.");
     const reports = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
     expect(reports.map((r) => r.shellId)).not.toContain("P");
-    expect(reports[0].summary).toMatch(/^3 of 3 exam rooms, 2 of 2 restrooms already built/);
+    expect(reports[0].summary).toMatch(/^\d+ of \d+ rooms already built\./);
+    expect(reports[0].summary).not.toMatch(/Missing/);
     expect(reports[0].reasons[0]).toBe("3 of 3 exam rooms, 2 of 2 restrooms already built");
   });
 
@@ -243,7 +244,7 @@ describe("required room counts", () => {
     expect(reports[0].verdict).not.toBe("Short on rooms");
     const p = reports.find((r) => r.shellId === "P")!;
     expect(p.verdict).toBe("Short on rooms");
-    expect(p.summary).toMatch(/1 of 2 restrooms already built.*Missing: Has 1 restroom; you need 2\./);
+    expect(p.summary).toMatch(/rooms already built\. Missing: Has 1 restroom; you need 2\./);
     expect(p.unknowns[0].question).toMatch(/shows 1 restroom and I need 2/);
     expect(reports.find((r) => r.shellId === "R")!.summary).toMatch(/Missing: Has 1 exam room; you need 3/);
   });

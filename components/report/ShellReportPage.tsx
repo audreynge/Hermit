@@ -2,8 +2,10 @@
 import { ArrowLeft, Box, FileSignature, Heart, LayoutDashboard, MapPinned, MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { tidyReport } from "@/lib/agent/report";
 import { isSaved, toggleSaved } from "@/lib/client/persist";
+import { sizeText } from "@/lib/uses/rooms";
 import type { PlanStep } from "@/lib/crew/planner";
 import type { SiteFile } from "@/lib/neighborhood/types";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
@@ -33,14 +35,18 @@ const toTab = (t?: string | null): TabId => (t && (LEGACY[t] ?? TABS.find((x) =>
 const PANELS = { overview: Overview, inside: InsideFurnish, neighborhood: Neighborhood, lease: Lease, broker: Broker };
 
 export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: string }) {
-  const { report, runId, spec } = props;
+  const { runId, spec, plan } = props;
+  // Older recorded runs: drop questions the scan photos already answered and repeats, and use the opening plan's weeks
+  // (the same number the cards and the chat show).
+  const report = useMemo(() => ({ ...tidyReport(props.report, spec), weeksToOpen: plan.total }), [props.report, spec, plan.total]);
   // The URL is the source of truth so links and go() (replaceState) both switch tabs.
   const params = useSearchParams();
   const tab = toTab(params.get("tab") ?? props.initialTab);
   const [saved, setSaved] = useState(false);
   useEffect(() => { setSaved(isSaved(report.shellId)); }, [report.shellId]);
   const go = (t: TabId | string) => { window.scrollTo({ top: 0 }); history.replaceState(null, "", `?run=${runId}&tab=${toTab(t)}`); };
-  const ctx: ReportCtx = { ...props, go };
+  const ctx: ReportCtx = { ...props, report, go };
+  const size = sizeText(report);
   const Panel = PANELS[tab];
   const labelFor = (id: TabId, label: string) => (id === "broker" && spec.mode === "home" ? "Talk to the landlord" : label);
   return (
@@ -49,8 +55,8 @@ export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: st
         <div>
           <p className="back"><Link href="/studio"><ArrowLeft aria-hidden="true" className="inline-icon" /> See other matches</Link></p>
           <h1>{report.name}</h1>
-          <p className="muted">{report.address || "Address not in the index"}{report.sqft ? ` · ${report.sqft.toLocaleString()} sf` : ""}
-            {" "}<span className={`stamp-inline small ${report.badge === "scan-verified" ? "ok" : "rec"}`}>{report.badge === "scan-verified" ? "Scan-verified" : "Record-only"}</span></p>
+          <p className="muted">{report.address || "Address not in the index"}{size ? ` · ${size}` : ""}
+            {" "}<span className={`stamp-inline small ${report.badge === "scan-verified" ? "ok" : "rec"}`}>{report.badge === "scan-verified" ? "3D scan" : "Records only"}</span></p>
         </div>
         <button type="button" className="btn" aria-pressed={saved} onClick={() => setSaved(toggleSaved(report, runId))}><Heart aria-hidden="true" fill={saved ? "currentColor" : "none"} /> {saved ? "Saved" : "Save"}</button>
       </header>
