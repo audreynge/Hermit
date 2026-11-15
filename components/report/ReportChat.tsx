@@ -77,7 +77,8 @@ export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit 
   async function doFurnish(q: string): Promise<string> {
     if (!report.inside?.sid) return "This space has no 3D scan, so there's nothing to furnish.";
     if (tab !== "inside") go("inside");
-    const api = await waitFor(() => (furnish.current?.ready ? furnish.current : null));
+    const api = await waitFor(() => (furnish.current?.ready || furnish.current?.failed ? furnish.current : null));
+    if (api?.failed) return "The 3D furnishing tour couldn't start here, so only the basic tour is showing and I can't place furniture in it.";
     return api ? api.send(q) : "The 3D tour didn't load, so I couldn't place that. Try again in a moment.";
   }
 

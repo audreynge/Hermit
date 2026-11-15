@@ -21,7 +21,7 @@ type Room = NonNullable<View["room"]>;
 type Status = "searching" | "loading" | "ready" | "none" | "failed";
 type Tab = "suggested" | "placed" | "search";
 // What the floating Hermit chat uses to furnish: send a request, get Hermit's reply back.
-export type FurnishApi = { ready: boolean; send: (text: string) => Promise<string>; describe: () => string };
+export type FurnishApi = { ready: boolean; failed?: true; send: (text: string) => Promise<string>; describe: () => string }; // failed: the basic tour is showing instead
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
@@ -56,6 +56,12 @@ const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, 
 const M_PER_FT = 0.3048;
 type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
+/** "2 × bookshelf, desk": the item names in a list of add ops, counted. */
+const countNames = (ops: object[]) => {
+  const c = new Map<string, number>();
+  for (const o of ops) { const n = (o as { name?: string }).name; if (n) c.set(n, (c.get(n) ?? 0) + 1); }
+  return [...c].map(([n, k]) => (k > 1 ? `${k} × ${n}` : n)).join(", ");
+};
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
 export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { report: ShellReport; use: string; chairIn?: number; stop?: number; onFail: () => void; api?: React.MutableRefObject<FurnishApi | null> }) {
@@ -72,6 +78,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   const floorY = useRef(0), pointer = useRef<Vec | undefined>(undefined); // last floor spot under the cursor ("here")
   const lookingUp = useRef(new Set<string>());
   const [ready, setReady] = useState(false);
+  const [settled, setSettled] = useState(false); // the start pano is in: floor height and the current room are known
   const [items, setItems] = useState<Placed[]>(() => load<Placed[]>(`hermit:furnish:${sid}`, "local") ?? []);
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [candidates, setCandidates] = useState<Record<string, Model[]>>({});
@@ -108,8 +115,8 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   const floorRooms = rooms.filter((r) => r.floorId === (here ?? rooms[0])?.floorId);
   const furnishable = floorRooms.filter((r) => !["hallway", "bathroom"].includes(r.label)); // "everything" skips corridors and restrooms
   const targetRoom = picked === ALL ? undefined : rooms.find((r) => r.id === picked) ?? here;
-  const state = useRef({ items, selected, room, candidates, rooms, measuring, mode, outline: targetRoom?.polygon });
-  state.current = { items, selected, room, candidates, rooms, measuring, mode, outline: picked === ALL ? undefined : targetRoom?.polygon };
+  const state = useRef({ items, selected, room, candidates, rooms, measuring, mode, picked, target: targetRoom, outline: targetRoom?.polygon });
+  state.current = { items, selected, room, candidates, rooms, measuring, mode, picked, target: targetRoom, outline: picked === ALL ? undefined : targetRoom?.polygon };
   const sel = items.find((p) => p.id === selected);
   const statusOf = (p: Placed): Status => status[p.id] ?? (p.model === undefined ? "searching" : p.model === null ? "none" : "loading");
 
@@ -152,7 +159,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
       await import("@matterport/webcomponent");
       if (dead || !host.current) return;
       const el = document.createElement("matterport-viewer") as MatterportViewer;
-      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
+      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
       el.addEventListener("mpViewerError", (e) => fail(e.detail.error.message));
       host.current.prepend(el);
       viewer.current = el;
@@ -161,6 +168,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
       sdk.current = s;
       let settle!: () => void;
       nav.current = new Promise<void>((r) => (settle = r)).then(() => new Promise((r) => setTimeout(r, SETTLE_MS)));
+      void nav.current.then(() => { if (!dead) setSettled(true); });
       setTimeout(() => settle(), 5000); // never block navigation if no start pano is reported (e.g. a dollhouse start)
       scene.current = await createScene(s, onLoad);
       if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = scene.current; // for e2e tests
@@ -506,10 +514,12 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
 
   /** The current floor's rooms with an outline, and a matcher for a room the user named ("bedroom" matches "bedroom 2"). */
   function roomsNamed(name?: string) {
-    const g = report.floorplan, here = g?.rooms.find((r) => r.id === room?.id);
+    const g = report.floorplan, here = g?.rooms.find((r) => r.id === state.current.room?.id);
     const floor = g && here ? g.rooms.filter((r) => r.floorId === here.floorId && r.polygon.length >= 3) : [];
     const want = name?.toLowerCase().replace(/\s+room$/, "");
-    const named = (r: { label: string }) => !!want && (r.label === want || r.label.startsWith(want));
+    // Match the scan label ("hallway") and the name the room picker shows ("Open area 1"), which is what the chat sees.
+    const shown = new Map(state.current.rooms.map((r) => [r.id, [r.label, r.name.toLowerCase()]]));
+    const named = (r: { id: string; label: string }) => !!want && [r.label, ...(shown.get(r.id) ?? [])].some((l) => l === want || l.startsWith(want));
     return { g, here, floor, want, named };
   }
 
@@ -520,7 +530,8 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     const { g, here, floor, want, named } = roomsNamed(req.room);
     if (!g || !here) return "Walk into a room that's on the floor plan first, then ask again.";
     // Without a named room, "this room" is the one picked in the room select (or the one the user stands in).
-    const pick = floor.find((r) => r.id === targetRoom?.id) ?? here;
+    const { picked, target } = state.current;
+    const pick = floor.find((r) => r.id === target?.id) ?? here;
     const targets = req.scope === "all" || (!want && picked === ALL) ? floor : want ? floor.filter(named) : [pick];
     if (!targets.length) return g.rooms.some(named) ? `The ${want} is on another floor. Go there and ask again.` : `I couldn't find a ${want} on the floor plan.`;
     setToast(`Planning ${targets.length === 1 ? `the ${targets[0].label}` : `${targets.length} rooms`}…`);
@@ -531,7 +542,8 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     const ctx = hermitContext();
     const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
       text: [message, ctx && `What the client told Hermit: ${ctx}`].filter(Boolean).join(". ").slice(0, 500),
-      use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
+      use: use.slice(0, 80), // The planner gets the picker's label, so a big scan "hallway" is planned as the open area it is.
+      rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)).map((r) => ({ ...r, label: state.current.rooms.find((x) => x.id === r.id)?.label ?? r.label })),
       placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z, y: p.pos.y - floorY.current }, size: dims(p), rotY: p.rotY })),
       ...(chairIn && { access: { chairWidthIn: chairIn } }), ...(clear && { fresh: true }),
     });
@@ -549,8 +561,10 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     if (clear && !ops.length) return "I couldn't fit a new layout, so I left the room as it was.";
     // Re-read the items: models may have loaded while the planner and the probe ran.
     const before = state.current.items, r = commit(before, applyFurnishOps(keep(before), ops, makeView(), ops.length));
-    const note = skipped ? ` Skipped ${skipped} piece${skipped > 1 ? "s" : ""} that would sit on built-in counters or fixtures (checked what's in view).` : "";
-    const msg = (r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply) + note;
+    // The planner's "Placed …" lists what it laid out; after the counter check, say what was really placed and skipped.
+    const lead = skipped ? out.reply.replace(/^Placed .+? in (the [^.]+|\d+ rooms)\./, ops.length ? `Placed ${countNames(ops)} in $1.` : "") : out.reply;
+    const note = skipped ? ` Skipped ${countNames(out.ops.filter((o) => !ops.includes(o)))}: they would sit on built-in counters or fixtures (checked what's in view).` : "";
+    const msg = ((r.rejected.length ? `${lead} I couldn't place part of it: ${rejectedText(r.rejected)}.` : lead) + note).trim();
     if (r.applied.length) {
       setUndoText(msg); setTab("placed");
       if (targets.length > 1 && state.current.mode === "inside") void setMode("dollhouse"); // see the whole result at once
@@ -572,11 +586,13 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   async function send(t: string): Promise<string> {
     const message = t.trim();
     if (!message) return "";
-    if (!ready) return "The 3D tour is still loading. Try again in a moment.";
+    if (!ready || !settled) return "The 3D tour is still loading. Try again in a moment.";
     setBusy(true);
     try {
+      await nav.current; // let a queued camera move land first, so "here" and the room are where the user will be
+      const { items, selected, room, picked, target } = state.current;
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
-        text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: picked === ALL ? "whole space" : targetRoom?.name ?? room?.label, suggestions,
+        text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: picked === ALL ? "whole space" : target?.name ?? room?.label, suggestions,
       });
       const kind = (o: object) => (o as { op?: string }).op;
       if (out.ops.some((o) => kind(o) === "undo")) return undo();
@@ -607,7 +623,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
       items.length ? `furniture placed: ${[...counts].map(([n, c]) => `${c} ${n}`).join(", ")}` : "no furniture placed yet",
       sel && `selected: ${sel.name}`].filter(Boolean).join("; ") + ".";
   }
-  useEffect(() => { if (api) api.current = { ready, send, describe }; });
+  useEffect(() => { if (api) api.current = { ready: ready && settled, send, describe }; });
   useEffect(() => () => { if (api) api.current = null; }, [api]);
 
   async function runSearch(terms: string[], name: string) {

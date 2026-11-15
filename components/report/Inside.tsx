@@ -21,6 +21,12 @@ export function Inside({ report, spec, use, furnish, fit, setFit }: ReportCtx) {
   const [jump, setJump] = useState<number | undefined>();
   const [plain, setPlain] = useState(false); // the furnishing tour (SDK) failed to start: show the plain iframe
   const fail = useCallback(() => setPlain(true), []);
+  // With the basic tour showing, tell the chat right away instead of letting it wait for a tour that won't load.
+  useEffect(() => {
+    if (!plain) return;
+    furnish.current = { ready: false, failed: true, send: async () => "", describe: () => "Basic 3D tour (furniture can't be placed in it)." };
+    return () => { furnish.current = null; };
+  }, [plain, furnish]);
   // The layout drawn in Find a space, for "Your design vs this space".
   const [design, setDesign] = useState<Block[] | undefined>();
   useEffect(() => {
