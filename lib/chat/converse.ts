@@ -3,6 +3,7 @@ import { CHAIR_TYPE_IN, parseChairWidth, parseText, USE_NOUN } from "../spec/par
 import { SIZE_OPTIONS, surveyToSpec, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
 import { an } from "../text";
+import { isLayoutEdit } from "./commands";
 
 export type Slot = "use" | "city" | "size" | "rooms" | "musts" | "chair";
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
@@ -164,28 +165,33 @@ export function openChat(spec: Draft): Turn {
 }
 
 type Action = NonNullable<Turn["action"]>;
-const ORDINAL: Record<string, number> = { first: 1, top: 1, "1st": 1, one: 1, second: 2, "2nd": 2, two: 2, third: 3, "3rd": 3, three: 3, fourth: 4, "4th": 4, four: 4, fifth: 5, "5th": 5, five: 5 };
+const ORDINAL: Record<string, number> = { first: 1, "1st": 1, one: 1, second: 2, "2nd": 2, two: 2, third: 3, "3rd": 3, three: 3, fourth: 4, "4th": 4, four: 4, fifth: 5, "5th": 5, five: 5 };
 const ORD_WORD = ["", "first", "second", "third", "fourth", "fifth"];
+export const MAX_MATCHES = 5;
 
-/** 1-based match rank from "#2", "number 2", "the second one", "match 3"; undefined means the selected match. */
+/** Match rank as written ("#2", "number 2", "the second one", "the top one"); may be out of range. Undefined means the selected match. */
 export function parseTarget(text: string): number | undefined {
   const t = text.toLowerCase();
   const n = t.match(/#\s?(\d+)\b|\b(?:number|no\.?|match|option|space|property|place|listing|result)\s+(\d+|one|two|three|four|five)\b/);
   if (n) return ORDINAL[n[2]] ?? Number(n[1] ?? n[2]);
-  const w = t.match(/\b(first|top|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/);
+  if (/\btop (one|match|pick|space|result)\b/.test(t)) return 1;
+  const w = t.match(/\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/);
   return w ? ORDINAL[w[1]] : undefined;
 }
 
-const POINTER = /\b(it|this|that)( one)?\b/;
+// Save/view need to name a match, so "save this layout" or "open it up to more cities" don't trigger them.
+const MATCH_WORD = /\b(match|space|place|property|listing|option|unit|suite|building|(this|that|the \w+) one)\b/;
+const TARGETED = new Set<Action>(["save", "view", "report", "broker"]);
+const ABOUT_LAYOUT = /\b(layout|floor ?plan)\b/;
 const ACTIONS: { action: Action; re: RegExp; results: boolean; when?: (t: string, target?: number) => boolean; reply: (which: string) => string }[] = [
-  { action: "reset", re: /\b(start (over|again|fresh)|reset|from scratch|new search|clear (it|everything|all))\b/, results: false, reply: () => "Okay, starting fresh. What kind of space are you looking for?" },
   { action: "edit_layout", re: /^(?:can i |let me |i want to |i'd like to |please )?(?:edit|change|open|tweak|adjust|fix|work on|draw)\s+(?:the |my )?(?:layout|floor ?plan)$/, results: false, reply: () => "Here's your layout. Drag the rooms yourself, or tell me a change like \"add a bathroom\". What would you like to change first?" },
+  { action: "reset", re: /\b(start (over|again|fresh)|reset|from scratch|new search|clear (it|everything|all))\b/, results: false, reply: () => "Okay, starting fresh. What kind of space are you looking for?" },
   { action: "search", re: /\b(search now|just search|search again|run (the |a )?search|find (me )?(matches|spaces|places)|see (my |the )?matches)\b/, results: false, reply: () => "Searching again with what you've told me." },
-  { action: "email", re: /\bdraft\b|\bwrite (an? )?(e-?mail|message|note)\b/, results: true, reply: () => "Here's a draft to the property manager. Edit it however you like; I won't send anything for you." },
-  { action: "broker", re: /\b(contact|call|reach( out)?|e-?mail|message|talk to|get in touch|write to|send)\b.*\b(broker|agent|landlord|leasing|property manager|owner)\b|\bsend (it|the packet|my packet|the inquiry|an inquiry)\b|\bcontact (them|someone)\b/, results: true, reply: (w) => `Let's get ${w} in front of the broker. I'll put the packet together; nothing is sent until you send it.` },
+  { action: "broker", re: /\bsend (it|the packet|my packet|the inquiry|an inquiry)\b|\bpacket\b|\b(contact|call|talk to|speak (to|with)|get in touch with|reach)\b.*\b(broker|agent)\b|^broker\b/, results: true, reply: (w) => `Let's get ${w} in front of the broker. I'll put the packet together; nothing is sent until you send it.` },
+  { action: "email", re: /\bdraft\b|\bwrite (an? )?(e-?mail|message|note)\b|\be-?mail\b|\breach out\b|\bwrite to\b|\bmessage (them|the)\b|\bcontact (them|the (property manager|landlord|owner|leasing office))\b/, results: true, reply: () => "Here's a draft to the property manager. Edit it however you like; I won't send anything for you." },
   { action: "report", re: /\b(full|whole|complete|detailed) report\b|\breport (on|for)\b|\bmore (details|info) (on|about)\b/, results: true, reply: (w) => `Here's the full report on ${w}.` },
-  { action: "view", re: /\b(let me see|see inside|look inside|walk ?(through|inside)|tour|show me|view|open)\b/, results: true, when: (t, n) => n != null || /\binside\b/.test(t) || POINTER.test(t), reply: (w) => `Opening ${w} so you can look around.` },
-  { action: "save", re: /\b(save|bookmark|shortlist|favou?rite|star|heart)\b/, results: true, when: (t, n) => n != null || POINTER.test(t), reply: (w) => `Saved ${w}. Want me to draft a note to the broker about it?` },
+  { action: "view", re: /\b(let me see|see inside|look inside|walk ?(through|inside)|tour|show me|view|open)\b/, results: true, when: (t, n) => n != null || /\binside\b/.test(t) || MATCH_WORD.test(t), reply: (w) => `Opening ${w} so you can look around.` },
+  { action: "save", re: /\b(save|bookmark|shortlist|favou?rite|star|heart)\b/, results: true, when: (t, n) => n != null || MATCH_WORD.test(t) || /\bsave it\b/.test(t), reply: (w) => `Saved ${w}. Want me to draft a note to the broker about it?` },
   { action: "compare", re: /compar/, results: true, reply: () => "Here's how the top matches compare side by side." },
 ];
 
@@ -195,17 +201,30 @@ export function actionTurn(state: ChatState, text: string): Turn | null {
   const target = parseTarget(t);
   const hit = ACTIONS.find((a) => a.re.test(t) && (!a.when || a.when(t, target)));
   if (!hit) return null;
-  const at = target != null ? { target } : {};
+  // Text about the layout is a layout edit ("reset the layout", "save this layout"), unless it only asks to open the editor.
+  if (hit.action !== "edit_layout" && (ABOUT_LAYOUT.test(t) || isLayoutEdit(t))) return null;
   if (hit.results && state.phase !== "results")
     return { reply: "I don't have any matches yet. Should I search with what you've told me so far?", state, ready: false, quickReplies: [] };
-  if (hit.action === "reset")
-    return { reply: hit.reply(""), state: { spec: surveyToSpec({ transaction: "lease", accessibility: false, requirements: [] }), asked: ["use"], phase: "gathering" }, ready: false, quickReplies: [], action: "reset" };
+  if (hit.action === "reset") {
+    const fresh: ChatState = { spec: surveyToSpec({ transaction: "lease", accessibility: false, requirements: [] }), asked: [], phase: "gathering" };
+    // "Start over with a bakery": reset, then read the rest as the first answer.
+    const m = t.match(hit.re)!;
+    const rest = t.slice(m.index! + m[0].length).replace(/^\W*(with|for|as|and|,)?\s*/, "");
+    if (/[a-z]{3}/.test(rest)) {
+      const next = converse(fresh, rest);
+      return { ...next, reply: `Okay, starting fresh. ${next.reply}`, action: "reset" };
+    }
+    return { reply: hit.reply(""), state: { ...fresh, asked: ["use"] }, ready: false, quickReplies: [], action: "reset" };
+  }
   if (hit.action === "search" && state.phase !== "results") {
     const a = ask({ ...state, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts", "chair"])] }, "", true);
     return { ...a, action: "search" };
   }
-  const which = target ? `the ${ORD_WORD[target] ?? `#${target}`} match` : "this space";
-  return { reply: hit.reply(which), state, ready: false, quickReplies: [], action: hit.action, ...at };
+  const useTarget = TARGETED.has(hit.action) && target != null;
+  if (useTarget && (target < 1 || target > MAX_MATCHES))
+    return { reply: `I show up to ${MAX_MATCHES} matches, numbered 1 to ${MAX_MATCHES}. Which one did you mean?`, state, ready: false, quickReplies: [] };
+  const which = useTarget ? `the ${ORD_WORD[target]} match` : "this space";
+  return { reply: hit.reply(which), state, ready: false, quickReplies: [], action: hit.action, ...(useTarget ? { target } : {}) };
 }
 
 export function converse(state: ChatState, text: string): Turn {

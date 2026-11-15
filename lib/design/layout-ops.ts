@@ -228,10 +228,10 @@ const which = (hits: Block[], blocks: Block[]) => `Which one do you mean: ${hits
 export function textLayoutOps(text: string, blocks: Block[]): TextEdit {
   const t = text.toLowerCase().trim().replace(/[.!?]+$/, "").replace(/^(please|can you|could you|would you|let's|lets|i want to|i'd like to)\s+/, "");
 
-  const more = t.match(new RegExp(`^(?:add\\s+)?${CNT}\\s+(?:more|extra)\\s+(.+)$`));
+  const more = t.match(new RegExp(`^(?:add\\s+)?(?:${CNT}\\s+(?:more|extra)|(another))\\s+(.+)$`));
   if (more) {
-    const type = roomType(strip(more[2]));
-    return type ? { ops: [{ op: "add", label: type, count: Math.min(5, count(more[1])) }] } : null;
+    const type = roomType(strip(more[3]));
+    return type ? { ops: [{ op: "add", label: type, count: more[1] ? Math.min(5, count(more[1])) : 1 }] } : null;
   }
 
   const fewer = t.match(new RegExp(`^(?:remove|delete|drop|cut|take out|get rid of|lose)\\s+${CNT}\\s+(?!of\\b)(.+)$`)) ?? t.match(new RegExp(`^${CNT}\\s+(?:fewer|less)\\s+(.+)$`));

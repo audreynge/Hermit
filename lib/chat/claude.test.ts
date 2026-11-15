@@ -74,6 +74,9 @@ describe("chatTurn", () => {
     expect(t).toMatchObject({ action: "view", target: 3, ready: false });
     const bad = await chatTurn(results, "the 9th", fake({ reply: "Opening it.", ready: false, action: "view", target: 9, update: EMPTY }));
     expect(bad.target).toBeUndefined();
+    const search = await chatTurn(results, "run it again", fake({ reply: "Searching.", ready: false, action: "search", target: 2, update: EMPTY }));
+    expect(search).toMatchObject({ action: "search" });
+    expect(search.target).toBeUndefined();
   });
 
   it("drops match actions before there are results", async () => {
@@ -95,6 +98,8 @@ describe("chatTurn", () => {
     expect(big.edit).toEqual({ target: "layout", ops: [{ op: "resize", id: "t5", scale: 1.5 }] });
     expect((await chatTurn(gathering, "move reception to the back", null, { ctx })).edit?.ops).toEqual([{ op: "move", id: "t1", side: "back" }]);
     expect((await chatTurn(gathering, "2 more exam rooms", null, { ctx })).edit?.ops).toEqual([{ op: "add", label: "exam room", count: 2 }]);
+    expect((await chatTurn(gathering, "Can you add another exam room?", null, { ctx })).edit?.ops).toEqual([{ op: "add", label: "exam room", count: 1 }]);
+    expect((await chatTurn(gathering, "reset the layout", null, { ctx })).action).toBeUndefined();
     expect((await chatTurn(gathering, "remove one exam room", null, { ctx })).edit?.ops).toEqual([{ op: "remove", id: "t3" }]);
     expect((await chatTurn(gathering, "rename the storage to an office", null, { ctx })).edit?.ops).toEqual([{ op: "relabel", id: "t5", label: "office" }]);
     const which = await chatTurn(gathering, "move the exam room to the front", null, { ctx });

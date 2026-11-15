@@ -59,6 +59,7 @@ type Opts = { openai?: OpenAIClient | null; gemini?: GeminiClient | null; ctx?: 
 const editable = (ctx: EditContext) => !!(ctx.layout || ctx.fitout);
 
 const RESULTS_ONLY = new Set(["compare", "email", "save", "view", "report", "broker"]);
+const TARGETED = new Set(["save", "view", "report", "broker"]);
 
 // Layout-first parse when only a layout is in play; with a scanned space selected the fit-out parser goes first.
 function parseEdit(text: string, ctx: EditContext): ReturnType<typeof offlineEdit> {
@@ -148,7 +149,7 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
     }
     // Match actions need matches; before results the model may still claim one, so drop it.
     const action = out.action === "none" || (RESULTS_ONLY.has(out.action) && state.phase !== "results") ? undefined : out.action;
-    const target = action && out.target != null && Number.isInteger(out.target) && out.target >= 1 && out.target <= 5 ? { target: out.target } : {};
+    const target = action && TARGETED.has(action) && out.target != null && Number.isInteger(out.target) && out.target >= 1 && out.target <= 5 ? { target: out.target } : {};
     // After results, "ready" re-runs the search, so only honour it for a real spec change and never alongside an action.
     const ready = state.phase !== "results" ? out.ready && (!action || action === "search")
       : out.ready && !action && JSON.stringify({ ...spec, input: null }) !== JSON.stringify({ ...state.spec, input: null });

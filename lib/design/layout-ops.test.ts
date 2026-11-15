@@ -180,6 +180,7 @@ describe("move", () => {
 describe("textLayoutOps (no-LLM fallback)", () => {
   it("parses add/remove N, bigger/smaller, move, rename and furniture", () => {
     expect(textLayoutOps("2 more exam rooms", CLINIC)).toEqual({ ops: [{ op: "add", label: "exam room", count: 2 }] });
+    expect(textLayoutOps("add another office", CLINIC)).toEqual({ ops: [{ op: "add", label: "office", count: 1 }] });
     expect(textLayoutOps("add three more offices", CLINIC)).toEqual({ ops: [{ op: "add", label: "office", count: 3 }] });
     expect(textLayoutOps("remove 2 exam rooms", CLINIC)).toEqual({ ops: [{ op: "remove", id: "t2" }, { op: "remove", id: "t3" }] });
     expect(textLayoutOps("one fewer exam room", CLINIC)).toEqual({ ops: [{ op: "remove", id: "t3" }] });

@@ -31,7 +31,7 @@ describe("isLayoutEdit", () => {
   it("is false for questions, search changes and chatter", () => {
     for (const t of [
       "what does the kitchen look like?", "how big is the reception?", "do I need a bathroom?", "hi there", "make it 2,500 sq ft",
-      "make it bigger", "change the city to Los Angeles", "find a bigger office", "show me #2", "save the second one", "start over", "",
+      "make it bigger", "change the city to Los Angeles", "make room for 10 people", "add space for 12 employees", "find a bigger office", "show me #2", "save the second one", "start over", "",
     ]) expect(isLayoutEdit(t), t).toBe(false);
   });
 });

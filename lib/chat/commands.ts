@@ -15,7 +15,7 @@ const RULES: [LocalCommand, RegExp][] = [
 export const localCommand = (text: string): LocalCommand | null => RULES.find(([, re]) => re.test(text.trim()))?.[0] ?? null;
 
 // Questions and search wording ("find a bigger office") go to the interview, not the layout.
-const QUESTION = /^(what|what's|whats|how|why|when|where|who|which|is|are|does|do|did|should|will)\b|\b(find|search|looking for|look for|show me)\b/;
+const QUESTION = /^(what|what's|whats|how|why|when|where|who|which|is|are|does|do|did|should|will)\b|\b(find|search|looking for|look for|show me|make room for)\b|\b\d+\s+(people|persons|employees|staff|workers|guests)\b/;
 const EDIT_VERB = /\b(add|remove|delete|drop|get rid of|take out|cut|resize|move|shift|swap|put|place|rename|relabel|make|turn|convert|change|merge|combine|split|divide|enlarge|expand|shrink|widen|double|halve|edit)\b|\b(\d+|one|two|three|four|five|a few|a couple( of)?)\s+(more|fewer|less|extra)\b|\banother\b|\b(bigger|smaller|larger|wider|narrower|tinier)\b/;
 const LAYOUT_NOUN = /\b(rooms?|layout|floor ?plan|walls?)\b/;
 

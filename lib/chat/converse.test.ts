@@ -185,6 +185,7 @@ describe("converse after results", () => {
     expect(converse(results(), "contact the broker").target).toBeUndefined();
     expect(converse(results(), "send the packet").action).toBe("broker");
     expect(converse(results(), "save it").action).toBe("save");
+    expect(converse(results(), "save this one").action).toBe("save");
     expect(converse(results(), "I want to save money on rent").action).toBeUndefined();
   });
 
@@ -196,6 +197,35 @@ describe("converse after results", () => {
     const g = openChat(fromSurvey({ city: "houston", useType: "office" }));
     expect(converse(g.state, "search now")).toMatchObject({ action: "search", ready: true });
     expect(converse(g.state, "let me edit the layout").action).toBe("edit_layout");
+  });
+
+  it("keeps email and broker apart", () => {
+    expect(converse(results(), "email the property manager").action).toBe("email");
+    expect(converse(results(), "email them").action).toBe("email");
+    expect(converse(results(), "reach out").action).toBe("email");
+    expect(converse(results(), "talk to the broker").action).toBe("broker");
+    expect(converse(results(), "send the packet").action).toBe("broker");
+  });
+
+  it("only uses match numbers that exist", () => {
+    for (const t of ["show me #9", "save #0"]) {
+      const r = converse(results(), t);
+      expect(r.action, t).toBeUndefined();
+      expect(r.reply).toMatch(/1 to 5/);
+    }
+  });
+
+  it("doesn't hijack layout edits or plain wording", () => {
+    for (const t of ["reset the layout", "save this layout", "open it up to more cities", "show me the top matches"])
+      expect(converse(results(), t).action, t).toBeUndefined();
+    expect(converse(results(), "show me the top one")).toMatchObject({ action: "view", target: 1 });
+  });
+
+  it("starts over with a new use", () => {
+    const t = converse(results(), "let's start over with a bakery");
+    expect(t.action).toBe("reset");
+    expect(t.state.spec.useType).toMatch(/bakery/);
+    expect(t.state.phase).toBe("gathering");
   });
 
   it("match actions wait for results", () => {
@@ -213,6 +243,8 @@ describe("parseTarget", () => {
     expect(parseTarget("number four")).toBe(4);
     expect(parseTarget("match 5")).toBe(5);
     expect(parseTarget("the top one")).toBe(1);
+    expect(parseTarget("the top matches")).toBeUndefined();
+    expect(parseTarget("#9")).toBe(9);
     expect(parseTarget("this one")).toBeUndefined();
     expect(actionTurn({ spec: fromSurvey(), asked: [], phase: "results" }, "hello")).toBeNull();
   });
