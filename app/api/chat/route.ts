@@ -25,6 +25,9 @@ const Body = z.union([
 const EDIT_WORDS = /\b(turn|convert|merge|combine|split|divide|knock|wall|add an? \w+ (to|in)|use the)\b/i;
 const botMsg = (t: Turn, design?: unknown): StoredMsg => ({ role: "bot", kind: "text", payload: { paragraphs: [t.reply], quick: t.quickReplies, card: t.card, fallback: t.fallback, fallbackWhy: t.fallbackWhy, ...(design ? { design } : {}) } });
 
+const followUp = (reply: string, kind: "layout" | "fitout", phase: string) =>
+  /\?\s*$/.test(reply) ? reply : `${reply} ${kind === "fitout" ? "Want to keep these changes?" : phase === "results" ? "Anything else to change, or should I search again with this layout?" : "Anything else you'd change?"}`;
+
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
@@ -60,7 +63,7 @@ export async function POST(req: Request) {
   } else {
     const outcome = resolveEdit(turn.edit.target, turn.edit.ops, ctx, turn.state.spec);
     if (!outcome) {
-      const why = turn.edit.target === "fitout" ? (fitoutNote ? `I can't change this space: ${fitoutNote}.` : "Pick a space from the results first, then tell me what to change.") : "There's no layout to edit yet. Draw one with the + button first.";
+      const why = turn.edit.target === "fitout" ? (fitoutNote ? `I can't change this space: ${fitoutNote}.` : "Pick a space from the results first, then tell me what to change.") : "There's no layout to edit yet. Tell me what rooms you need first, and I'll sketch one you can change.";
       turn = { ...turn, edit: undefined, reply: why };
     } else {
       design = outcome.kind === "layout"
@@ -68,9 +71,9 @@ export async function POST(req: Request) {
         : { kind: "fitout" as const, shellId: outcome.shellId, ops: outcome.ops, report: outcome.evaluation.after, diff: outcome.evaluation.diff, rejected: outcome.rejected };
       turn = {
         ...turn, edit: undefined,
-        reply: [turn.reply, describeOutcome(outcome, ctx.fitout?.ops.length ?? 0)].filter(Boolean).join(" "),
+        reply: followUp([turn.reply, describeOutcome(outcome, ctx.fitout?.ops.length ?? 0)].filter(Boolean).join(" "), outcome.kind, conv.state.phase),
         state: outcome.kind === "layout" ? { ...turn.state, spec: outcome.spec } : turn.state,
-        quickReplies: outcome.kind === "layout" ? ["Search with this", "Undo", "Open the layout"] : ["Keep these changes", "Undo"],
+        quickReplies: [],
       };
     }
   }

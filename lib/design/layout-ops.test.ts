@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fromLayout, type Block } from "../spec/parse";
 import { CLINIC, OFFICE, SALON } from "./fixtures";
-import { applyLayoutOps, blockName, describeLayout, MAX_OPS } from "./layout-ops";
+import { applyLayoutOps, blockName, describeLayout, MAX_OPS, textLayoutOps } from "./layout-ops";
 
 const rooms = (bs: Block[]) => bs.filter((b) => b.kind !== "object");
 const overlap = (a: Block, b: Block) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -145,5 +145,62 @@ describe("applyLayoutOps", () => {
   it("names rooms the way Layout Studio does, so ordinals line up", () => {
     expect(blockName(CLINIC, CLINIC[2])).toBe("Exam Room 2");
     expect(describeLayout(CLINIC)).toContain('t3: "Exam Room 2"');
+  });
+});
+
+describe("move", () => {
+  const noOverlap = (bs: Block[]) => { const rs = rooms(bs); for (const a of rs) for (const b of rs) if (a !== b) expect(overlap(a, b)).toBe(false); };
+
+  it("moves a room to the front, keeps the plan's corner and carries its furniture", () => {
+    const r = applyLayoutOps(CLINIC, [{ op: "move", id: "t5", side: "front" }]);
+    const t5 = r.blocks.find((b) => b.id === "t5")!;
+    expect(r.rejected).toEqual([]);
+    expect(t5.y).toBe(Math.min(...rooms(r.blocks).map((b) => b.y)));
+    expect(Math.min(...rooms(r.blocks).map((b) => b.x))).toBe(4);
+    expect(Math.min(...rooms(r.blocks).map((b) => b.y))).toBe(4);
+    noOverlap(r.blocks);
+    const sink = r.blocks.find((b) => b.id === "o13")!, t3 = r.blocks.find((b) => b.id === "t3")!;
+    expect(sink.y - t3.y).toBe(CLINIC[8].y - CLINIC[2].y); // everything else shifted together
+    const moved = applyLayoutOps(CLINIC, [{ op: "move", id: "t2", side: "right" }]);
+    expect(moved.blocks.find((b) => b.id === "o10")!.x).toBeGreaterThan(56); // the sink rode along
+    noOverlap(moved.blocks);
+  });
+
+  it("moves a room next to another and rejects unknown ids or a missing spot", () => {
+    const r = applyLayoutOps(CLINIC, [{ op: "move", id: "t2", nextTo: "t5" }]);
+    const t2 = r.blocks.find((b) => b.id === "t2")!, t5 = r.blocks.find((b) => b.id === "t5")!;
+    expect(touch(t2, t5)).toBe(true);
+    noOverlap(r.blocks);
+    expect(applyLayoutOps(CLINIC, [{ op: "move", id: "zz", side: "back" }]).rejected[0].reason).toMatch(/zz/);
+    expect(applyLayoutOps(CLINIC, [{ op: "move", id: "t2" }]).rejected).toHaveLength(1);
+    expect(applyLayoutOps(CLINIC, [{ op: "move", id: "t2", nextTo: "t2" }]).rejected).toHaveLength(1);
+  });
+});
+
+describe("textLayoutOps (no-LLM fallback)", () => {
+  it("parses add/remove N, bigger/smaller, move, rename and furniture", () => {
+    expect(textLayoutOps("2 more exam rooms", CLINIC)).toEqual({ ops: [{ op: "add", label: "exam room", count: 2 }] });
+    expect(textLayoutOps("add three more offices", CLINIC)).toEqual({ ops: [{ op: "add", label: "office", count: 3 }] });
+    expect(textLayoutOps("remove 2 exam rooms", CLINIC)).toEqual({ ops: [{ op: "remove", id: "t2" }, { op: "remove", id: "t3" }] });
+    expect(textLayoutOps("one fewer exam room", CLINIC)).toEqual({ ops: [{ op: "remove", id: "t3" }] });
+    expect(textLayoutOps("make the exam rooms a bit smaller", CLINIC)).toEqual({ ops: [{ op: "resize", id: "t2", scale: 0.8 }, { op: "resize", id: "t3", scale: 0.8 }] });
+    expect(textLayoutOps("Make the reception twice as big.", CLINIC)).toEqual({ ops: [{ op: "resize", id: "t1", scale: 2 }] });
+    expect(textLayoutOps("make the second exam room bigger", CLINIC)).toEqual({ ops: [{ op: "resize", id: "t3", scale: 1.5 }] });
+    expect(textLayoutOps("move reception to the back", CLINIC)).toEqual({ ops: [{ op: "move", id: "t1", side: "back" }] });
+    expect(textLayoutOps("move the storage next to reception", CLINIC)).toEqual({ ops: [{ op: "move", id: "t5", nextTo: "t1" }] });
+    expect(textLayoutOps("rename the storage to a kitchen", CLINIC)).toEqual({ ops: [{ op: "relabel", id: "t5", label: "kitchen" }] });
+    expect(textLayoutOps("put a desk in the storage", CLINIC)).toEqual({ ops: [{ op: "add_object", label: "desk", in: "t5" }] });
+  });
+
+  it("asks when one room is meant but several match, and passes on what it can't read", () => {
+    expect(textLayoutOps("move the exam room to the front", CLINIC)).toEqual({ ask: "Which one do you mean: Exam Room 1 or Exam Room 2?" });
+    expect(textLayoutOps("make the garage bigger", CLINIC)).toBeNull();
+    expect(textLayoutOps("make it 2,500 sq ft", CLINIC)).toBeNull();
+    expect(textLayoutOps("add a bathroom", CLINIC)).toBeNull(); // the shared offline parser handles plain adds
+  });
+
+  it("works on an empty layout for adds", () => {
+    const r = applyLayoutOps([], (textLayoutOps("2 more bathrooms", []) as { ops: unknown[] }).ops);
+    expect(rooms(r.blocks)).toHaveLength(2);
   });
 });

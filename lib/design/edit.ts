@@ -3,14 +3,14 @@ import { fromLayout, type Block } from "../spec/parse";
 import type { Draft } from "../spec/survey";
 import type { RequirementSpec, RoomGraph, Shell } from "../types";
 import { applyFitout, describeGraph, evaluateFitout, type FitoutEvaluation, type FitoutOp } from "./fitout";
-import { applyLayoutOps, describeLayout, type Rejected } from "./layout-ops";
+import { applyLayoutOps, describeLayout, SIDES, type Rejected } from "./layout-ops";
 
 /** Model-facing op: one flat object so it works with any structured-output backend. Validated strictly afterwards. */
 export const FlatOp = z.object({
-  op: z.enum(["add", "remove", "resize", "relabel", "add_object", "use_as", "merge", "split", "add_fixture"]),
+  op: z.enum(["add", "remove", "resize", "relabel", "add_object", "move", "use_as", "merge", "split", "add_fixture"]),
   id: z.string().optional(), label: z.string().optional(), count: z.number().optional(), w: z.number().optional(), h: z.number().optional(), scale: z.number().optional(),
   nextTo: z.string().optional(), in: z.string().optional(), roomId: z.string().optional(), roomIds: z.array(z.string()).optional(), into: z.number().optional(),
-  fixture: z.string().optional(),
+  fixture: z.string().optional(), side: z.enum(SIDES).optional(),
 });
 export const EditOut = z.object({ target: z.enum(["none", "layout", "fitout", "ask"]), ops: z.array(FlatOp) });
 export type EditOut = z.infer<typeof EditOut>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { converse, openChat, type ChatState } from "./converse";
+import { actionTurn, converse, openChat, parseTarget, type ChatState } from "./converse";
 import { surveyToSpec } from "../spec/survey";
 
 const fromSurvey = (over = {}) => surveyToSpec({ transaction: "lease", accessibility: false, requirements: [], ...over });
@@ -11,13 +11,13 @@ describe("openChat", () => {
     expect(t.reply).toMatch(/Houston/);
     expect(t.reply).toMatch(/exam rooms/i);
     expect(t.ready).toBe(false);
-    expect(t.quickReplies.length).toBeGreaterThan(0);
+    expect(t.quickReplies).toEqual([]);
   });
 
   it("asks what the space is for when the survey was skipped", () => {
     const t = openChat(fromSurvey());
     expect(t.reply).toMatch(/what kind of space/i);
-    expect(t.quickReplies).toContain("Medical / dental clinic");
+    expect(t.quickReplies).toEqual([]);
   });
 });
 
@@ -27,7 +27,8 @@ describe("converse while gathering", () => {
     expect(t0.reply).toMatch(/bedrooms/i);
     const t1 = converse(t0.state, "3 bed / 2 bath");
     expect(t1.reply).toMatch(/how wide is the wheelchair/i);
-    expect(t1.quickReplies).toContain("Manual (~25 in)");
+    expect(t1.reply).toMatch(/manual chair is about 25 inches/);
+    expect(t1.quickReplies).toEqual([]);
     const t2 = converse(t1.state, "Manual (~25 in)");
     expect(t2.state.spec.needs).toMatchObject({ wheelchair: true, chairWidthIn: 25 });
     expect(t2.ready).toBe(true);
@@ -103,12 +104,13 @@ describe("converse while gathering", () => {
 });
 
 describe("survey questions inside the chat", () => {
-  it("asks must-haves as a multi-select card once rooms are known", () => {
+  it("asks must-haves as one plain question once rooms are known, with no chips or cards", () => {
     const t0 = openChat(fromSurvey({ city: "houston", useType: "medical", size: "1000-2500" }));
     const t1 = converse(t0.state, "3 exam rooms");
     expect(t1.ready).toBe(false);
-    expect(t1.card).toMatchObject({ kind: "multi" });
-    expect(t1.card!.options.map((o) => o.label)).toEqual(expect.arrayContaining(["Step-free / wheelchair access", "On-site Parking", "Ground Floor"]));
+    expect(t1.reply).toMatch(/can't do without.*parking/i);
+    expect(t1.card).toBeUndefined();
+    expect(t1.quickReplies).toEqual([]);
     expect(converse(t1.state, "None of these").ready).toBe(true);
   });
 
@@ -166,9 +168,63 @@ describe("converse after results", () => {
     expect(cheaper.state.spec.budgetMonthly).toBe(4000);
   });
 
-  it("offers help when it doesn't understand", () => {
+  it("offers help as one follow-up question when it doesn't understand", () => {
     const t = converse(results(), "hello?");
     expect(t.ready).toBe(false);
-    expect(t.reply).toMatch(/compare|email|adjust/i);
+    expect(t.reply).toMatch(/compare/i);
+    expect(t.reply).toMatch(/\?$/);
+    expect(t.quickReplies).toEqual([]);
+  });
+
+  it("does what the user can do in the app: save, view, report, broker, with a target", () => {
+    expect(converse(results(), "save the second one")).toMatchObject({ action: "save", target: 2 });
+    expect(converse(results(), "show me #2")).toMatchObject({ action: "view", target: 2 });
+    expect(converse(results(), "let me see inside the first one")).toMatchObject({ action: "view", target: 1 });
+    expect(converse(results(), "full report on #1")).toMatchObject({ action: "report", target: 1 });
+    expect(converse(results(), "contact the broker")).toMatchObject({ action: "broker" });
+    expect(converse(results(), "contact the broker").target).toBeUndefined();
+    expect(converse(results(), "send the packet").action).toBe("broker");
+    expect(converse(results(), "save it").action).toBe("save");
+    expect(converse(results(), "I want to save money on rent").action).toBeUndefined();
+  });
+
+  it("starts over, searches and opens the layout editor in any phase", () => {
+    const reset = converse(results(), "let's start over");
+    expect(reset.action).toBe("reset");
+    expect(reset.state).toMatchObject({ phase: "gathering", spec: { useType: "" } });
+    expect(converse(results(), "search again").action).toBe("search");
+    const g = openChat(fromSurvey({ city: "houston", useType: "office" }));
+    expect(converse(g.state, "search now")).toMatchObject({ action: "search", ready: true });
+    expect(converse(g.state, "let me edit the layout").action).toBe("edit_layout");
+  });
+
+  it("match actions wait for results", () => {
+    const g = openChat(fromSurvey({ city: "houston", useType: "office" }));
+    const t = converse(g.state, "save the first one");
+    expect(t.action).toBeUndefined();
+    expect(t.reply).toMatch(/search/i);
+  });
+});
+
+describe("parseTarget", () => {
+  it("reads ordinals and numbers as a 1-based rank", () => {
+    expect(parseTarget("the second one")).toBe(2);
+    expect(parseTarget("#3")).toBe(3);
+    expect(parseTarget("number four")).toBe(4);
+    expect(parseTarget("match 5")).toBe(5);
+    expect(parseTarget("the top one")).toBe(1);
+    expect(parseTarget("this one")).toBeUndefined();
+    expect(actionTurn({ spec: fromSurvey(), asked: [], phase: "results" }, "hello")).toBeNull();
+  });
+});
+
+describe("no suggestion chips", () => {
+  it("every turn has empty quickReplies", () => {
+    let t = openChat(fromSurvey());
+    for (const msg of ["a dental clinic", "Houston", "about 1500 sq ft", "3 exam rooms", "parking", "compare them"]) {
+      expect(t.quickReplies).toEqual([]);
+      t = converse(t.state, msg);
+    }
+    expect(t.quickReplies).toEqual([]);
   });
 });
