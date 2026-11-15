@@ -1,0 +1,14 @@
+.wrap { display: grid; gap: 10px; min-width: 0; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 14px; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-weight: 700; cursor: pointer; }
+.toggle input { width: 18px; height: 18px; margin: 0; accent-color: #b83d1f; cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; color: var(--ink-soft, #6b5751); }
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { flex: none; color: var(--ink, #3b2320); }
+.below { display: grid; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; padding: 6px 12px; border: 2px dashed var(--ink, #3b2320); border-radius: 10px; font-size: 14px; color: var(--ink, #3b2320); max-width: 100%; }
+.unsure { border-style: dotted; }
+.sf { color: var(--ink-soft, #6b5751); }
+.note { margin: 0; font-size: 13px; color: var(--ink-soft, #6b5751); }
+@media print { .toggle { display: none; } }
