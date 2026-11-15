@@ -23,64 +23,51 @@ export function centroid(pts: Pt[]): Pt {
 
 const near = (a: Pt, b: Pt, tol: number) => Math.hypot(a.x - b.x, a.y - b.y) <= tol;
 
-// Wall segments → the room's outline. Open-plan rooms have interior wall stubs and T-junctions, so a simple chain
-// walk dead-ends partway round; instead trace the outer face of the wall graph (outermost turn at every junction,
-// both windings, keep the larger). Falls back to the chain walk when the walls don't close.
+// Turns a room's unordered wall segments into its outline. Real scan boundaries carry stray stubs (partial walls) and
+// inside partitions, so dead-end stubs are trimmed and the largest closed loop wins; an open chain (a wall missing from
+// the scan) is walked end to end instead.
 export function ringFromEdges(edges: Pt[][], tol = 0.01): Pt[] {
-  const outer = outerFace(edges, tol);
-  return outer.length >= 3 ? outer : chainWalk(edges, tol);
+  const nodes: Pt[] = [];
+  const nodeOf = (p: Pt) => { const i = nodes.findIndex((q) => near(p, q, tol)); return i >= 0 ? i : nodes.push(p) - 1; };
+  const all = edges.filter((e) => e.length >= 2).map((e) => [nodeOf(e[0]), nodeOf(e[e.length - 1])]).filter(([a, b]) => a !== b);
+  const degree = (segs: number[][]) => { const d = new Map<number, number>(); for (const s of segs) for (const n of s) d.set(n, (d.get(n) ?? 0) + 1); return d; };
+  let loops = all;
+  for (let d = degree(loops), next = loops.filter(([a, b]) => d.get(a)! > 1 && d.get(b)! > 1); next.length < loops.length; d = degree(next), next = next.filter(([a, b]) => d.get(a)! > 1 && d.get(b)! > 1)) loops = next;
+  const ring = largestCycle(loops, nodes) ?? chain(all, degree(all));
+  return ring.map((i) => nodes[i]);
 }
 
-function outerFace(edges: Pt[][], tol: number): Pt[] {
-  const vs: Pt[] = [], adj: Set<number>[] = [];
-  const id = (p: Pt) => {
-    let i = vs.findIndex((q) => near(q, p, tol));
-    if (i < 0) { i = vs.push(p) - 1; adj.push(new Set()); }
-    return i;
-  };
-  for (const e of edges) if (e.length >= 2) { const a = id(e[0]), b = id(e[e.length - 1]); if (a !== b) { adj[a].add(b); adj[b].add(a); } }
-  for (let pruned = true; pruned;) { // dangling wall stubs aren't part of any outline
-    pruned = false;
-    adj.forEach((n, i) => { if (n.size === 1) { for (const j of n) adj[j].delete(i); n.clear(); pruned = true; } });
-  }
-  const live = vs.map((_, i) => i).filter((i) => adj[i].size >= 2);
-  if (!live.length) return [];
-  const start = live.reduce((a, b) => (vs[b].x < vs[a].x || (vs[b].x === vs[a].x && vs[b].y < vs[a].y) ? b : a));
-  const walk = (sign: 1 | -1): Pt[] => {
-    const ring = [start];
-    let prev = -1, cur = start;
-    for (let k = 0; k < 4 * vs.length; k++) {
-      const back = prev < 0 ? Math.PI : Math.atan2(vs[prev].y - vs[cur].y, vs[prev].x - vs[cur].x);
-      let best = -1, bestAng = Infinity;
-      for (const n of adj[cur]) {
-        if (n === prev) continue;
-        const a = (((sign * (Math.atan2(vs[n].y - vs[cur].y, vs[n].x - vs[cur].x) - back)) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-        if (a < bestAng) { bestAng = a; best = n; }
-      }
-      if (best < 0) return [];
-      prev = cur; cur = best;
-      if (cur === start) return ring.map((i) => vs[i]);
-      ring.push(cur);
+/** Largest-area simple cycle through the segments (node ids), or null. Scan rooms have a few dozen walls; the search is capped. */
+function largestCycle(segs: number[][], nodes: Pt[]): number[] | null {
+  const adj = new Map<number, number[]>();
+  segs.forEach(([a, b], i) => { for (const n of [a, b]) adj.set(n, [...(adj.get(n) ?? []), i]); });
+  let best: number[] | null = null, bestArea = 0, budget = 20_000;
+  const used = new Set<number>(), path: number[] = [];
+  const walk = (start: number, at: number) => {
+    for (const si of adj.get(at) ?? []) {
+      if (used.has(si) || budget-- <= 0) continue;
+      const to = segs[si][0] === at ? segs[si][1] : segs[si][0];
+      if (to === start) {
+        const area = path.length >= 3 ? shoelaceArea(path.map((i) => nodes[i])) : 0;
+        if (area > bestArea) { bestArea = area; best = [...path]; }
+      } else if (!path.includes(to)) { used.add(si); path.push(to); walk(start, to); path.pop(); used.delete(si); }
     }
-    return [];
   };
-  const a = walk(1), b = walk(-1);
-  return shoelaceArea(a) >= shoelaceArea(b) ? a : b;
+  for (const start of new Set(segs.flat())) { path.push(start); walk(start, start); path.pop(); }
+  return best;
 }
 
-function chainWalk(edges: Pt[][], tol: number): Pt[] {
-  const left = edges.filter((e) => e.length >= 2).map((e) => [e[0], e[e.length - 1]]);
-  if (!left.length) return [];
-  const [first] = left.splice(0, 1);
-  const ring = [first[0], first[1]];
-  while (left.length) {
+/** Walks segments end to end from a dead end (so no wall before the first segment is lost); stops at the first gap. */
+function chain(segs: number[][], degree: Map<number, number>): number[] {
+  if (!segs.length) return [];
+  const left = [...segs], i = Math.max(0, left.findIndex(([a, b]) => degree.get(a) === 1 || degree.get(b) === 1));
+  const [a, b] = left.splice(i, 1)[0], ring = degree.get(b) === 1 && degree.get(a) !== 1 ? [b, a] : [a, b];
+  for (let j = 0; j >= 0;) {
     const tail = ring[ring.length - 1];
-    const i = left.findIndex(([a, b]) => near(a, tail, tol) || near(b, tail, tol));
-    if (i < 0) break;
-    const [a, b] = left.splice(i, 1)[0];
-    ring.push(near(a, tail, tol) ? b : a);
+    j = left.findIndex(([p, q]) => p === tail || q === tail);
+    if (j >= 0) { const [p, q] = left.splice(j, 1)[0]; ring.push(p === tail ? q : p); }
   }
-  if (ring.length > 2 && near(ring[0], ring[ring.length - 1], tol)) ring.pop();
+  if (ring.length > 2 && ring[0] === ring[ring.length - 1]) ring.pop();
   return ring;
 }
 

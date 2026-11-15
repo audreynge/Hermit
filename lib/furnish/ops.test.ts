@@ -241,4 +241,68 @@ describe("Matterport measurements", () => {
     expect(fromMeasurement(stove(), { x: 5, y: 0, z: 1 }, { x: 5, y: 0.8, z: 1.05 }, view())!.ops).toEqual([{ op: "resize", id: "f1", h: expect.closeTo(0.8, 5) }]);
     expect(fromMeasurement(stove(), { x: 5, y: 0, z: 1 }, { x: 5.01, y: 0, z: 1 }, view())).toBeNull();
   });
+
+  it("add with an exact spot from the planner: placed as given, flagged planned, no free-spot shuffle", () => {
+    const first = add([], { name: "stove", size: { w: 0.76, d: 0.66, h: 0.91 }, pos: { x: 6, z: -1 }, rotY: 90 });
+    const r = applyFurnishOps(first.value, [{ op: "add", name: "stove", size: { w: 0.76, d: 0.66, h: 0.91 }, pos: { x: 6, z: -1 }, rotY: 90 }], view());
+    expect(r.value.map((p) => [p.pos, p.rotY, p.planned])).toEqual([[{ x: 6, y: 0, z: -1 }, 90, true], [{ x: 6, y: 0, z: -1 }, 90, true]]);
+  });
+
+  it("rejects a furnish request (the planner handles it) and accepts more than 10 planned adds when allowed", () => {
+    expect(applyFurnishOps([], [{ op: "furnish", scope: "room" }], view()).rejected[0].reason).toMatch(/planner/);
+    const ops = Array.from({ length: 14 }, (_, i) => ({ op: "add", name: "chair", pos: { x: 6 + i * 0.01, z: -1 }, rotY: 0 }));
+    expect(applyFurnishOps([], ops, view()).value).toHaveLength(10);
+    expect(applyFurnishOps([], ops, view(), ops.length).value).toHaveLength(14);
+  });
+});
+
+describe("applyFurnishOps: clear and undo", () => {
+  // f1 in the kitchen, f2 outside it (plan x 1, y -1).
+  const items = [add([], { name: "stove", pos: { x: 6, z: 1 } }).value[0], { ...add([], { name: "sofa", pos: { x: 6, z: 1 } }).value[0], id: "f2", pos: { x: 1, y: 0, z: 1 } }];
+
+  it("clears only the items in the camera's room, and the selection with them", () => {
+    const r = applyFurnishOps(items, [{ op: "clear", scope: "room" }], view({ selected: "f1" }));
+    expect(r.value.map((p) => p.id)).toEqual(["f2"]);
+    expect(r.selected).toBeUndefined();
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "room" }], view({ selected: "f2" })).selected).toBe("f2");
+  });
+
+  it("clears everything", () => {
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "all" }], view({ room: undefined })).value).toEqual([]);
+  });
+
+  it("rejects clearing the room when there's no room outline, and leaves undo to the tour", () => {
+    const r = applyFurnishOps(items, [{ op: "clear", scope: "room" }, { op: "undo" }], view({ room: undefined }));
+    expect(r.value).toBe(items);
+    expect(r.rejected.map((x) => x.reason)).toEqual([expect.stringMatching(/which room/), expect.stringMatching(/history/)]);
+  });
+
+  it("accepts a named room (the tour passes its outline as view.room) and keeps the same list when nothing was cleared", () => {
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "room", room: "kitchen" }], view()).value.map((p) => p.id)).toEqual(["f2"]);
+    const outside = [items[1]], empty: typeof items = [];
+    expect(applyFurnishOps(outside, [{ op: "clear", scope: "room" }], view()).value).toBe(outside);
+    expect(applyFurnishOps(empty, [{ op: "clear", scope: "all" }], view()).value).toBe(empty);
+  });
+});
+
+describe("elevated items", () => {
+  it("an elevated add (a TV on its stand) keeps its height through rotate, move and settle", () => {
+    const v = view({ floorY: 0.2 });
+    const r = add([], { name: "tv", size: { w: 1.25, d: 0.1, h: 0.75 }, pos: { x: 6, z: 1, y: 0.55 }, rotY: 0 }, v);
+    expect(r.value[0].pos.y).toBeCloseTo(0.75, 6);
+    const turned = applyFurnishOps(r.value, [{ op: "rotate", id: "f1", degrees: 90 }], v).value;
+    expect(turned[0].pos.y).toBeCloseTo(0.75, 6);
+    const moved = applyFurnishOps(turned, [{ op: "move", id: "f1", at: "point" }], { ...v, point: { x: 5, y: 0.2, z: 2 } }).value;
+    expect(moved[0].pos.y).toBeCloseTo(0.75, 6);
+    expect(moved[0].pos.x).toBeCloseTo(5, 1);
+    expect(settle({ x: 3, y: 0.75, z: 1 }, { w: 1, d: 0.5, h: 0.5 }, 0, v).y).toBe(0.75); // pulled inside, not dropped to the floor
+  });
+
+  it("an elevated add fits under the ceiling from its height and isn't in the way of floor adds", () => {
+    const v = view({ room: { id: "k", label: "kitchen", polygon: KITCHEN, ceiling: 2.0 } });
+    const tv = add([], { name: "tv", size: { w: 1.25, d: 0.1, h: 0.75 }, pos: { x: 6, z: 1, y: 1.5 }, rotY: 0 }, v).value;
+    expect(tv[0].pos.y + tv[0].size.h).toBeLessThanOrEqual(1.95 + 1e-9);
+    const chair = add(tv, { name: "chair", at: "point" }, { ...v, point: { x: 6, y: 0, z: 1 } }).value[1];
+    expect(Math.hypot(chair.pos.x - 6, chair.pos.z - 1)).toBeLessThan(0.05); // takes the spot under the TV
+  });
 });

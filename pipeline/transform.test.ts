@@ -63,6 +63,14 @@ describe("roomGraphFromModel", () => {
     expect(g.edges).toEqual([{ a: "a", b: "b", kind: "door", widthIn: expect.closeTo(32, 1), at: { x: 1, y: 0 } }]); // 0.1 m sliver ignored
     expect(g.entries).toEqual([{ roomId: "a", widthIn: expect.closeTo(35.4, 1), at: { x: 1, y: 0 } }]);
   });
+
+  it("keeps every outside door of a room: the widest as its entry, the rest as extra entries", () => {
+    const door = (id: string, width: number, x: number) => ({ id, type: "wall", openings: [{ type: "door", width, relativeCenter: 0.5 }], vertices: [{ position: { x, y: 0 } }, { position: { x: x + 2, y: 0 } }] });
+    const g = roomGraphFromModel({ id: "P", rooms: [{ id: "a", tags: ["living"], dimensions: { areaFloor: 100, units: "imperial" }, boundary: { edges: [door("front", 0.9, 0), door("patio", 1.8, 4)] } }] });
+    expect(g.entries).toEqual([{ roomId: "a", widthIn: expect.closeTo(70.9, 1), at: { x: 5, y: 0 } }]);
+    expect(g.extraEntries).toEqual([{ roomId: "a", widthIn: expect.closeTo(35.4, 1), at: { x: 1, y: 0 } }]);
+    expect(roomGraphFromModel(model).extraEntries).toBeUndefined(); // no field when each room has at most one
+  });
 });
 
 describe("sweeps", () => {

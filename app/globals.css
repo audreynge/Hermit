@@ -529,6 +529,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .furnish-tray { position: absolute; z-index: 2; left: 10px; right: 10px; bottom: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border-radius: 16px; background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: var(--shadow); }
 .furnish-toast { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); margin: 0; max-width: min(560px, 90%); padding: 8px 14px; border-radius: 12px; background: var(--ink); color: var(--card); font-size: 14px; box-shadow: var(--shadow); }
 .furnish-chat { display: flex; gap: 6px; align-items: center; }
+.furnish-tray[data-collapsed="true"] { right: auto; justify-items: start; }
 .furnish-chat input, .furnish-search input { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-strong); font: inherit; font-size: 15px; background: var(--card); color: var(--ink); }
 .furnish-shelf { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .furnish-tabs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

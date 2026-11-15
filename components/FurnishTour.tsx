@@ -9,8 +9,9 @@ import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
-import { layoutRoom, type Door, type PlanItem } from "@/lib/furnish/layout";
-import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { planRooms } from "@/lib/furnish/layout";
+import { dropBlocked } from "@/lib/furnish/probe";
 import { pointInPolygon } from "@/lib/geometry/polygon";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
@@ -27,6 +28,9 @@ const STARTUP_MS = 25_000;
 const SETTLE_MS = 600;
 const MAX_TRIES = 3;
 const NUDGE_M = 0.1;
+const NUDGE_MERGE_MS = 1000;
+const MAX_UNDO = 20;
+const PROBE_MS = 2_500; // budget for checking planned pieces against built-in counters
 const STATUS_TEXT: Record<Status, string> = { searching: "Finding a model…", loading: "Loading…", ready: "", none: "Box: no 3D model found", failed: "Box: model didn't load" };
 const json = async <T,>(url: string, body?: unknown): Promise<T> => {
   const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -35,12 +39,13 @@ const json = async <T,>(url: string, body?: unknown): Promise<T> => {
 };
 type Found = { models: Model[]; size?: Size; sizeSource?: "table" | "gemini" | "default" };
 // Models ranked by how well they fit the item's real size (the server measures their files); with a name, its size too.
-// One request per distinct search: furnishing a whole space places many copies of the same item.
-const found = new Map<string, Promise<Found>>();
+// One request per distinct query in flight: a furnish can add 20 identical chairs at once.
+const lookups = new Map<string, Promise<Found>>();
 const lookup = (terms: string[], name?: string): Promise<Found> => {
   const url = `/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
-  if (!found.has(url)) found.set(url, json<Found>(url).catch(() => { found.delete(url); return { models: [] }; }));
-  return found.get(url)!;
+  let p = lookups.get(url);
+  if (!p) lookups.set(url, p = json<Found>(url).catch(() => ({ models: [] })).finally(() => lookups.delete(url)));
+  return p;
 };
 type ViewMode = "inside" | "dollhouse" | "floorplan";
 const MODES: [ViewMode, string, typeof Box][] = [["inside", "Walk", Footprints], ["dollhouse", "Dollhouse", Box], ["floorplan", "Floor plan", MapIcon]];
@@ -48,10 +53,11 @@ const ALL = "all";
 const OPEN_SQFT = 430; // ~40 m²
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
+type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport; use: string; stop?: number; onFail: () => void }) {
+export function FurnishTour({ report, use, chairIn, stop, onFail }: { report: ShellReport; use: string; chairIn?: number; stop?: number; onFail: () => void }) {
   const sid = report.inside!.sid;
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
@@ -73,6 +79,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   const [suggestions, setSuggestions] = useState<FurnishItem[]>([]);
   const [tab, setTab] = useState<Tab>("suggested");
   const [trayOpen, setTrayOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false); // collapsed to a "Furnish" button until the user opens it
   const [popover, setPopover] = useState<"color" | "material" | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Model[] | null>(null);
@@ -83,7 +90,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   const [measuring, setMeasuring] = useState<string | undefined>(); // waiting for the user to draw a measurement for this item
   const [mode, setModeState] = useState<ViewMode>("inside");
   const [picked, setPicked] = useState<string | undefined>(); // a room id or ALL chosen with the select tool / picker
-  const [undo, setUndo] = useState<{ items: Placed[]; text: string } | null>(null); // offered only with its own message
+  const [undoText, setUndoText] = useState<string | null>(null); // the furnish message that offers an Undo button
   const sized = useRef(new Set<string>());
   // Every room outline on the plan (with its ceiling), so items stay inside whichever room they're in. Each gets a
   // readable name: the scan labels many rooms "other", so those become "Room 1", "Room 2"…
@@ -102,12 +109,6 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   const here = rooms.find((r) => r.id === room?.id);
   const floorRooms = rooms.filter((r) => r.floorId === (here ?? rooms[0])?.floorId);
   const furnishable = floorRooms.filter((r) => !["hallway", "bathroom"].includes(r.label)); // "everything" skips corridors and restrooms
-  // Door centres (plan meters) per room, so nothing is placed in front of a door.
-  const doorsOf = useCallback((id: string): Door[] => {
-    const g = report.floorplan;
-    const list = [...(g?.edges ?? []).filter((e) => e.a === id || e.b === id), ...(g?.entries ?? []).filter((e) => e.roomId === id)];
-    return list.filter((e) => e.at).map((e) => ({ at: e.at!, widthM: (e.widthIn ?? 36) * 0.0254 }));
-  }, [report.floorplan]);
   const targetRoom = picked === ALL ? undefined : rooms.find((r) => r.id === picked) ?? here;
   const state = useRef({ items, selected, room, candidates, rooms, measuring, mode, outline: targetRoom?.polygon });
   state.current = { items, selected, room, candidates, rooms, measuring, mode, outline: picked === ALL ? undefined : targetRoom?.polygon };
@@ -121,7 +122,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   // Gives an item a model (and optionally a real size): the rendered size comes from the model's measured proportions,
   // and the item is re-seated so its new footprint stays inside its room.
   const withModel = useCallback((p: Placed, model: Model | null, size: Size = p.size, approxSize = p.approxSize): Placed => {
-    const fitted = model?.bounds ? fitModel(model.bounds, size)?.fitted : undefined;
+    const fitted = model?.bounds ? fitModel(model.bounds, size, p.planned)?.fitted : undefined;
     return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, fitted ?? size, p.rotY, makeView()) };
   }, [makeView]);
 
@@ -185,11 +186,11 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   useEffect(() => { scene.current?.sync(items, selected); save(`hermit:furnish:${sid}`, items, "local"); }, [items, selected, sid, ready]);
   useEffect(() => { setPopover(null); }, [selected]);
   useEffect(() => {
-    if (!toast || (undo && toast !== undo.text)) setUndo(null);
+    if (!toast || (undoText && toast !== undoText)) setUndoText(null);
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), undo ? 12000 : 6000);
+    const t = setTimeout(() => setToast(null), undoText ? 12000 : 6000);
     return () => clearTimeout(t);
-  }, [toast, undo]);
+  }, [toast, undoText]);
   const navigate = useCallback((move: (s: MpSdk) => Promise<unknown>) => {
     const s = sdk.current;
     if (!s) return Promise.resolve();
@@ -245,7 +246,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
         lookingUp.current.delete(p.id);
         const known = !!size && sizeSource !== "default";
         setCandidates((c) => ({ ...c, [p.id]: models }));
-        setItems((cur) => cur.map((x) => (x.id === p.id && x.model === undefined
+        setItems((cur) => cur.map((x) => (x.id === p.id && x.terms === p.terms && x.model === undefined
           ? withModel(x, models[0] ?? null, known ? underCeiling(size!, roomAt(x.pos, makeView())?.ceiling) : x.size, known ? false : x.approxSize) : x)));
         setStatus((m) => ({ ...m, [p.id]: models.length ? "loading" : "none" }));
       });
@@ -276,13 +277,36 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     return undefined;
   }, []);
 
-  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec) => {
-    const r = applyFurnishOps(state.current.items, ops, makeView(point, ahead));
+  // The item list before each change made through apply or furnish, newest last; undo restores the last one.
+  const history = useRef<Placed[][]>([]);
+  // A run of key nudges to one item (each within NUDGE_MERGE_MS of the last) is one undo step.
+  const lastNudge = useRef<{ id: string; at: number } | null>(null);
+  const commit = useCallback((before: Placed[], r: FurnishResult, nudge?: string) => {
+    if (r.value !== before) {
+      const now = Date.now(), merge = !!nudge && lastNudge.current?.id === nudge && now - lastNudge.current.at < NUDGE_MERGE_MS;
+      if (!merge) history.current = [...history.current.slice(-(MAX_UNDO - 1)), before];
+      lastNudge.current = nudge ? { id: nudge, at: now } : null;
+    }
     setItems(r.value);
-    setUndo(null); // a later edit makes the refurnish undo stale
+    setUndoText(null); // a later edit makes the furnish Undo button stale
     setSelected(r.selected);
     return r;
-  }, [makeView]);
+  }, []);
+  const undo = useCallback(() => {
+    const prev = history.current.pop();
+    if (!prev) return "Nothing to undo.";
+    lastNudge.current = null;
+    // Ids are max+1, so an undone item's id comes back on the next add; forget its model lookups so that item gets its own.
+    const ids = new Set(prev.map((p) => p.id));
+    for (const refs of [sized.current, lookingUp.current]) for (const id of refs) if (!ids.has(id)) refs.delete(id);
+    setItems(prev);
+    setSelected((s) => (prev.some((p) => p.id === s) ? s : undefined));
+    return "Undid the last change.";
+  }, []);
+  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec, max?: number, nudge?: string) => {
+    const before = state.current.items;
+    return commit(before, applyFurnishOps(before, ops, makeView(point, ahead), max), nudge);
+  }, [makeView, commit]);
 
   const placeCard = useCallback(async (c: Card, point?: Vec) => {
     const r = apply([{ op: "add", name: c.name, terms: c.terms, ...(c.size && { size: c.size }), at: point ? "point" : "front" }], point, point ? undefined : await visibleAhead());
@@ -297,11 +321,12 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     let drag: { id: string; x: number; y: number; moved: boolean; rotY: number; startRot: number; pos?: Vec } | null = null;
     let press: { x: number; y: number } | null = null; // a click on the floor from above selects that room
     const block = (e: Event) => { if (drag) { e.stopPropagation(); e.preventDefault(); } };
-    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint).
+    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint) and at its
+    // own height, so a TV dragged off its stand stays TV-high (it follows the floor point, not the furniture under it).
     const floorPoint = (e: { clientX: number; clientY: number }, item?: { id: string; rotY: number }) => {
       const p = scene.current!.floorAt(e.clientX, e.clientY, el.getBoundingClientRect(), floorY.current);
       const it = item && state.current.items.find((x) => x.id === item.id);
-      return p && it ? settle(p, dims(it), item!.rotY, makeView()) : p;
+      return p && it ? settle({ ...p, y: it.pos.y }, dims(it), item!.rotY, makeView()) : p;
     };
     const onDown = (e: PointerEvent) => {
       if (state.current.measuring) return; // clicks belong to Matterport's measure tool
@@ -374,26 +399,27 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     };
   }, [ready, apply, placeCard, makeView]);
 
-  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray.
+  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray; Ctrl/Cmd+Z undoes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
-      if (e.key === "t" || e.key === "T") { setTrayOpen((o) => !o); return; }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); setToast(undo()); return; }
+      if (e.key === "t" || e.key === "T") { setChatOpen(true); setTrayOpen((o) => !o); return; }
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
-      if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }]); }
+      if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }], undefined, undefined, undefined, p.id); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); apply([{ op: "remove", id: p.id }]); }
       const a = ({ ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] } as Record<string, [number, number]>)[e.key];
       if (a) {
         e.preventDefault();
         const f = scene.current!.camera().forward; // nudge relative to where the user is looking
-        apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M });
+        apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M }, undefined, undefined, p.id);
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [popover, ready, apply]);
+  }, [popover, ready, apply, undo]);
 
   // Dimension overlay: the selected item's width/depth/height and gap to the wall, plus the measurement being drawn,
   // projected every frame so the lines follow the camera. Labels in feet and inches.
@@ -482,41 +508,68 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     };
   }, [ready, measuring, apply, makeView]);
 
-  // Hermit furnishes the target room (or every room on this floor) from the use, the brief and the studio chat.
-  async function runFurnish(scope: "room" | "all", brief?: string) {
-    const targets = scope === "all" || picked === ALL || !targetRoom ? furnishable : [targetRoom];
-    if (!targets.length) { setToast("This scan has no room outlines, so I can't lay it out automatically. Add pieces from the tray instead."); return; }
-    const where = targets.length === 1 ? `the ${targets[0].name.toLowerCase()}` : `${targets.length} rooms`;
-    setToast(`Planning ${where}…`);
+  /** The current floor's rooms with an outline, and a matcher for a room the user named ("bedroom" matches "bedroom 2"). */
+  function roomsNamed(name?: string) {
+    const g = report.floorplan, here = g?.rooms.find((r) => r.id === room?.id);
+    const floor = g && here ? g.rooms.filter((r) => r.floorId === here.floorId && r.polygon.length >= 3) : [];
+    const want = name?.toLowerCase().replace(/\s+room$/, "");
+    const named = (r: { label: string }) => !!want && (r.label === want || r.label.startsWith(want));
+    return { g, here, floor, want, named };
+  }
+
+  /** "Furnish this place": the layout planner picks items for the user's use and places them in the target rooms. Only
+   *  rooms on the current floor: the floor height is only known where the user stands. With `clear` (refurnish) the
+   *  target rooms, or everything, are emptied first so pieces don't stack; one undo restores the old layout. Returns the reply to show. */
+  async function furnish(req: FurnishRequest, message: string, clear?: "room" | "all"): Promise<string> {
+    const { g, here, floor, want, named } = roomsNamed(req.room);
+    if (!g || !here) return "Walk into a room that's on the floor plan first, then ask again.";
+    // Without a named room, "this room" is the one picked in the room select (or the one the user stands in).
+    const pick = floor.find((r) => r.id === targetRoom?.id) ?? here;
+    const targets = req.scope === "all" || (!want && picked === ALL) ? floor : want ? floor.filter(named) : [pick];
+    if (!targets.length) return g.rooms.some(named) ? `The ${want} is on another floor. Go there and ask again.` : `I couldn't find a ${want} on the floor plan.`;
+    setToast(`Planning ${targets.length === 1 ? `the ${targets[0].label}` : `${targets.length} rooms`}…`);
+    const ordered = [...targets].sort((a, b) => Number(b.id === here.id) - Number(a.id === here.id)); // this room gets first pick of the item budget
+    // Clears the furnish targets (a named room isn't necessarily the one the camera is in).
+    const keep = (list: Placed[]) => clear === "all" ? [] : clear === "room"
+      ? targets.reduce((cur, t) => applyFurnishOps(cur, [{ op: "clear", scope: "room" }], { ...makeView(), room: t }).value, list) : list;
     const ctx = hermitContext();
-    const fullBrief = [brief, ctx && `What the client told Hermit: ${ctx}`].filter(Boolean).join(". ").slice(0, 500);
-    try {
-      const plan = await json<{ rooms: { id: string; items: PlanItem[] }[]; reply: string }>("/api/furniture/plan", {
-        use: (use || "home").slice(0, 80), ...(fullBrief && { brief: fullBrief }),
-        rooms: targets.slice(0, 24).map((r) => ({ id: r.id, label: r.name.replace(/ \d+$/, "").toLowerCase(), areaSqm: r.areaSqft / 10.7639 })),
-      });
-      const prev = state.current.items;
-      let next = prev.filter((p) => !targets.some((r) => pointInPolygon(toPlan(p.pos), r.polygon)));
-      let count = 0, skipped = 0;
-      for (const r of plan.rooms) {
-        const target = targets.find((t) => t.id === r.id);
-        if (!target) continue;
-        const out = layoutRoom(target, r.items, next, floorY.current, doorsOf(target.id));
-        next = [...next, ...out.placed]; count += out.placed.length; skipped += out.skipped.length;
-      }
-      const msg = `${plan.reply} Placed ${count} piece${count === 1 ? "" : "s"} in ${where}${skipped ? `; ${skipped} didn't fit` : ""}.`;
-      setItems(next); setSelected(undefined); setUndo({ items: prev, text: msg }); setTab("placed");
-      setToast(msg);
+    const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
+      text: [message, ctx && `What the client told Hermit: ${ctx}`].filter(Boolean).join(". ").slice(0, 500),
+      use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
+      placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z, y: p.pos.y - floorY.current }, size: dims(p), rotY: p.rotY })),
+      ...(chairIn && { access: { chairWidthIn: chairIn } }), ...(clear && { fresh: true }),
+    });
+    if (clear && !out.ops.length) return "I couldn't fit a new layout, so I left the room as it was.";
+    // The outlines carry no fixtures: probe each new piece against the tour's surfaces (only what's in view, within
+    // PROBE_MS) and drop the ones that would sit on a built-in counter, with what depends on them. Unchecked pieces stay.
+    const base = keep(state.current.items), blocked = new Set<number>();
+    const rect = viewer.current?.getBoundingClientRect(), end = Date.now() + PROBE_MS;
+    for (const [i, op] of out.ops.entries()) {
+      if (!scene.current || !rect || Date.now() > end) break;
+      const p = applyFurnishOps(base, [op], makeView()).value[base.length]; // the piece this op adds, if valid
+      if (p && (await scene.current.probe({ pos: p.pos, size: dims(p), rotY: p.rotY }, floorY.current, rect)).blocked) blocked.add(i);
+    }
+    const { keep: ops, skipped } = dropBlocked(out.ops, blocked);
+    if (clear && !ops.length) return "I couldn't fit a new layout, so I left the room as it was.";
+    // Re-read the items: models may have loaded while the planner and the probe ran.
+    const before = state.current.items, r = commit(before, applyFurnishOps(keep(before), ops, makeView(), ops.length));
+    const note = skipped ? ` Skipped ${skipped} piece${skipped > 1 ? "s" : ""} that would sit on built-in counters or fixtures (checked what's in view).` : "";
+    const msg = (r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply) + note;
+    if (r.applied.length) {
+      setUndoText(msg); setTab("placed");
       if (targets.length > 1 && state.current.mode === "inside") void setMode("dollhouse"); // see the whole result at once
       noteToHermit({ role: "hermit", agent: "furnish", text: `In the 3D tour of ${report.name.split(" · ")[0]}: ${msg}` });
-    } catch {
-      setToast("I couldn't plan that just now. Try again in a moment.");
     }
+    return msg;
   }
-  async function furnish(scope: "room" | "all", brief?: string) {
+  // The "Furnish this room / everything" button: the chat box text, if any, is the brief.
+  async function furnishPicked() {
     if (busy || !ready) return;
-    setBusy(true);
-    try { await runFurnish(scope, brief); } finally { setBusy(false); }
+    const all = picked === ALL, message = text.trim() || (all ? "furnish everything" : "furnish this room");
+    setText(""); setBusy(true);
+    try { setToast(await furnish({ op: "furnish", scope: all ? "all" : "room" }, message)); }
+    catch { setToast("I couldn't plan that just now. Try again in a moment."); }
+    finally { setBusy(false); }
   }
 
   async function send(t = text) {
@@ -524,16 +577,24 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     if (!message || busy || !ready) return;
     setText(""); setBusy(true);
     try {
-      const out = await json<{ ops: { op?: string; scope?: string; brief?: string }[]; reply: string }>("/api/furniture/edit", {
+      const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
         text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: picked === ALL ? "whole space" : targetRoom?.name ?? room?.label, suggestions,
       });
-      const whole = out.ops.find((o) => o.op === "furnish");
-      if (whole) {
+      const kind = (o: object) => (o as { op?: string }).op;
+      if (out.ops.some((o) => kind(o) === "undo")) { setToast(undo()); return; }
+      const i = out.ops.findIndex((o) => kind(o) === "furnish");
+      if (i >= 0) {
         noteToHermit({ role: "user", text: message });
-        await runFurnish(whole.scope === "all" ? "all" : "room", whole.brief || message);
-        return;
+        const clear = out.ops.slice(0, i).find((o) => kind(o) === "clear") as { scope: "room" | "all" } | undefined; // refurnish
+        setToast(await furnish(out.ops[i] as FurnishRequest, message, clear?.scope)); return;
       }
-      const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
+      // "Empty the bedroom" clears the named room on this floor, not the one the camera is in.
+      const clearIn = (out.ops.find((o) => kind(o) === "clear") as { room?: string } | undefined)?.room;
+      const f = roomsNamed(clearIn), named = clearIn ? f.floor.find(f.named) : undefined;
+      if (clearIn && !named) { setToast(`I couldn't find a ${f.want} on this floor.`); return; }
+      const before = state.current.items;
+      const r = !out.ops.length ? null : named ? commit(before, applyFurnishOps(before, out.ops, { ...makeView(), room: named }))
+        : apply(out.ops, pointer.current, await visibleAhead());
       setToast(!r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`);
     } catch {
       setToast("Something went wrong reaching the assistant. Try again, or use the tray.");
@@ -541,7 +602,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   }
 
   async function runSearch(terms: string[], name: string) {
-    setTab("search"); setTrayOpen(true); setResults(null);
+    setTab("search"); setChatOpen(true); setTrayOpen(true); setResults(null);
     setResults(await findModels(terms, 12, name));
   }
   const target = items.find((p) => p.id === replacing);
@@ -583,7 +644,7 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
                   {floorRooms.map((r) => <option key={r.id} value={r.id}>{r.name}{r.id === here?.id ? " (you're here)" : ""}</option>)}
                 </select>
               </label>
-              <button type="button" className="btn small primary" disabled={busy} onClick={() => { const b = text.trim(); setText(""); void furnish(picked === ALL ? "all" : "room", b || undefined); }}>
+              <button type="button" className="btn small primary" disabled={busy} onClick={() => void furnishPicked()}>
                 {busy ? <Loader aria-hidden="true" /> : <Sparkles aria-hidden="true" />} {picked === ALL ? "Furnish everything" : "Furnish this room"}
               </button>
             </>}
@@ -627,20 +688,25 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
           </div>
         )}
 
-        <div className="furnish-tray" data-open={trayOpen}>
+        <div className="furnish-tray" data-open={chatOpen && trayOpen} data-collapsed={!chatOpen}>
           {toast && (
             <p className="furnish-toast" role="status">{toast}
-              {undo?.text === toast && <button type="button" className="btn small" onClick={() => { setItems(undo.items); setUndo(null); setToast("Put everything back the way it was."); }}><Undo2 aria-hidden="true" /> Undo</button>}
+              {undoText === toast && <button type="button" className="btn small" onClick={() => { setUndoText(null); setToast(undo()); }}><Undo2 aria-hidden="true" /> Undo</button>}
             </p>
           )}
+          {!chatOpen ? (
+            <button type="button" className="btn small" aria-expanded={false} onClick={() => setChatOpen(true)}><Sofa aria-hidden="true" /> Furnish this {label}</button>
+          ) : (
           <form className="furnish-chat" onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <button type="button" className="icon-btn" aria-label={trayOpen ? "Hide the furniture tray" : "Show the furniture tray"} aria-expanded={trayOpen} onClick={() => setTrayOpen(!trayOpen)}>{trayOpen ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}</button>
             <label className="sr-only" htmlFor="furnish-text">Tell me what to place</label>
-            <input id="furnish-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Tell Hermit how to set up ${picked === ALL ? "the whole space" : targetRoom ? `the ${targetRoom.name.toLowerCase()}` : `this ${label}`}: "a dental office", "put a desk here"…`} maxLength={500} disabled={!ready} />
+            <input id="furnish-text" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={`Tell Hermit how to set up ${picked === ALL ? "the whole space" : targetRoom ? `the ${targetRoom.name.toLowerCase()}` : `this ${label}`}: "a dental office", "put a desk here"…`} maxLength={500} disabled={!ready} />
             <Mic disabled={!ready || busy} onText={(t) => void send(t)} />
             <button type="submit" className="icon-btn" aria-label="Send" disabled={!ready || busy || !text.trim()}>{busy ? <Loader aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
+            <button type="button" className="icon-btn" aria-label="Collapse the furnishing chat" onClick={() => setChatOpen(false)}><X aria-hidden="true" /></button>
           </form>
-          {trayOpen && (
+          )}
+          {chatOpen && trayOpen && (
             <div className="furnish-shelf">
               <div className="furnish-tabs">
                 <div role="tablist" aria-label="Furniture">
