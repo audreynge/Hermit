@@ -10,7 +10,7 @@ const Draft = RequirementSpec.omit({ city: true }).extend({ city: City.optional(
 const Body = z.object({
   state: z.object({
     spec: Draft,
-    asked: z.array(z.string().max(20)).max(20),
+    asked: z.array(z.string().max(20)).max(30),
     history: z.array(z.object({ role: z.enum(["hermit", "user"]), text: z.string().max(4000) })).max(60),
     field: z.string().max(20).nullable().optional(),
     quick: z.array(z.string().max(80)).max(20).optional(),
