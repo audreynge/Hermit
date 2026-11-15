@@ -333,6 +333,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
 }
 
 export type PlanRoom = LayoutRoom & { objects: string[] };
+const DOOR_SNAP_M = 0.5; // real scans: rejected centres are either within ~0.5 m of the wall or metres away on a truncated outline
 const PLAIN = /^[A-Za-z0-9][A-Za-z0-9 '&/-]{0,39}$/;
 /** Planner context for rooms of the room graph: outline, ceiling, doors (estimated on the shared wall when the scan has no
  *  position; outside doors without one are unknown) and what the scan shows there. */
@@ -340,9 +341,12 @@ export function planRooms(g: RoomGraph, ids: string[]): PlanRoom[] {
   return ids.flatMap((id) => {
     const r = g.rooms.find((x) => x.id === id);
     if (!r || r.polygon.length < 3) return [];
+    // A scanned centre near this room's outline is the real door, snapped onto it; doorPoint also checks the other room,
+    // whose outline is often truncated, so it only fills in when the centre is missing or far off.
+    const own = (at?: Pt) => { const n = at && nearestOnBoundary(at, r.polygon); return n && n.dist <= DOOR_SNAP_M ? n.pt : null; };
     const doors = [
-      ...g.edges.filter((e) => e.a === id || e.b === id).map((e) => ({ at: doorPoint(g, e.a, e.b, e.at), widthIn: e.widthIn })),
-      ...(g.entries ?? []).filter((e) => e.roomId === id).map((e) => ({ at: doorPoint(g, id, null, e.at), widthIn: e.widthIn })),
+      ...g.edges.filter((e) => e.a === id || e.b === id).map((e) => ({ at: own(e.at) ?? doorPoint(g, e.a, e.b, e.at), widthIn: e.widthIn })),
+      ...[...(g.entries ?? []), ...(g.extraEntries ?? [])].filter((e) => e.roomId === id).map((e) => ({ at: own(e.at) ?? doorPoint(g, id, null, e.at), widthIn: e.widthIn })),
     ].flatMap((d) => (d.at ? [{ at: d.at, width: (d.widthIn ?? 34) * 0.0254 }] : []));
     // Matterport labels look like "rre_kitchen_sink": drop the prefix and underscores so the planner can read them.
     const objects = [...new Set(g.objects.filter((o) => o.roomId === id).map((o) => o.label.replace(/^rre_/i, "").replace(/_/g, " ").trim()))].filter((l) => PLAIN.test(l)).slice(0, 30);

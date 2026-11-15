@@ -155,6 +155,21 @@ describe("planRooms", () => {
     expect(a.objects).toEqual(["sofa", "kitchen sink"]); // scan ids like rre_kitchen_sink made readable
   });
 
+  it("keeps a scanned door centre near this room's wall, snapped onto it, even when the other room's outline misses it", () => {
+    const rooms = [
+      { id: "a", label: "living", rawTags: [], areaSqft: 0, polygon: rect(4, 4), floorId: "f" },
+      { id: "b", label: "kitchen", rawTags: [], areaSqft: 0, polygon: rect(3, 2, 4, 2), floorId: "f" }, // truncated: misses y < 2
+    ];
+    const g = {
+      sid: "s", name: "n", totalAreaSqft: 0, panoCount: 0, floorCount: 1, objects: [], rooms,
+      edges: [{ a: "a", b: "b", kind: "door", widthIn: 36, at: { x: 4.3, y: 1 } }],
+      entries: [{ roomId: "a", widthIn: 36, at: { x: 2, y: -0.3 } }],
+      extraEntries: [{ roomId: "a", widthIn: 60, at: { x: 2, y: 6 } }],
+    } as RoomGraph;
+    const [a] = planRooms(g, ["a"]);
+    expect(a.doors.map((d) => d.at)).toEqual([{ x: 4, y: 1 }, { x: 2, y: 0 }]); // the patio door 2 m off is ignored, not guessed
+  });
+
   it("offline reception: the receptionist's chair sits behind the desk, facing the room", async () => {
     const out = await planFurnish({ text: "furnish", use: "dental practice", rooms: [room("r", "reception", 6, 4)], placed: [] }, null);
     const ops = out.ops as Add[], desk = ops.find((o) => o.name === "reception desk")!, chair = ops.find((o) => o.name === "office chair")!;
