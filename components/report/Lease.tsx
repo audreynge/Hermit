@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { usePersisted } from "./shared";
 import type { ReportCtx } from "./ShellReportPage";
 
-type Coach = { keyPoints?: string[]; summary: string[]; terms: Record<string, string | null>; redFlags: { flag: string; why: string; ask: string }[]; text?: string; llm?: boolean };
+type Coach = { note?: string; keyPoints?: string[]; summary: string[]; terms: Record<string, string | null>; redFlags: { flag: string; why: string; ask: string }[]; text?: string; llm?: boolean };
 type Loi = { years: number; rentPsf: number; freeMonths: number; tiPsf: number; startMonths: number; guaranteeCap: boolean };
 type Turn = { role: "user" | "assistant"; text: string };
 const MAX_PDF = 3 * 1024 * 1024;
@@ -99,6 +99,7 @@ export function Lease({ report, spec }: ReportCtx) {
             {!coach.keyPoints?.length && <ul>{coach.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>}
 
             <h3>Ask about this lease</h3>
+            {coach.note && <p role="status">{coach.note}</p>}
             <div className="lease-chat" role="log" aria-live="polite">
               {chat.map((t, i) => <p key={i} className={`lease-msg ${t.role}`}>{t.text}</p>)}
               {asking && <p className="lease-msg assistant muted">Looking…</p>}

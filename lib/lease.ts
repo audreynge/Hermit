@@ -30,10 +30,18 @@ function pdfStrings(s: string): string {
 export function extractPdfText(buf: Buffer): string {
   const raw = buf.toString("latin1");
   const parts: string[] = [];
+  let budget = 8 * 1024 * 1024, streams = 0;
   for (const m of raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
-    const chunk = Buffer.from(m[1], "latin1");
+    if (++streams > 2000 || budget <= 0) break;
     let body: string;
-    try { body = inflateSync(chunk, { maxOutputLength: 8 * 1024 * 1024 }).toString("latin1"); } catch { body = m[1]; }
+    try {
+      const out = inflateSync(Buffer.from(m[1], "latin1"), { maxOutputLength: budget });
+      budget -= out.length;
+      body = out.toString("latin1");
+    } catch (e) {
+      if ((e as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") break;
+      body = m[1];
+    }
     if (/\bBT\b/.test(body)) parts.push(pdfStrings(body));
   }
   const text = parts.join("\n").replace(/\s+/g, " ").trim();

@@ -27,7 +27,7 @@ const NO_TEXT = "I couldn't read text out of that PDF (it may be a scan). Paste 
 
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return bad("That file or text is too large or malformed. PDFs can be up to 3 MB; too big? Paste the text instead.");
+  if (!parsed.success) return bad("That text or file is too large or malformed. Pasted text can be up to 60,000 characters; PDFs up to 3 MB.");
   const { pdf, question, history = [] } = parsed.data;
   let text = parsed.data.text?.trim() ?? "";
   const gem = hasGemini();
@@ -68,9 +68,13 @@ export async function POST(req: Request) {
         `You are a friendly lease coach for a small-business owner. Read the lease and explain it in plain words. "text": the lease's plain text (at most 40000 characters; copy it faithfully, do not summarize). "keyPoints": 5-8 plain bullets of what matters most (rent, length, extra charges, increases, guarantee, who fixes what, how to get out), each one sentence with real numbers when stated. "summary": 3-5 short bullets. "terms": short plain values or null if not stated. "redFlags": anything risky for a tenant (personal guarantee, CAM/NNN charges, escalations, assignment, relocation, early termination, use restrictions), each with why it matters and what to ask for. Never give legal conclusions; this is not legal advice.`,
         [{ role: "user", parts: doc }], Out, 45_000);
       if (out) {
-        if (pdfPart) text = out.text.trim();
+        let note: string | undefined;
+        if (pdfPart) {
+          text = out.text.trim() || (buf ? extractPdfText(buf) : "");
+          if (!text) note = "I read the PDF, but couldn't pull its text out, so follow-up questions won't work. Paste the lease text to ask questions.";
+        }
         const seen = new Set(out.redFlags.map((f) => flagTopic(f.flag)));
-        return NextResponse.json({ ...out, text: text.slice(0, 40_000), keyPoints: out.keyPoints.slice(0, 8).map(cleanWording), summary: out.summary.map(cleanWording), redFlags: [...out.redFlags, ...rules().filter((r) => !seen.has(flagTopic(r.flag)))], llm: true });
+        return NextResponse.json({ ...out, text: text.slice(0, 40_000), keyPoints: out.keyPoints.slice(0, 8).map(cleanWording), summary: out.summary.map(cleanWording), redFlags: [...out.redFlags, ...rules().filter((r) => !seen.has(flagTopic(r.flag)))], llm: true, note });
       }
     } catch { /* rule-based fallback below */ }
   }
