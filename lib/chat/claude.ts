@@ -5,6 +5,7 @@ import { MODEL } from "../agent/model";
 import { outputText, type OpenAIClient } from "../llm/openai";
 import { geminiText, type GeminiClient } from "../llm/gemini";
 import { isChairWidth, RoomReq } from "../types";
+import { parseText } from "../spec/parse";
 import { EditOut, promptContext, unflatten, type EditContext } from "../design/edit";
 import { offlineEdit, offlineHelp } from "../design/offline";
 import { applyLayoutOps, textLayoutOps } from "../design/layout-ops";
@@ -76,7 +77,13 @@ function parseEdit(text: string, ctx: EditContext): ReturnType<typeof offlineEdi
 
 function offline(state: ChatState, text: string, ctx: EditContext): Turn {
   if (!editable(ctx)) return converse(state, text);
-  const act = actionTurn(state, text);
+  let act = actionTurn(state, text);
+  // "…that's everything, search now" at the end of a full request: search on what the message says, not just what came before.
+  if (act?.action === "search") {
+    const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms] };
+    backfill(spec, text);
+    act = actionTurn({ ...state, spec }, text);
+  }
   if (act) return act;
   const e = parseEdit(text, ctx);
   if (!e) {
@@ -92,11 +99,28 @@ function offline(state: ChatState, text: string, ctx: EditContext): Turn {
 
 const LAYOUT_HELP = 'I can add, remove, resize, move or rename rooms, for example "add a bathroom", "make the kitchen bigger" or "move reception to the front". What would you like to change?';
 
+// Models drop fields from long messages (a size range, the room list); fill what's still missing from the text itself.
+function backfill(spec: ChatState["spec"], text: string) {
+  const p = parseText(text, { city: spec.city, mode: spec.mode });
+  if (!spec.city && /houston|los angeles/i.test(text)) spec.city = p.city;
+  if (!spec.useType && p.useType) spec.useType = p.useType;
+  if (!spec.sizeSqft && p.sizeSqft) spec.sizeSqft = p.sizeSqft;
+  if (!spec.budgetMonthly && p.budgetMonthly) spec.budgetMonthly = p.budgetMonthly;
+  for (const r of p.rooms) if (!spec.rooms.some((x) => x.label === r.label)) spec.rooms.push(r);
+  for (const [k, v] of Object.entries(p.needs)) if (v != null && (spec.needs as Record<string, unknown>)[k] == null) Object.assign(spec.needs, { [k]: v });
+}
+
 export async function chatTurn(state: ChatState, text: string, client?: Client | null, { openai, gemini, ctx = {} }: Opts = {}): Promise<Turn> {
   const c = client !== undefined ? client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
   if (!c && !openai && !gemini) return offline(state, text, ctx);
   // Plain app commands ("save the second one", "start over") don't need a model round trip.
-  const act = actionTurn(state, text);
+  let act = actionTurn(state, text);
+  // "…that's everything, search now" at the end of a full request: search on what the message says, not just what came before.
+  if (act?.action === "search") {
+    const spec = { ...state.spec, needs: { ...state.spec.needs }, rooms: [...state.spec.rooms] };
+    backfill(spec, text);
+    act = actionTurn({ ...state, spec }, text);
+  }
   if (act) return act;
   const provider = c ? "Claude" : gemini ? "Gemini" : "OpenAI";
   const prompt = `Phase: ${state.phase}\nWhat I know so far: ${describe(state.spec)}\nQuestions already asked: ${state.asked.join(", ") || "none"}${editable(ctx) ? `\n\n${promptContext(ctx, state.spec)}` : ""}\n\nUser says: ${text}`;
@@ -137,6 +161,7 @@ export async function chatTurn(state: ChatState, text: string, client?: Client |
       if (i >= 0) spec.rooms[i] = room;
       else spec.rooms.push(room);
     }
+    backfill(spec, text);
     const next: ChatState = { ...state, spec };
     const e = out.edit ?? { target: "none", ops: [] };
     if (editable(ctx) && (e.target === "layout" || e.target === "fitout") && e.ops.length)
