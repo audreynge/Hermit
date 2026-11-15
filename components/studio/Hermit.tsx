@@ -11,7 +11,6 @@ import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
 import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/blocks";
 import type { Block } from "@/lib/spec/parse";
 import { searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
-import { tidyReport } from "@/lib/agent/report";
 import { isLayoutEdit, localCommand, type LocalCommand } from "@/lib/chat/commands";
 import { chatAsked, type ChatState, type Turn } from "@/lib/chat/converse";
 import { validateUpload } from "@/lib/design/extract";
@@ -23,6 +22,8 @@ import type { RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/ty
 import { Interview, type ChatMsg } from "./Interview";
 import { CrewTrace } from "./CrewTrace";
 import { MatchingSpaces } from "./MatchingSpaces";
+import { SearchProgress } from "./SearchProgress";
+import { SpecChecklist } from "./SpecChecklist";
 import { LayoutPreview } from "../LayoutPreview";
 import { LayoutStudio } from "../LayoutStudio";
 import { Thinking } from "../Thinking";
@@ -70,8 +71,6 @@ export function Hermit() {
   const [reports, setReports] = useState<ShellReport[]>([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
-  const [recorded, setRecorded] = useState(false); // the run event says this is a recorded replay
-  const [viewIndex, setViewIndex] = useState<number | null>(null);
   const started = useRef(false);
   // Follow-ups run through the chat brain (/api/chat), which needs a server-side conversation.
   const conv = useRef<string | null>(null);
@@ -115,7 +114,7 @@ export function Hermit() {
   }, []);
 
   const runSearch = useCallback(async (s: RequirementSpec, replayId?: string) => {
-    setEvents([]); setReports([]); setRunning(true); setViewIndex(null); setSelected(0);
+    setEvents([]); setReports([]); setRunning(true); setSelected(0);
     // The crew's checks render under the Hermit message that announced this search.
     setMessages((m) => { const i = m.map((x) => x.role).lastIndexOf("hermit"); return i < 0 ? m : m.map((x, j) => (j === i ? { ...x, thinking: true } : x)); });
     try {
@@ -134,7 +133,7 @@ export function Hermit() {
           const line = p.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
           const e = JSON.parse(line.slice(6)) as TraceEvent;
-          if (e.type === "run") { setRunId(e.runId); setRecorded(!!e.replay); if (e.spec) setIv((x) => ({ ...x, spec: e.spec as Draft })); continue; }
+          if (e.type === "run") { setRunId(e.runId); if (e.spec) setIv((x) => ({ ...x, spec: e.spec as Draft })); continue; }
           setEvents((x) => [...x, e]);
           if (e.type === "report") setReports(e.reports);
         }
@@ -148,7 +147,7 @@ export function Hermit() {
     if (started.current) return;
     started.current = true;
     if (replay) {
-      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays my exact steps without calling any outside service." }]);
+      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays the crew's exact steps without calling any outside service." }]);
       void runSearch({ ...EMPTY, city: "houston", useType: "space" } as RequirementSpec, replay);
       return;
     }
@@ -166,6 +165,7 @@ export function Hermit() {
       conv.current = p.conv ?? null; announced.current = p.runId;
       return;
     }
+    if (p?.messages?.length) setMessages(p.messages); // a thread started on a report page, before any search here
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
   }, [replay, runSearch, ask, firstQ, router]);
 
@@ -289,7 +289,7 @@ export function Hermit() {
     say(turn.reply, turn.action === "compare" ? { compare: reports } : {});
     if (turn.action === "email" && target) setEmailFor(target);
     if (turn.action === "save" && target && runId) { toggleSaved(target, runId); window.dispatchEvent(new Event("hermit:saved")); }
-    if (turn.action === "view" && target) { setSelected(idx); setViewIndex(idx); }
+    if (turn.action === "view" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}&tab=inside`);
     if (turn.action === "report" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}`);
     if (turn.action === "broker" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}&tab=broker`);
     if (turn.action === "edit_layout") editLayout();
@@ -356,7 +356,7 @@ export function Hermit() {
 
   const reset = () => {
     conv.current = null; announced.current = null; past.current = []; started.current = true;
-    setFitouts({}); setSelected(0); setViewIndex(null); save(KEYS.chat, null);
+    setFitouts({}); setSelected(0); save(KEYS.chat, null);
     setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setReports([]); setEvents([]); setRunId(null);
     setReady(false); setProgress(0); setLayout([]); setFurniture([]); setExtras([]); touched.current = false;
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
@@ -369,14 +369,20 @@ export function Hermit() {
     if (!finished || !runId || announced.current === runId) return;
     announced.current = runId;
     const s = summarizeResults(reports, runSpec, { considered: searchCounts(events).considered, dropped: events.filter((e) => e.type === "drop").length });
-    setMessages((m) => [...m, { id: uid(), role: "hermit", text: [...s.paragraphs, s.followUp].join(" ") }]);
+    setMessages((m) => [...m, { id: uid(), role: "hermit", text: [...s.paragraphs, s.followUp].join(" "), trace: true }]);
   }, [finished, runId, reports, runSpec, events]);
 
   // Only the newest proposal message for a space shows the plan, and only the newest search shows the crew's checks.
   const lastFit = useMemo(() => new Map(messages.filter((m) => m.fitout).map((m) => [m.fitout!, m.id])), [messages]);
-  const lastThink = useMemo(() => [...messages].reverse().find((m) => m.thinking)?.id, [messages]);
+  // While running the trace sits under the search message; when done it folds under the results message that follows.
+  const traceAt = useMemo(() => {
+    const i = messages.findLastIndex((m) => m.thinking);
+    if (i < 0) return undefined;
+    return (!running && messages.slice(i + 1).find((m) => m.trace)?.id) || messages[i].id;
+  }, [messages, running]);
   const extraFor = (m: ChatMsg) => {
-    if (m.id === lastThink && (running || events.length > 0)) return <Thinking steps={steps} running={running} />;
+    // The search's message restates the spec and lists the crew's checks (folded under the results once done); the running-crab loader sits above the composer.
+    if (m.id === traceAt && (running || events.length > 0)) return <><SpecChecklist spec={runSpec} /><Thinking steps={steps} running={running} /></>;
     if (m.compare?.length) return <Compare reports={m.compare} />;
     if (m.findings) return <div className="bubble"><RegulationList findings={m.findings} /></div>;
     if (m.blocks) return <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>;
@@ -401,7 +407,7 @@ export function Hermit() {
       </div>
       <div className="studio-grid">
         <Interview messages={messages} busy={busy} onSend={send} extra={extraFor}
-          placeholder={reports.length ? "Ask about a match, or “make it 3 exam rooms”" : undefined}
+          placeholder={reports.length ? "Ask about a match, change the size, or refine the area…" : undefined}
           top={!searched && (
             <div className="studio-progress">
               <span id="req-progress">Your requirements: {pct}%</span>
@@ -413,6 +419,7 @@ export function Hermit() {
             <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="sr-only" tabIndex={-1} aria-label="Floor plan file"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void upload(f); }} />
           </>}>
+          {running && <SearchProgress events={events} />}
           {cta && (
             <div className="cta-row">
               <button type="button" className="cta" onClick={() => search()}><Sparkles aria-hidden="true" /> See your matches</button>
@@ -425,8 +432,8 @@ export function Hermit() {
           {searched ? (
             <>
               <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
-                onOpen={(r) => setViewIndex(reports.indexOf(r))} design={blocks} viewIndex={viewIndex} onViewIndex={setViewIndex} />
-              <CrewTrace events={events} running={running} recorded={recorded} useLabel={(spec.useType || "space").toLowerCase()} />
+                onOpen={(r) => runId && router.push(`/shell/${r.shellId}?run=${runId}&tab=inside`)} />
+              <CrewTrace events={events} running={running} useLabel={(spec.useType || "space").toLowerCase()} />
               <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
                 <summary>Edit your layout</summary>
                 {studio}
@@ -440,7 +447,7 @@ export function Hermit() {
           )}
         </div>
       </div>
-      {emailReport && <EmailDraft report={tidyReport(emailReport, runSpec)} onClose={() => setEmailFor(null)} />}
+      {emailReport && <EmailDraft report={emailReport} onClose={() => setEmailFor(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </div>
   );

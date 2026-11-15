@@ -1,6 +1,6 @@
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
-export const TABS = ["overview", "inside", "furnish", "neighborhood", "lease", "broker"] as const;
+export const TABS = ["overview", "inside", "aerial", "lease", "broker"] as const;
 export type ChatAction = { type: "tab"; tab: (typeof TABS)[number] } | { type: "save" };
 
 const $ = (n: number) => `$${Math.round(n).toLocaleString()}`;
@@ -32,9 +32,8 @@ const SHOW = /^\s*(please\s+|can you\s+|could you\s+)?(show|open|take me|go to|s
 const TAB_WORDS: [(typeof TABS)[number], RegExp][] = [
   ["lease", /lease|coach|contract/],
   ["broker", /broker|email|message|contact/],
-  ["neighborhood", /neighbou?rhood|traffic|area|nearby/],
-  ["furnish", /furnish|furniture|layout|design/],
-  ["inside", /inside|scan|tour|floor ?plan|3d/],
+  ["aerial", /above|aerial|satellite|roof|neighbou?rhood|area|nearby/],
+  ["inside", /inside|scan|tour|floor ?plan|3d|furnish|furniture|layout|design|fit/],
   ["overview", /overview|summary|report/],
 ];
 
@@ -65,4 +64,25 @@ export function fallbackReply(q: string, f: Facts): string {
     return p.length ? p.join(" ") : unk("Parking");
   }
   return "I can answer questions about the price, total first-year cost, build-out, time to open, rooms and parking for this space. I can also open a tab or save it for you.";
+}
+
+// Which brain a report-chat message goes to: walls/rooms/fixtures → the fit-out editor (/api/chat), furniture → the 3D
+// tour, anything else → answers. ponytail: keyword router; swap for a model call if real phrasing slips through.
+const EDIT = /\b(convert|merge|combine|split|divide|knock|walls?|into|sinks?|toilets?|showers?|plumbing|use the \w+ as)\b/i;
+const FURNISH = /\b(furnish\w*|furniture|sofas?|couch\w*|chairs?|desks?|tables?|beds?|stoves?|fridges?|lamps?|rugs?|shel(f|ves)|cabinets?|plants?|tvs?|pianos?|bookcases?|dressers?|place|put|rotate|bring (it|the)|move the|remove the|delete the|navy|colou?r|material)\b/i;
+export function intent(text: string): "edit" | "furnish" | "ask" {
+  if (EDIT.test(text)) return "edit";
+  return FURNISH.test(text) && !/\?\s*$/.test(text) ? "furnish" : "ask";
+}
+
+const TAB_NAMES: Record<string, string> = { overview: "Overview", inside: "Inside (3D tour and fit check)", aerial: "From above (aerial view)", lease: "Lease coach", broker: "Talk to your broker" };
+
+/** What the user sees and has done on the report page, for the chat's prompt: the tab, the 3D tour, a fit-out proposal
+ *  and what they told Hermit while searching. Capped so a crowded tour can't crowd out the report facts. */
+export function screenText(s: {
+  tab: string; tour?: string | null; told?: string;
+  fit?: { kept: boolean; changes: number; nowMatched: string[]; stillMissing: string[] } | null;
+}): string {
+  const fit = s.fit && `Proposed fit-out (${s.fit.kept ? "kept" : "not kept yet"}): ${s.fit.changes} change${s.fit.changes === 1 ? "" : "s"}; now matched: ${s.fit.nowMatched.join(", ") || "none"}; still missing: ${s.fit.stillMissing.join(", ") || "none"}.`;
+  return [`Open tab: ${TAB_NAMES[s.tab] ?? s.tab}.`, s.tour, fit, s.told && `What they told Hermit while searching: ${s.told}.`].filter(Boolean).join("\n").slice(0, 1500);
 }

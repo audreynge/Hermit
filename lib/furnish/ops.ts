@@ -12,41 +12,13 @@ export type Placed = {
   id: string; name: string; terms: string[]; size: Size; approxSize: boolean;
   model?: Model | null; // undefined: not looked up yet; null: no matching model, drawn as a labeled box
   pos: Vec; rotY: number; // degrees about the vertical axis
-  // Tipping, in 90° steps, for models that load upside down or on their side: pitch about the item's width axis
-  // (local x, "tip forward"), roll about its depth axis (local z, "tip sideways"). Missing = 0 (older saves).
-  pitch?: number; roll?: number;
   color?: string; material?: MaterialName;
   fitted?: Size; // size as rendered (the model's real proportions at the target height); used for picking and walls
+  planned?: true; // laid out by the room planner: its model never outgrows the planned footprint
 };
-export type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
-
-/** An angle snapped to a quarter turn, in [0, 360). */
-export const quarter = (deg?: number) => ((((Math.round((deg ?? 0) / 90) % 4) + 4) % 4) * 90);
-const tidy = (n: number) => (Math.abs(n) < 1e-9 ? 0 : n);
-/**
- * An item's box (local x ∈ ±w/2, y ∈ [0, h], z ∈ ±d/2) tipped by pitch (about x), then roll (about z) — the matrix
- * Rx(pitch)·Rz(roll), which is what the scene's "YXZ" Euler applies after the yaw. Returns the tipped box's extents
- * (w across, d deep, h tall) and the local offset that puts its bottom-center back on the item's spot, so a flipped
- * item stands on the floor instead of hanging through it.
- */
-export function orient(size: Size, pitch = 0, roll = 0): { size: Size; offset: Vec } {
-  const p = (quarter(pitch) * Math.PI) / 180, r = (quarter(roll) * Math.PI) / 180;
-  const cp = Math.round(Math.cos(p)), sp = Math.round(Math.sin(p)), cr = Math.round(Math.cos(r)), sr = Math.round(Math.sin(r));
-  const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
-  for (const x of [-size.w / 2, size.w / 2]) for (const y of [0, size.h]) for (const z of [-size.d / 2, size.d / 2]) {
-    const x1 = cr * x - sr * y, y1 = sr * x + cr * y; // roll about z
-    const v = { x: x1, y: cp * y1 - sp * z, z: sp * y1 + cp * z }; // then pitch about x
-    for (const k of ["x", "y", "z"] as const) { min[k] = Math.min(min[k], v[k]); max[k] = Math.max(max[k], v[k]); }
-  }
-  return {
-    size: { w: tidy(max.x - min.x), d: tidy(max.z - min.z), h: tidy(max.y - min.y) },
-    offset: { x: tidy(-(min.x + max.x) / 2), y: tidy(-min.y), z: tidy(-(min.z + max.z) / 2) },
-  };
-}
-/** What the user sees: the rendered size once the model is fitted, else the target size, as tipped. */
-export const dims = (p: Placed): Size => orient(p.fitted ?? p.size, p.pitch, p.roll).size;
-/** The same for a candidate size (a new model's fit) on an existing item's orientation. */
-export const dimsAs = (p: Placed, size: Size): Size => orient(size, p.pitch, p.roll).size;
+type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
+/** What the user sees: the rendered size once the model is fitted, else the target size. */
+export const dims = (p: Placed): Size => p.fitted ?? p.size;
 /** Where the user is and what they point at, read from the SDK when the ops are applied. */
 export type View = {
   camera: Vec; forward: { x: number; z: number }; floorY: number;
@@ -63,11 +35,18 @@ const Name = z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9 '&/-
 const Id = z.string().regex(/^f\d{1,4}$/, "bad item id");
 const Paint = z.string().trim().max(30);
 export const FurnishOp = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("add"), name: Name, terms: z.array(Name).max(4).optional(), size: z.object({ w: z.number(), d: z.number(), h: z.number() }).optional(), count: z.number().int().min(1).max(6).optional(), at: z.enum(ANCHORS).optional(), color: Paint.optional(), material: Paint.optional() }),
+  // pos/rotY: an exact spot from the layout planner (world x/z; y = meters above the floor for items standing on another
+  // piece); it skips the anchor and the free-spot search.
+  z.object({ op: z.literal("add"), name: Name, terms: z.array(Name).max(4).optional(), size: z.object({ w: z.number(), d: z.number(), h: z.number() }).optional(), count: z.number().int().min(1).max(6).optional(), at: z.enum(ANCHORS).optional(), color: Paint.optional(), material: Paint.optional(),
+    pos: z.object({ x: z.number().finite(), z: z.number().finite(), y: z.number().min(0).max(5).optional() }).optional(), rotY: z.number().finite().optional() }),
+  // Whole-room furnishing: the browser sends this to the layout planner (/api/furniture/plan) instead of applying it.
+  z.object({ op: z.literal("furnish"), scope: z.enum(["room", "all"]), room: Name.optional() }),
+  // "room" = items whose center is in view.room (the tour sets it to the named room, else the camera's); "all" = every placed item.
+  z.object({ op: z.literal("clear"), scope: z.enum(["room", "all"]), room: Name.optional() }),
+  // The browser restores its last snapshot instead of applying this.
+  z.object({ op: z.literal("undo") }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
   z.object({ op: z.literal("rotate"), id: Id, degrees: z.number().min(-360).max(360) }),
-  // Tip over in quarter turns: x = forward/back (180 flips it upright), z = onto its side.
-  z.object({ op: z.literal("tip"), id: Id, axis: z.enum(["x", "z"]), degrees: z.number().min(-360).max(360).refine((d) => d % 90 === 0, "tip in 90° steps") }),
   z.object({ op: z.literal("remove"), id: Id }),
   z.object({ op: z.literal("recolor"), id: Id, color: Paint.optional(), material: Paint.optional() }).refine((o) => o.color || o.material, "give a color or a material"),
   z.object({ op: z.literal("swap"), id: Id, name: Name, terms: z.array(Name).max(4).optional() }),
@@ -79,8 +58,8 @@ export type FurnishOp = z.infer<typeof FurnishOp>;
 export type FurnishResult = { value: Placed[]; applied: FurnishOp[]; rejected: Rejected[]; selected?: string };
 
 export const toPlan = (v: Vec): Pt => ({ x: v.x, y: -v.z });
-export const toWorld = (p: Pt, y: number): Vec => ({ x: p.x, y, z: -p.y });
-export const yawFacing = (dx: number, dz: number) => ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360;
+const toWorld = (p: Pt, y: number): Vec => ({ x: p.x, y, z: -p.y });
+const yawFacing = (dx: number, dz: number) => ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360;
 const unit = (x: number, z: number) => { const l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; };
 
 /** Keeps a footprint of radius r inside the room: pulls an outside or too-close point inward from the nearest wall. */
@@ -142,11 +121,14 @@ export function keepRectInside(c: Pt, size: Size, rotY: number, poly: Pt[], clea
 export const roomAt = (pos: Vec, view: View): RoomRef | undefined =>
   view.rooms?.find((r) => r.polygon.length >= 3 && pointInPolygon(toPlan(pos), r.polygon)) ?? view.room;
 
-/** Keeps an item fully inside the room it's in (rotated footprint, small clearance); unchanged where there's no outline. */
+/** Keeps an item fully inside the room it's in (rotated footprint, small clearance); unchanged where there's no outline.
+ *  Keeps pos.y, so an item standing on another piece stays at its height. */
 export function settle(pos: Vec, size: Size, rotY: number, view: View): Vec {
   const poly = roomAt(pos, view)?.polygon ?? [];
-  return poly.length >= 3 ? toWorld(keepRectInside(toPlan(pos), size, rotY, poly), view.floorY) : { ...pos, y: view.floorY };
+  return poly.length >= 3 ? toWorld(keepRectInside(toPlan(pos), size, rotY, poly), pos.y) : pos;
 }
+/** Ceiling height left above an item (the room's ceiling minus the item's height above the floor). */
+const headroom = (pos: Vec, view: View) => { const c = roomAt(pos, view)?.ceiling; return c && Math.max(1e-3, c - (pos.y - view.floorY)); };
 
 /** Scales a size down (proportionally) to fit under the room's ceiling with 5 cm to spare. */
 export function underCeiling(size: Size, ceiling?: number): Size {
@@ -182,20 +164,39 @@ const footprint = (s: Size) => Math.hypot(s.w, s.d) / 2;
 export function freeSpot(pos: Vec, size: Size, rotY: number, items: Placed[], view: View): Vec {
   const f = unit(view.forward.x, view.forward.z), side = size.w + 0.15, deep = size.d + 0.15;
   const at = (k: number, row: number) => settle({ x: pos.x - f.z * side * k + f.x * deep * row, y: pos.y, z: pos.z + f.x * side * k + f.z * deep * row }, size, rotY, view);
-  const clear = (p: Vec) => items.every((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) >= (footprint(dims(o)) + footprint(size)) * 0.8);
+  const clear = (p: Vec) => items.every((o) => o.pos.y > view.floorY + 0.05 || Math.hypot(o.pos.x - p.x, o.pos.z - p.z) >= (footprint(dims(o)) + footprint(size)) * 0.8);
   for (const row of [0, 1, -1, 2]) for (const k of [0, 1, -1, 2, -2, 3, -3]) { const p = at(k, row); if (clear(p)) return p; }
   return at(0, 0);
 }
 
-export const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
+const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
 
 /** Applies validated ops in order. Unknown ids, bad colors and too many ops are rejected with a reason, never guessed. */
-export function applyFurnishOps(items: Placed[], raw: unknown[], view: View): FurnishResult {
-  const { ops, rejected } = parseOps(raw, FurnishOp);
+export function applyFurnishOps(items: Placed[], raw: unknown[], view: View, max?: number): FurnishResult {
+  const { ops, rejected } = parseOps(raw, FurnishOp, max);
   let value = items, selected = view.selected;
   const applied: FurnishOp[] = [];
   const reject = (op: FurnishOp, reason: string) => rejected.push({ op, reason });
   for (const op of ops) {
+    if (op.op === "furnish") { reject(op, "furnishing a whole room goes through the layout planner"); continue; }
+    if (op.op === "undo") { reject(op, "undo goes through the tour's history"); continue; }
+    if (op.op === "clear") {
+      const poly = view.room?.polygon ?? [];
+      if (op.scope === "room" && poly.length < 3) { reject(op, "I can't tell which room you're in; walk into a room on the floor plan, or say \"clear everything\""); continue; }
+      const kept = op.scope === "all" ? [] : value.filter((p) => !pointInPolygon(toPlan(p.pos), poly));
+      if (kept.length < value.length) value = kept; // nothing cleared keeps the same list, so the tour adds no undo step
+      if (!value.some((p) => p.id === selected)) selected = undefined;
+      applied.push(op);
+      continue;
+    }
+    if (op.op === "add" && op.pos) {
+      const pos = { x: op.pos.x, y: view.floorY + (op.pos.y ?? 0), z: op.pos.z }, typical = typicalSize(op.name);
+      const size = underCeiling(clampSize(op.size ?? typical.size), headroom(pos, view)), id = nextId(value);
+      value = [...value, { id, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], size, approxSize: !op.size && !typical.known, pos, rotY: op.rotY ?? 0, planned: true }];
+      selected = id;
+      applied.push(op);
+      continue;
+    }
     if (op.op === "add") {
       const typical = typicalSize(op.name);
       const base0 = place(clampSize(op.size ?? typical.size), op.at ?? "front", view);
@@ -218,22 +219,16 @@ export function applyFurnishOps(items: Placed[], raw: unknown[], view: View): Fu
     let next: Placed | null = cur;
     if (op.op === "move") {
       const to = place(dims(cur), op.at, view), rotY = op.at === "point" || op.at === "center" ? cur.rotY : to.rotY;
-      next = { ...cur, rotY, pos: settle(to.pos, dims(cur), rotY, view) };
+      next = { ...cur, rotY, pos: settle({ ...to.pos, y: cur.pos.y }, dims(cur), rotY, view) }; // keeps its height (a TV moved stays TV-high)
     }
     if (op.op === "rotate") { const rotY = (((cur.rotY + op.degrees) % 360) + 360) % 360; next = { ...cur, rotY, pos: settle(cur.pos, dims(cur), rotY, view) }; }
-    if (op.op === "tip") {
-      const k = op.axis === "x" ? "pitch" : "roll";
-      const tipped = { ...cur, [k]: quarter((cur[k] ?? 0) + op.degrees) };
-      // Re-seat with the tipped footprint: inside the room and on the floor (the scene lifts it by orient().offset).
-      next = { ...tipped, pos: settle(cur.pos, dims(tipped), cur.rotY, view) };
-    }
     if (op.op === "resize") {
       const d = dims(cur);
       const k0 = op.scale ?? (op.w ? op.w / d.w : op.d ? op.d / d.d : op.h! / d.h);
-      const size = underCeiling(clampSize({ w: cur.size.w * k0, d: cur.size.d * k0, h: cur.size.h * k0 }), roomAt(cur.pos, view)?.ceiling);
+      const size = underCeiling(clampSize({ w: cur.size.w * k0, d: cur.size.d * k0, h: cur.size.h * k0 }), headroom(cur.pos, view));
       const k = size.h / cur.size.h; // after clamping
       const fitted = cur.fitted && { w: cur.fitted.w * k, d: cur.fitted.d * k, h: cur.fitted.h * k };
-      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, dimsAs(cur, fitted ?? size), cur.rotY, view) };
+      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, fitted ?? size, cur.rotY, view) };
     }
     if (op.op === "remove") next = null;
     if (op.op === "swap") next = { ...cur, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], model: undefined };

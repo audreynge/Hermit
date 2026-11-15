@@ -6,23 +6,6 @@ nav.primary a { padding: 10px 16px; font-size: 17px; border-radius: 14px; }
 nav.primary svg { width: 21px; height: 21px; }
 @media (max-width: 980px) { .decor { display: none; } nav.primary a span { display: none; } nav.primary a { padding: 10px; } }
 
-/* Hero */
-.hero { display: grid; gap: 34px; padding-top: 10px; }
-.hero-top { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; align-items: center; max-width: 1100px; }
-.hero-crab { width: 200px; height: auto; }
-.hero h1 { font-size: clamp(32px, 4.4vw, 52px); line-height: 1.08; }
-.hero h1 span { color: var(--coral-ink); }
-.hero-sub { font-size: 19px; color: var(--ink-soft); margin: 14px 0 18px; max-width: 760px; }
-.hero-form { display: flex; gap: 10px; align-items: center; background: var(--card); border: 1.5px solid var(--line-strong); border-radius: 999px; padding: 6px 6px 6px 22px; max-width: 760px; box-shadow: var(--shadow); }
-.hero-form input { flex: 1; border: 0; background: none; font: inherit; font-size: 19px; min-height: 52px; min-width: 0; color: var(--ink); }
-.hero-form input:focus { outline: none; }
-.hero-form:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
-.hero-form .cta { min-height: 54px; font-size: 19px; padding: 0 26px; }
-.hero-demo { margin-top: 12px; }
-.hero-demo a { font-weight: 700; display: inline-flex; gap: 6px; align-items: center; }
-.hero-demo svg { width: 18px; height: 18px; }
-@media (max-width: 760px) { .hero-top { grid-template-columns: 1fr; } .hero-crab { width: 120px; } .hero-form { border-radius: 20px; flex-wrap: wrap; } }
-
 /* Studio palette (the original layout studio look) */
 .tiles.objects { grid-template-columns: repeat(3, 1fr); }
 .tiles.objects .tile.obj { min-height: 62px; font-size: 11.5px; text-transform: capitalize; background: var(--card); color: var(--ink); }
@@ -56,26 +39,20 @@ nav.primary svg { width: 21px; height: 21px; }
 .q-card .link-btn { justify-self: start; padding: 4px 0; }
 .src { color: var(--ink-soft); }
 .inside { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
-.inside-tour { position: relative; height: min(70vh, 620px); border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); background: var(--sea-wash); }
-.inside-tour iframe { width: 100%; height: 100%; border: 0; }
+.inside-main { display: grid; gap: 14px; min-width: 0; }
+.inside-tour .furnish-tour { flex-direction: column; gap: 10px; }
+.inside-tour .furnish-stage, .inside-frame { flex: none; height: min(64vh, 560px); }
+.inside-frame { position: relative; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); background: var(--sea-wash); }
+.inside-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.inside-fit { padding: 14px 16px; }
+.inside-fit h2 { font-size: 19px; margin: 0 0 8px; }
 .inside-side { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 16px; display: grid; gap: 10px; position: sticky; top: 70px; }
 .inside-side h2 { font-size: 19px; }
 .room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .room-list button { width: 100%; display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); cursor: pointer; color: var(--ink); text-transform: capitalize; }
 .room-list button[aria-pressed="true"] { border-color: #f26a4b; background: var(--coral-wash); }
 .room-missing { display: flex; justify-content: space-between; padding: 8px 10px; color: var(--ink-soft); text-transform: capitalize; }
-.ask { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
-.ask h3 { font-size: 16px; }
-.ask-log { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
-.ask-msg { display: grid; gap: 4px; }
-.ask-msg p { padding: 8px 12px; border-radius: 14px; font-size: 14.5px; }
-.ask-msg.user p { background: var(--coral-wash); margin-left: 24px; }
-.ask-msg.hermit p { background: var(--sea-tint); margin-right: 24px; }
 .floorplan-svg { display: block; background: #fff; border-radius: 12px; }
-.furnish { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
-.furnish-plan, .furnish-side { padding: 14px 16px; display: grid; gap: 10px; }
-.furnish-side { position: sticky; top: 70px; }
-.furnish-side h2 { font-size: 19px; }
 .neighborhood, .rules-tab, .questions-tab, .lease, .money { display: grid; gap: 14px; }
 .nb-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr); gap: 14px; }
 .minimap { position: relative; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); background: var(--sea-wash); }
@@ -138,8 +115,8 @@ nav.primary svg { width: 21px; height: 21px; }
 .sample-badge { background: var(--warn-wash); border-radius: 10px; padding: 8px 12px; font-weight: 700; font-size: 14px; }
 .reply { background: var(--sea-tint); border-radius: 14px; padding: 10px 14px; font-style: italic; }
 @media (max-width: 980px) {
-  .inside, .furnish, .nb-row, .inbox { grid-template-columns: 1fr; }
-  .inside-side, .furnish-side { position: static; }
+  .inside, .nb-row, .inbox { grid-template-columns: 1fr; }
+  .inside-side { position: static; }
   .shell-head { grid-template-columns: 1fr auto; }
   .timeline li { grid-template-columns: 1fr; }
 }
@@ -171,28 +148,8 @@ nav.primary svg { width: 21px; height: 21px; }
 /* == C0: shared contracts == */
 /* == end C0 == */
 
-/* == W4a: Matches list + one "View property" viewer == */
-.modal.pv { display: flex; flex-direction: column; height: calc(100dvh - 40px); overflow: hidden; padding: 18px 22px; }
-.modal.pv header { margin-bottom: 2px; }
-.pv-address { margin: 0 0 10px; }
-.pv-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
-.pv-tour { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.pv-frame { position: relative; flex: 1; min-height: 200px; border-radius: 16px; overflow: hidden; background: var(--sea-wash); }
-.pv-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.pv-guide { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--line-strong); }
-.pv-guide img { width: 56px; flex: none; }
-.pv-guide p { flex: 1; margin: 0; font-size: 18px; line-height: 1.4; }
-.pv-guide-nav { display: flex; align-items: center; gap: 10px; flex: none; }
-.pv-body > .viewer-frame.aerial { flex: 1; height: auto; min-height: 280px; aspect-ratio: auto; }
-.pv-cap { font-size: 13px; margin: 8px 0 0; }
+/* == W4a: Matches list == */
 .space-verdict p { font-size: 16px; }
-@media (max-width: 760px) {
-  .modal.pv { padding: 14px; }
-  .pv-guide { flex-wrap: wrap; gap: 10px; }
-  .pv-guide img { width: 40px; }
-  .pv-guide p { flex-basis: calc(100% - 54px); font-size: 16px; }
-  .pv-guide-nav { width: 100%; justify-content: space-between; }
-}
 /* == end W4a == */
 /* == W4b: FitView design side by side == */
 .fit-twoup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
@@ -233,7 +190,13 @@ nav.primary svg { width: 21px; height: 21px; }
 /* == W5a: Shell Report overview == */
 .shell-head .back { margin: 0 0 4px; font-size: 15px; }
 .shell-head .stamp-inline { font-weight: 800; white-space: nowrap; }
-.ov { display: grid; gap: 14px; max-width: 900px; font-size: 18px; line-height: 1.5; }
+.ov { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 14px; align-items: start; font-size: 18px; line-height: 1.5; }
+.ov-main, .ov-side { display: grid; gap: 14px; min-width: 0; }
+.ov-side { position: sticky; top: 70px; }
+.ov-qs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 16px; }
+.ov-qs li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; }
+.ov-qs .ov-rule-icon { color: var(--fail); }
+@media (max-width: 980px) { .ov { grid-template-columns: 1fr; } .ov-side { position: static; } }
 .ov-sec { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 20px 22px; display: grid; gap: 10px; }
 .ov-sec h2 { font-size: clamp(22px, 2.6vw, 28px); margin: 0; }
 .ov-sec h3 { font-size: 19px; margin: 6px 0 0; }
@@ -278,16 +241,22 @@ nav.primary svg { width: 21px; height: 21px; }
 .lease-ask input { flex: 1; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px 12px; font: inherit; background: var(--card); color: var(--ink); }
 /* == end W5b == */
 /* == W5d: Report chat == */
-.rchat-pill { position: fixed; right: 20px; bottom: 20px; z-index: 30; padding: 14px 22px; border-radius: 999px; border: 1px solid var(--coral-ink); background: var(--coral-ink); color: #fff; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-cta); }
+.rchat-bubble { position: fixed; right: 20px; bottom: 20px; z-index: 30; width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--coral-ink); background: var(--card); cursor: pointer; box-shadow: var(--shadow-cta); }
+.rchat-bubble img { width: 40px; }
+.rchat-bubble-icon { position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; padding: 4px; border-radius: 50%; background: var(--coral-ink); color: #fff; }
+.rchat-bubble:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
 .rchat { position: fixed; right: 20px; bottom: 20px; z-index: 30; width: 380px; height: 520px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; }
-.rchat-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.rchat-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; }
+.rchat-head:active { cursor: grabbing; }
+.rchat-item { display: grid; gap: 6px; justify-items: start; }
+.rchat-item[data-role="user"] { justify-items: end; }
 .rchat-head .icon-btn { margin-left: auto; }
 .rchat-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; font-size: 17px; }
 .rchat-msg { margin: 0; padding: 10px 14px; border-radius: var(--r-md); max-width: 88%; background: var(--coral-wash); color: var(--ink); }
 .rchat-msg[data-role="user"] { align-self: flex-end; background: var(--coral-ink); color: #fff; }
 .rchat-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
 .rchat-form .input { flex: 1; min-width: 0; }
-@media (max-width: 640px) { .rchat { left: 0; right: 0; bottom: 0; width: auto; height: 80vh; border-radius: var(--r-lg) var(--r-lg) 0 0; } }
+@media (max-width: 640px) { .rchat { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto; height: 80vh; border-radius: var(--r-lg) var(--r-lg) 0 0; } }
 /* == end W5d == */
 /* == W2c: Find a space page (chat + inline layout editor + results) == */
 .studio-top { align-items: center; }
@@ -299,66 +268,6 @@ nav.primary svg { width: 21px; height: 21px; }
 .studio-editor:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .studio-editor h2 { font-size: 20px; margin: 0; }
 .studio-editor > summary { font-size: 18px; font-weight: 700; cursor: pointer; }
-/* Inside & furnish: the 2D plan or 3D tour on the left, rooms and the Hermit prompt on the right. */
-.inside2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
-.inside2-main { padding: 12px; display: grid; gap: 10px; min-width: 0; }
-.inside2-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.seg { display: inline-flex; padding: 3px; gap: 3px; border-radius: 12px; background: var(--sand-1); border: 1px solid var(--line); }
-.seg button { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: none; color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
-.seg button svg { width: 17px; height: 17px; }
-.seg button[aria-pressed="true"] { background: var(--card); color: var(--coral-ink); box-shadow: var(--shadow-sm); }
-.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
-.seg button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
-.inside2-canvas { position: relative; min-height: min(70vh, 640px); }
-.inside2-plan { display: grid; gap: 10px; }
-.inside2-3d { height: min(70vh, 640px); display: flex; flex-direction: column; border-radius: var(--r-lg); overflow: hidden; }
-.inside2-3d .pv-frame { flex: 1; }
-.inside2-3d.is-hidden { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
-.inside2-side { padding: 14px 16px; display: grid; gap: 10px; position: sticky; top: 70px; }
-.inside2-side h2 { font-size: 19px; }
-.furnish-chat[data-compact] { justify-content: flex-start; }
-@media (max-width: 900px) { .inside2 { grid-template-columns: 1fr; } .inside2-side { position: static; } }
-
-/* Hermit's tour guide: a small card floating over the tour, draggable by the crab, shrinkable to just the crab. */
-.guide-stage { position: relative; }
-.guide-card { position: absolute; left: 12px; top: 12px; z-index: 6; display: flex; align-items: flex-start; gap: 8px; max-width: min(380px, calc(100% - 24px)); }
-.gc-crab { flex: none; width: 46px; height: 46px; padding: 3px; border: 0; border-radius: 50%; background: rgb(255 253 251 / 0.92); box-shadow: 0 3px 10px rgb(0 0 0 / 0.25); cursor: grab; touch-action: none; }
-.gc-crab:active { cursor: grabbing; }
-.gc-crab img { width: 100%; height: 100%; display: block; pointer-events: none; }
-.gc-crab:focus-visible { outline: 3px solid var(--coral); outline-offset: 2px; }
-.gc-bubble { position: relative; background: #fffdfb; color: #3b2320; border-radius: 14px; padding: 10px 34px 10px 12px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.25); }
-.gc-bubble p { margin: 0; font-size: 15px; line-height: 1.4; }
-.gc-bubble .btn { color: #3b2320; background: #fff; }
-.gc-bubble .btn.primary { color: #fff; background: #1f5e57; }
-.gc-bubble .muted { color: #5b4a44; }
-.gc-min { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; min-height: 0; color: #3b2320; }
-.gc-min svg { width: 16px; height: 16px; }
-.gc-nav { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.gc-nav .btn { min-height: 34px; padding: 0 12px; font-size: 14px; }
-
-/* Thinking: the crab scuttles along the shore while each check rises in (restored from the first chat design). */
-.thinking { display: grid; gap: 10px; }
-.thinking-head { display: flex; align-items: center; gap: 10px; font-weight: 700; }
-.think-step { display: flex; align-items: center; gap: 12px; font-size: 16px; animation: rise 380ms var(--ease) both; }
-.think-step .ic { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #fff; border: 1px solid var(--line); flex: none; }
-.think-step .ic svg { width: 19px; height: 19px; color: var(--coral-ink); }
-.think-step.warn .ic svg { color: var(--fail); }
-.think-step.active .ic { animation: bob 900ms ease-in-out infinite; border-color: var(--coral-2); }
-.think-step .state { margin-left: auto; display: inline-flex; }
-.think-step .state svg { width: 18px; height: 18px; color: var(--pass); }
-.shore { position: relative; height: 30px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, var(--sand-2), var(--sand-3)); }
-.shore .water { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--sea), var(--sea-2)); border-radius: 999px; transition: width 400ms var(--ease); }
-.shore .crab { position: absolute; top: -2px; width: 34px; height: 34px; transition: left 400ms var(--ease); animation: scuttle 600ms ease-in-out infinite; }
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px) rotate(-4deg); } }
-@keyframes scuttle { 0%, 100% { transform: translateX(0) rotate(0); } 50% { transform: translateX(3px) rotate(4deg); } }
-.think-now { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; font-size: 14px; color: var(--ink-soft); }
-.think-done { font-size: 14px; color: var(--ink-soft); }
-.think-done > summary { cursor: pointer; width: fit-content; }
-.think-done ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
-.think-done li { display: flex; align-items: center; gap: 6px; }
-.think-done li svg { width: 14px; height: 14px; flex: none; color: var(--coral-ink); }
-.think-done li.warn svg { color: var(--fail); }
 @media (prefers-reduced-motion: reduce) { .studio-progress-bar span { transition: none; } }
 /* == end W2c == */
 /* == W5c: Talk to your broker == */
@@ -445,65 +354,5 @@ nav.primary svg { width: 21px; height: 21px; }
 .crab .hat[data-agent="skeptic"] { background: #9d174d; } .crab .hat[data-agent="advocate"] { background: #155e75; }
 .crew-toggle { margin-left: auto; }
 /* == end CREW == */
-
-/* S8: decisions, evidence, aerial */
-/* "How we know" disclosure (components/Evidence.tsx) */
-.ev { display: inline; }
-.ev-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 2px; border: 0; background: none; color: var(--coral-ink); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; vertical-align: baseline; }
-.ev-chev { width: 14px; height: 14px; transition: transform 0.15s var(--ease); }
-.ev-btn[aria-expanded="true"] .ev-chev { transform: rotate(180deg); }
-.ev-body:not([hidden]) { display: block; margin-top: 4px; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--sand-1); border-radius: 0 8px 8px 0; font-size: 13px; font-weight: 400; color: var(--ink-soft); line-height: 1.45; overflow-wrap: anywhere; text-align: left; }
-.ev-line { display: block; }
-/* How Hermit decided (components/studio/CrewTrace.tsx) */
-.dec-body { min-width: 0; display: grid; gap: 2px; justify-items: start; }
-.dec-body p { overflow-wrap: anywhere; }
-.dec-tag { display: inline-block; font-size: 12px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: var(--sand-2); color: var(--ink); margin-right: 4px; vertical-align: 1px; }
-.dec-photo { display: block; margin-top: 6px; width: 96px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
-/* Aerial count (components/Aerial.tsx) */
-.aerial-finding { display: grid; gap: 4px; justify-items: start; margin: 8px 0 12px; font-size: 17px; }
-.aerial-finding p:first-child { font-weight: 700; }
-.aerial-counted { position: absolute; inset: 0; display: grid; place-items: center; background: #1d2a2c; container-type: size; }
-.aerial-counted-box { position: relative; width: min(100cqw, 100cqh); aspect-ratio: 1; }
-.aerial-counted-box img { display: block; width: 100%; height: 100%; }
-.aerial-counted-box svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.aerial-counted .ab-halo { fill: none; stroke: rgb(0 0 0 / 0.75); stroke-width: 6px; vector-effect: non-scaling-stroke; }
-.aerial-counted .ab-line { fill: none; stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
-.aerial-counted .ab-roof .ab-line { stroke: #ffd27a; }
-.aerial-counted .ab-lot .ab-line { stroke: #7fd0ef; stroke-dasharray: 7 4; }
-.aerial-legend { position: absolute; top: 8px; left: 8px; margin: 0; padding: 4px 10px; list-style: none; display: grid; gap: 2px; border-radius: 8px; background: rgb(0 0 0 / 0.72); color: #fff; font-size: 13px; }
-.aerial-legend li { display: flex; align-items: center; gap: 6px; }
-.ab-swatch { display: inline-block; width: 16px; height: 10px; border: 2px solid; }
-.ab-swatch.ab-roof { border-color: #ffd27a; }
-.ab-swatch.ab-lot { border-color: #7fd0ef; border-style: dashed; }
-.aerial-inset .aerial-legend, .aerial-inset .aerial-credit { display: none; }
-.aerial-credit { position: absolute; left: 8px; bottom: 6px; padding: 0 6px; border-radius: 4px; background: rgb(0 0 0 / 0.65); color: #fff; font-size: 12px; font-weight: 700; }
-/* Hermit looked closer (components/report/InsideFurnish.tsx) */
-.room-check { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 4px 10px 6px; font-size: 14px; }
-.room-list .rc-seen { width: auto; display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; min-height: 44px; padding: 3px 12px 3px 3px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--ink); font-weight: 700; text-transform: none; cursor: zoom-in; }
-.room-list .rc-seen img { width: 44px; height: 44px; object-fit: cover; border-radius: 7px; }
-.rc-note { color: var(--ink-soft); }
-.rc-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--card); color: var(--ink); }
-.rc-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
-.rc-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
-.rc-dialog-head h3 { font-size: 19px; text-transform: none; }
-.rc-fig { margin: 0 0 10px; }
-.rc-fig img { display: block; width: 100%; height: auto; max-height: 42vh; object-fit: contain; border-radius: 10px; background: #111; }
-.rc-fig figcaption { margin-top: 6px; font-size: 15px; }
-/* Overview: also fits + Inside & out (components/report/Overview.tsx) */
-.ov-also { font-size: 17px; }
-.ov-io { border-top: 1px solid var(--line); padding-top: 8px; }
-.ov-io summary { cursor: pointer; font-weight: 800; min-height: 32px; }
-.ov-io summary .muted { font-weight: 400; font-size: 15px; }
-.ov-io ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 16px; }
-@media (prefers-reduced-motion: reduce) { .ev-chev { transition: none; } }
-/* == end S8 == */
-/* F-B: Inside & furnish. Sizes read "145 sq ft", not "145 Sq Ft" (the room buttons capitalize their text). */
-.room-list .room-sqft { text-transform: none; white-space: nowrap; }
-.inside2-offline { margin: 0; padding: 6px 12px; border-radius: 10px; background: var(--sand-1); color: var(--ink); font-size: 15px; }
-.inside2-plan { position: relative; z-index: 1; }
-/* The selected item's toolbar (now with Flip and Tip buttons) wraps instead of running under the guide card, and sits
-   above it: it only shows while you're editing a piece. */
-.furnish-toolbar { z-index: 7; flex-wrap: wrap; white-space: normal; justify-content: center; row-gap: 4px; width: max-content; max-width: min(760px, calc(100% - 20px)); }
-.furnish-toolbar .btn.small { white-space: nowrap; }
-.furnish-toolbar .btn.small svg { width: 16px; height: 16px; }
-/* == end F-B == */
+.broker .packet-disclaimer { display: none; } /* on screen only; the printed packet keeps it */
+.report-foot { margin: 24px 0 0; text-align: center; }

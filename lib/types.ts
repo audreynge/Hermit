@@ -87,7 +87,8 @@ export type RoomGraph = {
   totalAreaSqft: number;
   rooms: Room[];
   edges: ({ a: string; b: string; kind: "door" | "possible" } & DoorMeasure)[];
-  entries?: ({ roomId: string } & DoorMeasure)[]; // outside doors: a door on an edge no other room shares
+  entries?: ({ roomId: string } & DoorMeasure)[]; // outside doors: a door on an edge no other room shares (the widest per room)
+  extraEntries?: ({ roomId: string } & DoorMeasure)[]; // the other outside doors of those rooms (patio, second front door); bundles built before this field lack it
   objects: { label: string; roomId: string | null; confidence: number; proposed?: boolean }[];
   panoCount: number;
   floorCount: number;

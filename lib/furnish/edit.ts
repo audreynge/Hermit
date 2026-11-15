@@ -4,11 +4,11 @@ import { z } from "zod";
 import { unflatten } from "../design/edit";
 import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
 import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
-import { parseFurnish } from "./offline";
+import { parseFurnish, wholeScope } from "./offline";
 
 const FlatOp = z.object({
-  op: z.enum(["add", "move", "rotate", "tip", "remove", "recolor", "swap", "resize", "furnish"]), axis: z.enum(["x", "z"]).nullish(),
-  scope: z.enum(["room", "all"]).nullish(), brief: z.string().nullish(),
+  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish", "clear", "undo"]),
+  scope: z.enum(["room", "all"]).nullish(), room: z.string().nullish(),
   id: z.string().nullish(), name: z.string().nullish(), terms: z.array(z.string()).nullish(), count: z.number().nullish(),
   at: z.enum(["point", "front", "center", "wall"]).nullish(), color: z.string().nullish(), material: z.string().nullish(), degrees: z.number().nullish(),
   w: z.number().nullish(), d: z.number().nullish(), h: z.number().nullish(),
@@ -21,8 +21,11 @@ const PROMPT = `You place and edit 3D furniture inside a virtual tour of a real 
 Ops:
 - add {name, terms, count?, at, color?, material?, w?, d?, h?}: name = 1-3 plain words; terms = 2-3 search words from specific to generic that would match a low-poly 3D model title; w/d/h = typical size in meters when it is unusual.
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
-- move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), tip {id, axis, degrees} (turn a model over when it shows upside down or on its side: axis "x" tips it forward or back, "z" onto its side; degrees 90 or 180; "flip it upright"/"it's upside down" = axis x, 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
-- furnish {scope, brief}: the user wants you to set up, furnish, refurnish, redesign or lay out a whole room or the whole space ("set this room up as an exam room", "refurnish everything for 20 engineers"). scope "room" = the selected room, "all" = every room; brief = what they asked for, in their words. Use it instead of many adds.
+- move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
+- furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"; "place" always means all rooms). Code plans and places the items; don't also add them.
+- clear {scope, room?}: remove placed furniture in bulk. scope "room" = one room (room = the room's name if they named one, "empty the bedroom"; else null for the room they're in: "clear this room", "delete all the furniture"); "all" = every placed item ("remove everything", "clear the whole place"). "Clear the kitchen table" is about a table, not a room. If they want to keep some pieces ("everything except the sofa"), return no ops and ask which pieces should go.
+- undo {}: put things back as they were before the last change ("undo", "undo that", "take that back"). Return it alone.
+- Redoing a layout ("refurnish", "start over and furnish", "redo the layout") = clear then furnish with the same scope: [clear {scope}, furnish {scope, room?}].
 at: "point" = the spot the user clicked or is pointing at ("here", "there", "this spot"); "front" = in front of them (default for add); "center" = middle of the room; "wall" = against the nearest wall.
 color: a plain color name or #rrggbb. material: one of ${MATERIAL_NAMES.join(", ")}.
 Use only listed item ids. "it"/"this" means the selected item. If the message is unclear, or names an item that isn't placed, return no ops and ask one short question in reply.
@@ -48,18 +51,21 @@ const toOps = (flat: z.infer<typeof FlatOp>[]) => unflatten(flat).map(({ w, d, h
   return w && d && h ? { ...o, size: { w, d, h } } : o;
 });
 
-const WHOLE = /\b(re-?furnish|furnish|set (it|this|(this|the|my) \w+) up|set up (the|this|my)|lay ?out|redesign|fill (it|the|this))\b/i;
-const ALL = /\b(everything|every room|all (the )?rooms|whole (space|place|suite|unit|office)|entire)\b/i;
-
 function offline(input: EditIn, why?: string): EditOut {
-  const note0 = why ? " (simple mode: the AI assistant isn't available right now)" : "";
-  if (WHOLE.test(input.text)) return { ops: [{ op: "furnish", scope: ALL.test(input.text) ? "all" : "room", brief: input.text.slice(0, 300) }], reply: `On it${note0}.`, source: "offline" };
   const items = input.items.map((i) => ({ ...i, terms: [i.name], size: { w: 1, d: 1, h: 1 }, approxSize: false, pos: { x: 0, y: 0, z: 0 }, rotY: 0 }));
   const p = parseFurnish(input.text, items, input.selected);
   const note = why ? " (simple mode: the AI assistant isn't available right now)" : "";
   if ("ask" in p) return { ops: [], reply: p.ask + note, source: "offline" };
   return { ops: enrich(p.ops, input.suggestions), reply: `Done${note}.`, source: "offline" };
 }
+
+/** Gemini tends to echo the current room into a furnish request; "this place" / "the whole unit" means every room.
+ *  A clear that comes with the furnish (refurnish) follows it, so the rooms it empties are the ones it fills. */
+const wholePlace = (ops: object[], text: string) => {
+  if (!wholeScope(text)) return ops;
+  const furnishing = ops.some((o) => (o as { op: string }).op === "furnish");
+  return ops.map((o) => { const op = (o as { op: string }).op; return op === "furnish" || (op === "clear" && furnishing) ? { op, scope: "all" } : o; });
+};
 
 export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): Promise<EditOut> {
   const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);
@@ -73,7 +79,7 @@ export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): 
   try {
     const out = Out.safeParse(await geminiJson(g, PROMPT, [{ text: lines.join("\n") }], SCHEMA));
     if (!out.success) return offline(input, "bad output");
-    return { ops: enrich(toOps(out.data.ops), input.suggestions), reply: out.data.reply.slice(0, 300), source: "gemini" };
+    return { ops: wholePlace(enrich(toOps(out.data.ops), input.suggestions), input.text), reply: out.data.reply.slice(0, 300), source: "gemini" };
   } catch (e) {
     console.warn(`[hermit] furnish edit fell back (${e instanceof Error ? e.message : e})`);
     return offline(input, "error");

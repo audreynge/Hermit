@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 140" fill="none" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Stylized coastline">
+  <path fill="#79C9E4" d="M620 0H1600V95C1465 59 1362 114 1225 94C1040 63 875 102 620 0Z"/>
+  <path fill="#A9DDEF" d="M690 0H1600V71C1489 50 1336 105 1206 84C1049 60 892 74 690 0Z"/>
+  <path d="M685 4C870 80 1015 67 1200 87C1345 109 1470 48 1600 74" stroke="#FBFAF8" stroke-width="8" stroke-linecap="round"/>
+  <path d="M730 0C920 68 1070 50 1230 69C1385 86 1460 39 1600 46" stroke="#E7F7F8" stroke-width="3" stroke-linecap="round"/>
+</svg>

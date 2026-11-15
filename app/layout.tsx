@@ -5,6 +5,8 @@ import { Decor } from "@/components/Decor";
 import "./globals.css";
 import "./studio.css";
 import "./round3.css";
+import "@/components/coastal/hermit-components.css";
+import "./coastal.css";
 
 const body = Nunito({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-body" });
 

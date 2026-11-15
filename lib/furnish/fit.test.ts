@@ -92,4 +92,14 @@ describe("glbBounds", () => {
     expect(glbBounds(new TextEncoder().encode("<html>not a model</html>"))).toBeNull();
     expect(glbBounds(glb({ scenes: [{ nodes: [] }] }))).toBeNull();
   });
+
+  it("cap: a planned item's model never outgrows its footprint, shrinking height instead", () => {
+    const wide = { min: { x: -1, y: 0, z: -0.25 }, max: { x: 1, y: 1, z: 0.25 } }; // 2:1 wide model, target is square
+    const free = fitModel(wide, { w: 1, d: 1, h: 1 })!, capped = fitModel(wide, { w: 1, d: 1, h: 1 }, true)!;
+    expect(free.fitted.w).toBeCloseTo(2);
+    expect(capped.fitted.w).toBeLessThanOrEqual(1 + 1e-9);
+    expect(capped.fitted.d).toBeLessThanOrEqual(1 + 1e-9);
+    expect(capped.fitted.h).toBeCloseTo(0.5);
+    expect(capped.rotation).toEqual(free.rotation);
+  });
 });

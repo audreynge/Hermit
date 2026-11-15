@@ -1,7 +1,18 @@
 // Deterministic furnishing parser, used when Gemini is unavailable or out of quota.
-// shortcut: regex intents only (add, remove, move, rotate, recolor, swap); anything else asks the user to rephrase.
+// shortcut: regex intents only (add, remove, move, rotate, recolor, swap, furnish, clear, undo); anything else asks the user to rephrase.
 import { COLORS, MATERIAL_NAMES, normName } from "./catalog";
 import type { Anchor, FurnishOp, Placed } from "./ops";
+
+/** Wording that means every room, not the one the user stands in ("furnish this place", "the whole unit"). */
+const WHOLE_PLACE = /\b(place|whole|entire|everything|every room|all the rooms|all rooms|apartment|house|unit|suite|condo|property)\b/i;
+const ROOMS = "bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility";
+/** The room a request names ("the living room" → "living"), if any. */
+const roomName = (t: string) => t.match(new RegExp(`\\b(${ROOMS})\\b`))?.[1].replace(/ room$/, "");
+/** Whole-place wording not narrowed to one room: "everything in this room", "the whole room", "everything in the bedroom" stay one room. */
+export function wholeScope(text: string): boolean {
+  const t = text.toLowerCase();
+  return WHOLE_PLACE.test(t) && !/\b(this|the|whole|entire) room\b/.test(t) && !new RegExp(`\\b(?:in|from|of) (?:the|this|my) (?:${ROOMS})\\b`).test(t);
+}
 
 export type Parsed = { ops: FurnishOp[] } | { ask: string };
 
@@ -44,6 +55,12 @@ function itemName(rest: string): string {
   return normName(cut.replace(COLOR_RE, " ").replace(MATERIAL_RE, " ").replace(/\b(the|some|new|big|small|large|little)\b/g, " ")).slice(0, 40);
 }
 
+/** The furnish op for a request: every room for "this place", a named room when given, else the room the user is in. */
+function furnishOp(t: string): FurnishOp {
+  const room = roomName(t), all = wholeScope(t);
+  return room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" };
+}
+
 export function parseFurnish(text: string, items: Placed[], selected?: string): Parsed {
   const t = ` ${text.toLowerCase().replace(/\s+/g, " ").trim()} `;
   const target = () => refer(t, items, selected);
@@ -54,6 +71,20 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     return { ops: [fn(id)] };
   };
 
+  // "go back" only on its own: "go back to the kitchen" isn't an undo.
+  if (/\b(undo|take (?:that|it) back)\b/.test(t) || /^ go back[.!]? $/.test(t)) return { ops: [{ op: "undo" }] };
+  // Before furnish and remove: "remove everything" clears, "refurnish" clears then furnishes. "everything in this room" stays one room.
+  const scope = wholeScope(t) ? "all" : "room";
+  if (/\b(refurnish|re-furnish|start over|redo (?:the |this )?layout)\b/.test(t)) return { ops: [{ op: "clear", scope }, furnishOp(t)] };
+  // The room noun must end the phrase: "clear the kitchen table" is about the table.
+  if (/\b(?:clear|empty)\s+(?:out\s+)?(?:(?:the|this|my)\s+(?:\w+\s+)?(?:room|place|space|unit|apartment|house|kitchen|bedroom|office)(?=\s*(?:$|and\b|,|\.|!|please))|everything|it all|it out)\b/.test(t)
+    || /\b(?:remove|delete|get rid of|take out|clear)\s+(?:everything|all (?:(?:of )?(?:the )?(?:furniture|items|pieces|stuff)|of it))\b/.test(t)) {
+    if (/\b(except|but|apart from|other than)\b/.test(t)) return { ask: "Which pieces should go? I can clear a whole room, or remove items one by one." };
+    const room = scope === "room" ? roomName(t) : undefined;
+    return { ops: [{ op: "clear", scope, ...(room && { room }) }] };
+  }
+  // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
+  if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) return { ops: [furnishOp(t)] };
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));
 
   const swap = t.match(/\b(?:swap|replace|switch|exchange)\b.*?\b(?:with|for|to)\s+(?:a|an|the)?\s*([a-z0-9 '-]+)/);
@@ -71,9 +102,6 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     : /\b(make|a bit|slightly|little)\b.*\b(bigger|larger)\b/.test(t) ? 1.2 : /\b(make|a bit|slightly|little)\b.*\bsmaller\b/.test(t) ? 0.8 : null;
   if (factor && factor > 0) return needTarget((id) => ({ op: "resize", id, scale: factor }));
 
-  // A model that loaded upside down or on its side: tip it over instead of spinning it.
-  if (/\bupside[- ]down\b|\bupright\b|\bflip (it |this |the \w+ )?over\b|\bright side up\b/.test(t)) return needTarget((id) => ({ op: "tip", id, axis: "x", degrees: 180 }));
-  if (/\b(on|onto) (its|it's|the) side\b|\blying (down|flat)\b|\bstand (it )?up\b/.test(t)) return needTarget((id) => ({ op: "tip", id, axis: "z", degrees: 90 }));
   if (/\b(rotate|turn|spin|flip)\b/.test(t)) {
     const deg = Number(t.match(/(-?\d{1,3})\s*(?:°|deg|degrees?)?/)?.[1] ?? NaN);
     const degrees = /\baround\b|\bflip\b/.test(t) ? 180 : Number.isFinite(deg) ? (/\bleft\b|counter/.test(t) ? -Math.abs(deg) : deg) : /\bleft\b|counter/.test(t) ? -90 : /\bslightly|a bit|a little\b/.test(t) ? 45 : 90;

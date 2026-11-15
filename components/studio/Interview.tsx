@@ -6,7 +6,7 @@ import type { Finding } from "@/lib/regs/research";
 import type { ShellReport } from "@/lib/types";
 import { Mic, Speak } from "../Voice";
 
-export type ChatMsg = { id: string; role: "hermit" | "user"; text: string; why?: string; agent?: string; thinking?: boolean;
+export type ChatMsg = { id: string; role: "hermit" | "user"; text: string; why?: string; agent?: string; thinking?: boolean; trace?: boolean; // trace: the results message the finished crew trace folds under
   // Follow-up answers after results: a comparison, rules, an edited layout, or a proposed change to a scanned space.
   compare?: ShellReport[]; findings?: Finding[]; blocks?: Block[]; fitout?: string };
 
