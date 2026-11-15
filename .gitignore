@@ -14,3 +14,4 @@ data/sample/hermit.db*
 .claude/
 .gemini/.env
 eval-results/
+public/mp/

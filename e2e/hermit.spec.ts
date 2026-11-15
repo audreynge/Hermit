@@ -1,8 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-async function axe(page: Page) {
-  const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+async function axe(page: Page, exclude?: string) {
+  const b = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]);
+  const r = await (exclude ? b.exclude(exclude) : b).analyze();
   expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(", ")}`)).toEqual([]);
 }
 
@@ -200,6 +201,7 @@ test.describe("results", () => {
 
   // UI moved inline in spec revamp
   test.skip("View property opens a 3D tour that jumps between your rooms", async ({ page }) => {
+    await page.route("**/api/tour-key", (r) => r.fulfill({ json: { key: null } })); // no SDK key → the basic iframe tour
     await cards(page).first().getByRole("button", { name: "View property" }).click();
     const dialog = page.getByRole("dialog");
     const frame = dialog.locator("iframe");
@@ -249,6 +251,122 @@ test.describe("results", () => {
     await expect(conversation(page)).toContainText("Updating your search");
     await expect(conversation(page)).toContainText(/2,500–4,000 sq ft/);
     await expect(conversation(page).getByText(/Would you like me to compare/)).toHaveCount(2, { timeout: 45_000 });
+  });
+});
+
+test.describe("furnishing the 3D tour", () => {
+  test("place by chat and by dragging a card, drag items in 3D, see load states, never scroll", async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const edits: unknown[] = [];
+    let broken = 0;
+    await page.route("**/api/furniture/suggest", (r) => r.fulfill({ json: { items: Array.from({ length: 10 }, (_, i) => ({ name: `item ${i}`, terms: [`item ${i}`], size: { w: 0.8, d: 0.8, h: 0.9 } })), source: "gemini" } }));
+    // "broken" finds two models whose files 404; everything else finds none (drawn as a box).
+    const model = (id: string) => ({ id, source: "polypizza", url: `/e2e-missing/${id}.glb`, title: id, thumb: "", licence: "CC0 1.0", attribution: id });
+    await page.route("**/api/furniture/search**", (r) => r.fulfill({ json: { models: r.request().url().includes("broken") ? [model("b1"), model("b2")] : [] } }));
+    await page.route("**/e2e-missing/**", (r) => { broken++; return r.fulfill({ status: 404, body: "" }); });
+    await page.route("**/api/furniture/edit", async (r) => {
+      edits.push(r.request().postDataJSON());
+      await r.fulfill({ json: { ops: [{ op: "add", name: "stove", terms: ["stove"], at: "front" }, { op: "remove", id: "f9" }], reply: "I've placed a stove in front of you.", source: "gemini" } });
+    });
+    // The bundled demo replay is synthetic; point its scan at Matterport's public demo model so the SDK can load it.
+    await page.route("**/api/agent?replay=demo", async (r) => {
+      const res = await r.fetch();
+      await r.fulfill({ response: res, body: (await res.text()).replaceAll('"sid":"SAMPLEMED1"', '"sid":"SxQL3iGyoDo"') });
+    });
+    await fresh(page, "/studio?replay=demo");
+    await expect(cards(page).first()).toBeVisible({ timeout: 60_000 }); // Matching Spaces
+    await cards(page).first().getByRole("button", { name: "View property" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Tell me what to place")).toBeEnabled({ timeout: 90_000 });
+    // The tray lowers itself when no floor is visible above it; reopen it before using its tabs.
+    const openTray = async () => { const show = dialog.getByRole("button", { name: "Show the furniture tray" }); if (await show.count()) await show.click(); };
+    const tab = (name: RegExp) => ({ click: async () => { await openTray(); await dialog.getByRole("tab", { name }).click(); }, el: dialog.getByRole("tab", { name }) });
+    const expectPlaced = async (n: number) => { await openTray(); await expect(dialog.getByRole("tab", { name: `Placed (${n})` })).toBeVisible(); };
+    const strip = dialog.locator(".furnish-strip");
+
+    // Chat: the reply and the rejected part both show; the item appears as a labeled box (no model found).
+    await dialog.getByLabel("Tell me what to place").fill("put a stove in front of me");
+    await dialog.getByRole("button", { name: "Send" }).click();
+    await expect(dialog.getByRole("status").filter({ hasText: "I've placed a stove" })).toContainText("there's no item f9 in this room");
+    expect(edits[0]).toMatchObject({ text: "put a stove in front of me", items: [] });
+    await tab(/Placed/).click();
+    await expect(strip.getByRole("button", { name: "stove, Box: no 3D model found" })).toBeVisible();
+
+    // Drag a suggestion card into the room; then ten more items: still nothing scrolls vertically.
+    await tab(/Suggested/).click();
+    const box = (await dialog.locator("matterport-viewer").boundingBox())!, trayTop = (await dialog.locator(".furnish-tray").boundingBox())!.y;
+    await strip.getByRole("button", { name: "Add item 0" }).dragTo(dialog.locator("matterport-viewer"), { targetPosition: { x: box.width / 2, y: trayTop - box.y - 30 } });
+    await expectPlaced(2);
+    for (let i = 1; i < 10; i++) { await tab(/Suggested/).click(); await strip.getByRole("button", { name: `Add item ${i}` }).click(); }
+    await expectPlaced(11);
+    const noVerticalScroll = await page.evaluate(() => [".modal", ".furnish-tray", ".furnish-strip"].every((sel) => { const el = document.querySelector(sel)!; return el.scrollHeight <= el.clientHeight + 1; }));
+    expect(noVerticalScroll).toBe(true);
+    await tab(/Placed/).click();
+    expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true); // extra cards scroll sideways
+
+    // Drag the stove in the 3D view: it moves, the tour doesn't. First bring it into plain view and lower the tray.
+    const saved = () => page.evaluate(() => JSON.parse(Object.entries(localStorage).find(([k]) => k.startsWith("hermit:furnish:"))![1]) as { id: string; pos: { x: number; y: number; z: number } }[]);
+    await tab(/Placed/).click();
+    await strip.getByRole("button", { name: /^stove/ }).click();
+    await dialog.getByRole("toolbar", { name: "Edit stove" }).getByRole("button", { name: "Bring it here" }).click();
+    const hide = dialog.getByRole("button", { name: "Hide the furniture tray" });
+    if (await hide.count()) await hide.click();
+    const stove = (await saved()).find((p) => p.id === "f1")!;
+    const at = await page.evaluate((pos) => (window as unknown as { __furnish: { screenOf: (p: object, r: DOMRect) => { x: number; y: number } } }).__furnish.screenOf({ ...pos, y: pos.y + 0.45 }, document.querySelector("matterport-viewer")!.getBoundingClientRect()), stove.pos);
+    const camera = () => page.evaluate(() => (document.querySelector("matterport-viewer") as unknown as { mpSdk: { Camera: { getPose: () => Promise<{ position: object }> } } }).mpSdk.Camera.getPose().then((p) => JSON.stringify(p.position)));
+    const cam0 = await camera();
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(at.x - i * 10, at.y + i * 2);
+    await page.mouse.up();
+    await expect.poll(async () => JSON.stringify((await saved()).find((p) => p.id === "f1")!.pos)).not.toBe(JSON.stringify(stove.pos));
+    expect(await camera()).toBe(cam0);
+    const toolbar0 = dialog.getByRole("toolbar", { name: "Edit stove" });
+    await expect(toolbar0).toBeVisible();
+    // Its size shows in feet and inches, in the toolbar and as lines over the tour.
+    await expect(toolbar0).toContainText(/\d+′( \d+″)? W × \d+′( \d+″)? D × \d+′( \d+″)? H/);
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll(".furnish-overlay g")].filter((g) => (g as SVGGElement).style.display !== "none").map((g) => g.textContent))).toEqual(expect.arrayContaining([expect.stringMatching(/^W /), expect.stringMatching(/^H /)]));
+
+    // Size from a measurement: two clicks on the tour, snapped to the scanned surface; the stove matches, proportionally.
+    const s0 = (await saved()).find((p) => p.id === "f1")! as unknown as { size: { w: number; h: number } };
+    await toolbar0.getByRole("button", { name: "Size from a measurement" }).click();
+    await expect(dialog.getByRole("status").filter({ hasText: "Click where the measurement starts" })).toBeVisible();
+    const vb = (await dialog.locator("matterport-viewer").boundingBox())!, top = (await dialog.locator(".furnish-tray").boundingBox())!.y;
+    for (const fx of [0.35, 0.6]) await page.mouse.click(vb.x + vb.width * fx, top - 40);
+    await expect(dialog.getByRole("status").filter({ hasText: /Matched the stove to your/ })).toBeVisible({ timeout: 15_000 });
+    expect(await camera()).toBe(cam0); // measuring clicks never walk the tour
+    const s1 = (await saved()).find((p) => p.id === "f1")! as unknown as { size: { w: number; h: number } };
+    expect(s1.size.w).not.toBeCloseTo(s0.size.w, 3);
+    expect(s1.size.h / s1.size.w).toBeCloseTo(s0.size.h / s0.size.w, 3);
+
+    // "Bring it here" puts it back in view.
+    await toolbar0.getByRole("button", { name: "Bring it here" }).click();
+
+    // A model whose file never loads: the next one is tried, then a labeled box; no endless retries.
+    await dialog.getByLabel("Tell me what to place").fill("x");
+    await page.unroute("**/api/furniture/edit");
+    await page.route("**/api/furniture/edit", (r) => r.fulfill({ json: { ops: [{ op: "add", name: "broken lamp", terms: ["broken lamp"], at: "front" }], reply: "Added.", source: "gemini" } }));
+    await dialog.getByRole("button", { name: "Send" }).click();
+    await tab(/Placed/).click();
+    await expect(strip.getByRole("button", { name: "broken lamp, Box: model didn't load" })).toBeVisible({ timeout: 45_000 });
+    const tries = broken;
+    expect(tries).toBeGreaterThanOrEqual(1);
+    await page.waitForTimeout(3000);
+    expect(broken).toBe(tries);
+
+    // Toolbar edits; Esc closes the popover first, not the dialog.
+    await strip.getByRole("button", { name: /^item 3/ }).click();
+    const toolbar = dialog.getByRole("toolbar", { name: "Edit item 3" });
+    await toolbar.getByRole("button", { name: "Color" }).click();
+    await toolbar.getByRole("button", { name: "navy" }).click();
+    await expect(toolbar.getByRole("button", { name: "navy" })).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+    await expect(toolbar.getByRole("group", { name: "Colors" })).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await axe(page, "matterport-viewer"); // the viewer's shadow DOM carries an inert meta viewport we don't control
+    await toolbar.getByRole("button", { name: "Remove item 3" }).click();
+    await expectPlaced(11);
   });
 });
 
@@ -454,6 +572,7 @@ test.describe("other uses", () => {
     const card = cards(page).filter({ hasText: "101 Sample Lane" });
     await expect(card).toContainText("Chair fits with offset hinges on 1 door (bathroom)");
     await expect(card.getByText("Concern:")).toBeAttached();
+    await page.route("**/api/tour-key", (r) => r.fulfill({ json: { key: null } })); // no SDK key → the basic iframe tour
     await card.getByRole("button", { name: "View property" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("tab", { name: "Fit" }).click();

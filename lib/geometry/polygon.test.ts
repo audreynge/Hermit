@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centroid, ringFromEdges, shoelaceArea, SQFT_PER_SQM } from "./polygon";
+import { centroid, nearestOnBoundary, pointInPolygon, ringFromEdges, shoelaceArea, SQFT_PER_SQM } from "./polygon";
 
 describe("shoelaceArea", () => {
   it("measures a 4x3 rectangle regardless of winding", () => {
@@ -45,4 +45,18 @@ describe("centroid", () => {
 
 it("converts square meters to square feet", () => {
   expect(10 * SQFT_PER_SQM).toBeCloseTo(107.64, 2);
+});
+
+describe("pointInPolygon / nearestOnBoundary", () => {
+  const L = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 2, y: 2 }, { x: 2, y: 4 }, { x: 0, y: 4 }];
+  it("handles a concave L shape", () => {
+    expect(pointInPolygon({ x: 1, y: 1 }, L)).toBe(true);
+    expect(pointInPolygon({ x: 3, y: 3 }, L)).toBe(false); // the notch
+    expect(pointInPolygon({ x: 5, y: 1 }, L)).toBe(false);
+  });
+  it("finds the closest boundary point", () => {
+    const n = nearestOnBoundary({ x: 1, y: -1 }, L);
+    expect(n.pt).toEqual({ x: 1, y: 0 });
+    expect(n.dist).toBe(1);
+  });
 });

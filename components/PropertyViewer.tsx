@@ -1,17 +1,18 @@
 "use client";
 import { DoorOpen, Plane, Ruler } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Block } from "@/lib/spec/parse";
 import type { ShellReport } from "@/lib/types";
 import { tourSteps, tourUrl } from "@/lib/viewer/matterport";
 import { Aerial } from "./Aerial";
 import { FitView } from "./FitView";
+import { FurnishTour } from "./FurnishTour";
 import { Modal } from "./Modal";
 
 type View = "fit" | "inside" | "above";
 
-export function PropertyViewer({ report, onClose, initial = "fit", design, furniture }: {
-  report: ShellReport; onClose: () => void; initial?: View; design?: Block[]; furniture?: Record<string, string[]>;
+export function PropertyViewer({ report, use = "", onClose, initial = "fit", design, furniture }: {
+  report: ShellReport; use?: string; onClose: () => void; initial?: View; design?: Block[]; furniture?: Record<string, string[]>;
 }) {
   const sid = report.inside?.sid;
   const [view, setView] = useState<View>(initial === "inside" && !sid ? "fit" : initial);
@@ -21,6 +22,8 @@ export function PropertyViewer({ report, onClose, initial = "fit", design, furni
   // The tour only reloads when the step points at a different sweep.
   const sweep = useMemo(() => { if (jump != null) return jump; for (let i = step; i >= 0; i--) if (steps[i].sweep != null) return steps[i].sweep; return undefined; }, [jump, step, steps]);
   const go = (i: number) => { setJump(undefined); setStep(i); };
+  const [plain, setPlain] = useState(false); // the furnishing tour (SDK) failed to start: show the plain iframe
+  const fail = useCallback(() => setPlain(true), []);
   const tabs: [View, string, typeof Ruler][] = [["fit", "Check the fit", Ruler], ...(sid ? [["inside", "Step inside", DoorOpen] as [View, string, typeof Ruler]] : []), ["above", "From above", Plane]];
 
   return (
@@ -39,9 +42,11 @@ export function PropertyViewer({ report, onClose, initial = "fit", design, furni
         )}
         {view === "inside" && sid && (
           <div className="pv-tour">
-            <div className="pv-frame">
-              <iframe key={sweep ?? "start"} title={`3D tour of ${report.name.split(" · ")[0]}`} src={tourUrl(sid, sweep)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
-            </div>
+            {plain ? (
+              <div className="pv-frame">
+                <iframe key={sweep ?? "start"} title={`3D tour of ${report.name.split(" · ")[0]}`} src={tourUrl(sid, sweep)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
+              </div>
+            ) : <FurnishTour report={report} use={use} stop={sweep} stops={[]} onFail={fail} />}
             <div className="pv-guide" role="region" aria-label="Hermit's guided tour">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/hermit-logo.svg" alt="" />
