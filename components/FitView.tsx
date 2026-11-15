@@ -2,7 +2,9 @@
 import { useState } from "react";
 import type { FitoutDiff } from "@/lib/design/fitout";
 import type { Block } from "@/lib/spec/parse";
-import { doorClearIn } from "@/lib/reason/access";
+import { blockName } from "@/lib/design/layout-ops";
+import { LayoutPreview } from "./LayoutPreview";
+import { doorClearIn, doorPoint } from "@/lib/reason/access";
 import type { Access, AccessRoom, RoomGraph, ShellReport } from "@/lib/types";
 import { M_TO_FT, PAIR_COLORS, Plan3D, rectPoly, roomHeight, type Solid } from "./Plan3D";
 
@@ -32,7 +34,7 @@ export function labelPoint(p: Pt[]): Pt & { r: number } {
   }
   return best;
 }
-type View = "plan" | "3d" | "compare" | "access";
+type View = "plan" | "3d" | "compare" | "design" | "access";
 
 // Wheelchair view: tints carry the verdict, and every room also says it in words.
 type AccessState = "reachable" | "hinges" | "blocked" | "unknown";
@@ -53,34 +55,13 @@ function accessState(id: string, { a, hinges }: AccessView): AccessState {
   return scanned === "blocked" && fixed === "reachable" ? "hinges" : fixed;
 }
 
-const centroid = (p: Pt[]): Pt => ({ x: p.reduce((s, v) => s + v.x, 0) / p.length, y: p.reduce((s, v) => s + v.y, 0) / p.length });
-// Fallback door spot when the scan gave no door position: the point on the room's wall closest to the neighbour.
-function nearestOnBoundary(poly: Pt[], to: Pt): Pt {
-  let best = poly[0], d = Infinity;
-  poly.forEach((b, i) => {
-    const a = poly[(i + poly.length - 1) % poly.length];
-    const t = Math.max(0, Math.min(1, ((to.x - a.x) * (b.x - a.x) + (to.y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1)));
-    const p = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
-    if (Math.hypot(p.x - to.x, p.y - to.y) < d) [best, d] = [p, Math.hypot(p.x - to.x, p.y - to.y)];
-  });
-  return best;
-}
-
-// A door's spot on the plan: its measured centre, else the point on room a's wall nearest room b.
-function doorSpot(g: RoomGraph, a: string, b: string, at?: Pt): Pt | null {
-  if (at) return at;
-  const ra = g.rooms.find((x) => x.id === a), rb = g.rooms.find((x) => x.id === b);
-  if (!ra || ra.polygon.length < 3) return null;
-  return nearestOnBoundary(ra.polygon, centroid(rb?.polygon.length ? rb.polygon : ra.polygon));
-}
-
 // Every measured door on the plan with its clear width for this case; red when the chair can't pass.
 function doorLabels(g: RoomGraph, { a, hinges }: AccessView, shown: Set<string>) {
   const chairW = a.chairIn[0];
   const inner = g.edges.filter((e) => e.kind === "door" && e.widthIn != null && shown.has(e.a) && shown.has(e.b))
-    .map((e) => ({ key: `${e.a}|${e.b}`, at: doorSpot(g, e.a, e.b, e.at), clear: doorClearIn(e, hinges) }));
+    .map((e) => ({ key: `${e.a}|${e.b}`, at: doorPoint(g, e.a, e.b, e.at), clear: doorClearIn(e, hinges) }));
   const outside = (g.entries ?? []).filter((d) => d.widthIn != null && shown.has(d.roomId))
-    .map((d) => ({ key: `out|${d.roomId}`, at: d.at ?? null, clear: doorClearIn(d, hinges) }));
+    .map((d) => ({ key: `out|${d.roomId}`, at: doorPoint(g, d.roomId, null, d.at), clear: doorClearIn(d, hinges) }));
   return [...inner, ...outside].flatMap((d) => (d.at ? [{ ...d, at: d.at, tooNarrow: d.clear < chairW }] : []));
 }
 
@@ -93,7 +74,7 @@ function blockedStops(g: RoomGraph, rooms: AccessRoom[]) {
   }).filter((s, i, all) => all.findIndex((x) => x.label === s.label && x.index === s.index) === i);
 }
 
-function AccessPlan({ report, g, measuredRooms, a, onShowInTour }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; a: Access; onShowInTour?: (sweepIndex: number) => void; design?: Block[] }) {
+function AccessPlan({ report, g, measuredRooms, a, onShowInTour }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; a: Access; onShowInTour?: (sweepIndex: number) => void }) {
   const [hinges, setHinges] = useState(false);
   const fixable = a.asScanned.some((r) => r.status === "blocked" && a.hinges.find((x) => x.roomId === r.roomId)?.status === "reachable");
   const stops = onShowInTour ? blockedStops(g, hinges ? a.hinges : a.asScanned) : [];
@@ -122,15 +103,18 @@ const k$ = (n: number) => `$${Math.round(n / 1000)}k`;
 const range = ([lo, hi]: readonly number[]) => (hi ? `${k$(lo)}–${k$(hi)}` : "none");
 export type Proposal = { report: ShellReport; diff: FitoutDiff; kept: boolean };
 
-export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTour }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void; onShowInTour?: (sweepIndex: number) => void }) {
+export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTour, design }: { report: ShellReport; proposal?: Proposal | null; onKeep?: () => void; onUndo?: () => void; onShowInTour?: (sweepIndex: number) => void; design?: Block[] }) {
   const report = proposal?.report ?? measured;
   const sim = report.similarity?.layout?.length ? report.similarity : undefined;
-  const [picked, setView] = useState<View>(sim ? "compare" : "plan");
-  const view: View = picked === "compare" && !sim ? "plan" : picked; // the report can change under a kept view
+  const mine = design?.some((b) => b.kind !== "object") ? design : undefined;
+  // One "vs your design" slot: the 2D side by side when the design is passed, else the similarity 3D pair.
+  const vs: View | null = mine ? "design" : sim ? "compare" : null;
+  const [picked, setView] = useState<View>(vs ?? "plan");
+  const view: View = (picked === "design" || picked === "compare") && picked !== vs ? (vs ?? "plan") : picked; // the report can change under a kept view
   const g = report.floorplan;
   if (!g) return <p className="muted" style={{ padding: 16 }}>Record-only candidate: there is no room scan to lay the requirements onto.</p>;
   const access = measured.access; // computed on the measured scan, not on a proposed edit
-  const views: [View, string][] = [["plan", "2D plan"], ["3d", "3D model"], ...(sim ? [["compare", "vs. your design"] as [View, string]] : []), ...(access ? [["access", "Wheelchair access"] as [View, string]] : [])];
+  const views: [View, string][] = [["plan", "2D plan"], ...(vs ? [[vs, "Your design vs this space"] as [View, string]] : []), ["3d", "3D model"], ...(access ? [["access", "Wheelchair access"] as [View, string]] : [])];
   return (
     <div style={{ padding: 12 }}>
       <div className="view-switch" role="group" aria-label="Fit view">
@@ -140,6 +124,7 @@ export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTo
       {view === "plan" && <Plan2D report={report} g={g} measuredRooms={measured.floorplan?.rooms.length} />}
       {view === "access" && access && <AccessPlan report={report} g={g} measuredRooms={measured.floorplan?.rooms.length} a={access} onShowInTour={onShowInTour} />}
       {view === "3d" && <Scan3D report={report} g={g} />}
+      {view === "design" && mine && <DesignVsSpace report={report} g={g} design={mine} measuredRooms={measured.floorplan?.rooms.length} />}
       {view === "compare" && sim && <LayoutCompare name={report.name.split(" · ")[0]} g={g} sim={sim} />}
     </div>
   );
@@ -148,9 +133,11 @@ export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTo
 const mainFloor = (g: RoomGraph) => [...new Set(g.rooms.map((r) => r.floorId))].sort((a, b) => area(g, b) - area(g, a))[0];
 // Matterport y points up in plan; flip so the 3D view reads the same way round as the 2D plan.
 const scanSolids = (g: RoomGraph, paint: (roomId: string, label: string) => { fill: string; label?: string }): Solid[] =>
-  g.rooms.filter((r) => r.floorId === mainFloor(g) && r.polygon.length >= 3).map((r) => {
+  g.rooms.filter((r) => r.floorId === mainFloor(g)).flatMap((r) => {
     const p = paint(r.id, r.label);
-    return { id: r.id, polygon: r.polygon.map((q) => ({ x: q.x * M_TO_FT, y: -q.y * M_TO_FT })), height: roomHeight(r.heightFt), fill: p.fill, label: p.label };
+    // A proposed merge has no polygon of its own, only the measured parts.
+    const polys = r.parts?.length ? r.parts : r.polygon.length >= 3 ? [r.polygon] : [];
+    return polys.map((poly, i) => ({ id: `${r.id}~${i}`, polygon: poly.map((q) => ({ x: q.x * M_TO_FT, y: -q.y * M_TO_FT })), height: roomHeight(r.heightFt), fill: p.fill, label: i ? undefined : p.label }));
   });
 
 function Scan3D({ report, g }: { report: ShellReport; g: RoomGraph }) {
@@ -192,6 +179,41 @@ export function LayoutCompare({ name, g, sim }: { name: string; g: RoomGraph; si
         Matching colours are rooms Hermit paired by type and size{unmatched.length ? `; dashed rooms (${unmatched.join(", ")}) have no counterpart in the scan` : ""}. Similarity compares room tags and outlines from scan {g.sid}; it is a screening signal, not a survey.
       </figcaption>
     </figure>
+  );
+}
+
+const HALL = /hall|corridor/i;
+// Mirrors ROOM_ALIAS in lib/spec/parse.ts, which turns drawn labels into requirement labels.
+const reqLabel = (l: string) => (l.toLowerCase() === "waiting area" ? "reception" : l.toLowerCase());
+const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+
+// Your drawn rooms against the fit: the nth room of a type is matched when the nth requirement of that type got a scan room.
+export function designMatch(design: Block[], assignment: ShellReport["fit"]["assignment"]) {
+  const rooms = design.filter((b) => b.kind !== "object");
+  const seen = new Map<string, number>();
+  const named = rooms.filter((b) => !HALL.test(b.label)).map((b) => {
+    const n = seen.get(b.label) ?? 0;
+    seen.set(b.label, n + 1);
+    const hits = assignment.filter((a) => a.req.replace(/ #\d+$/, "").toLowerCase() === reqLabel(b.label));
+    return { name: blockName(design, b), matched: !!hits[n]?.roomId };
+  });
+  return { matched: named.filter((r) => r.matched).map((r) => r.name), build: named.filter((r) => !r.matched).map((r) => r.name), sqft: Math.round(rooms.reduce((s, b) => s + b.w * b.h, 0)) };
+}
+
+function DesignVsSpace({ report, g, design, measuredRooms }: { report: ShellReport; g: RoomGraph; design: Block[]; measuredRooms?: number }) {
+  const m = designMatch(design, report.fit.assignment);
+  return (
+    <section aria-label="Your design next to this space">
+      <div className="fit-twoup">
+        <div><h4>Your design</h4><LayoutPreview blocks={design} /></div>
+        <div><h4>This space</h4><Plan2D report={report} g={g} measuredRooms={measuredRooms} /></div>
+      </div>
+      <p className="fit-twoup-summary">
+        {m.matched.length ? <>Already here: {list(m.matched)}. </> : "None of your rooms has a match here yet. "}
+        {m.build.length ? <>Must be built: {list(m.build)}. </> : m.matched.length ? "Nothing to build. " : ""}
+        Yours is about <span className="num">{m.sqft.toLocaleString()}</span> sq ft; this space is about <span className="num">{Math.round(g.totalAreaSqft).toLocaleString()}</span> sq ft.
+      </p>
+    </section>
   );
 }
 

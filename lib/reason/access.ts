@@ -115,6 +115,30 @@ function edgeDistance(p: Room["polygon"], x: number, y: number): number {
   return d;
 }
 
+type Pt = { x: number; y: number };
+const DOOR_TOL_M = 0.25; // a door centre this close to a drawn wall counts as on it
+const outlines = (r?: Room) => (!r ? [] : r.parts?.length ? r.parts : r.polygon.length >= 3 ? [r.polygon] : []);
+const onWall = (r: Room | undefined, p: Pt) => outlines(r).some((poly) => edgeDistance(poly, p.x, p.y) <= DOOR_TOL_M);
+
+// Where to draw a door: on the drawn wall between rooms a and b (b null = outside door), else null.
+// Scan polygons can be truncated, so a measured centre that misses either outline snaps to the nearest shared-wall point.
+export function doorPoint(g: RoomGraph, a: string, b: string | null, at?: Pt): Pt | null {
+  const ra = g.rooms.find((r) => r.id === a);
+  if (b == null) {
+    const others = g.rooms.filter((r) => r.id !== a && r.floorId === ra?.floorId);
+    return at && onWall(ra, at) && !others.some((r) => outlines(r).some((poly) => inside(poly, at.x, at.y))) ? at : null;
+  }
+  const rb = g.rooms.find((r) => r.id === b);
+  if (at && onWall(ra, at) && onWall(rb, at)) return at;
+  const shared = outlines(ra).flatMap((poly) => poly.flatMap((q, i) => {
+    const n = poly[(i + 1) % poly.length], steps = Math.max(1, Math.ceil(Math.hypot(n.x - q.x, n.y - q.y) / 0.1));
+    return Array.from({ length: steps }, (_, k) => ({ x: q.x + ((n.x - q.x) * k) / steps, y: q.y + ((n.y - q.y) * k) / steps }));
+  })).filter((p) => onWall(rb, p));
+  if (!shared.length) return null;
+  const ref = at ?? shared[Math.floor(shared.length / 2)];
+  return shared.reduce((x, y) => (Math.hypot(y.x - ref.x, y.y - ref.y) < Math.hypot(x.x - ref.x, x.y - ref.y) ? y : x));
+}
+
 // null when the scan has no door widths at all (older bundles): nothing to screen.
 export function checkAccess(g: RoomGraph, chairIn: [number, number] = DEFAULT_CHAIR_IN): Access | null {
   if (!g.rooms.length || !g.edges.some((e) => e.widthIn != null)) return null;
