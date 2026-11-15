@@ -1,7 +1,7 @@
 "use client";
 import { Settings as Gear, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { applySettings, readSettings, writeSettings, type Settings as S } from "@/lib/client/settings";
+import { DEFAULT_SETTINGS, applySettings, readSettings, writeSettings, type Settings as S } from "@/lib/client/settings";
 
 function Choice<K extends keyof S>({ label, k, value, options, onChange }: { label: string; k: K; value: S[K]; options: [S[K], string][]; onChange: (k: K, v: S[K]) => void }) {
   return (
@@ -16,7 +16,7 @@ function Choice<K extends keyof S>({ label, k, value, options, onChange }: { lab
 
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
-  const [s, setS] = useState<S>(() => ({ theme: "light", text: "normal", motion: "full", tech: false }));
+  const [s, setS] = useState<S>(DEFAULT_SETTINGS);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => { const x = readSettings(); setS(x); applySettings(x); }, []);
   useEffect(() => {
@@ -36,7 +36,7 @@ export function SettingsButton() {
           <Choice label="Theme" k="theme" value={s.theme} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"]]} onChange={change} />
           <Choice label="Text size" k="text" value={s.text} options={[["normal", "Normal"], ["large", "Large"]]} onChange={change} />
           <Choice label="Motion" k="motion" value={s.motion} options={[["full", "Full"], ["reduced", "Reduced"]]} onChange={change} />
-          <Choice label="Crew notes" k="tech" value={s.tech} options={[[false, "Friendly"], [true, "Show the technical log"]]} onChange={change} />
+          <Choice label="Read replies aloud" k="readAloud" value={s.readAloud} options={[[false, "Off"], [true, "On"]]} onChange={change} />
           <p className="muted small">Saved in this browser only.</p>
         </div>
       )}
