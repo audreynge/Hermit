@@ -29,6 +29,10 @@ export function ObjectArt({ type, w, h }: { type: string; w: number; h: number }
       return <g><rect x={0} y={h * 0.25} width={w} height={h * 0.35} rx={s * 0.12} fill="#fff" stroke={stroke} strokeWidth={sw} /><path d={`M${w * 0.02} ${h * 0.3} L${w * 0.3} ${h * 0.02} L${w * 0.36} ${h * 0.28}`} fill="#8ecae6" stroke={stroke} strokeWidth={sw} /><path d={`M${w * 0.1} ${h * 0.6} V${h} M${w * 0.9} ${h * 0.6} V${h}`} stroke={stroke} strokeWidth={sw} /></g>;
     case "shelf":
       return <g fill="none" stroke={stroke} strokeWidth={sw * 0.6}><rect x={0} y={0} width={w} height={h} fill="#fff7ef" /><path d={`M0 ${h / 3} H${w} M0 ${(2 * h) / 3} H${w}`} /><rect x={w * 0.15} y={h * 0.1} width={w * 0.45} height={h * 0.2} fill="#f4c7a1" /><rect x={w * 0.1} y={h * 0.43} width={w * 0.35} height={h * 0.2} fill="#f4c7a1" /><rect x={w * 0.52} y={h * 0.43} width={w * 0.35} height={h * 0.2} fill="#f4c7a1" /></g>;
+    case "toilet":
+      return <g fill="#fff" stroke={stroke} strokeWidth={sw}><rect x={w * 0.15} y={0} width={w * 0.7} height={h * 0.3} rx={s * 0.08} /><ellipse cx={w / 2} cy={h * 0.64} rx={w * 0.38} ry={h * 0.32} /></g>;
+    case "shower":
+      return <g><rect x={0} y={0} width={w} height={h} rx={s * 0.06} fill="#dff3fb" stroke={stroke} strokeWidth={sw} /><circle cx={w / 2} cy={h / 2} r={s * 0.1} fill={stroke} /></g>;
     default:
       return <g fill={stroke}>{[0.25, 0.5, 0.75].map((f) => <circle key={f} cx={w * f} cy={h / 2} r={s * 0.07} />)}</g>;
   }

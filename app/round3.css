@@ -375,3 +375,37 @@ nav.primary svg { width: 21px; height: 21px; }
 .broker .pick-list label { font-size: 17px; line-height: 1.4; }
 .broker .pick-list input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
 /* == end W5c == */
+/* == W2a: inline Sims-like layout editor == */
+.ls { display: grid; gap: 12px; min-width: 0; }
+.ls-palette { display: grid; gap: 8px; min-width: 0; }
+.ls-tabs { margin: 0; justify-self: start; }
+.ls-tabs button { min-height: 40px; font-size: 16px; padding: 0 18px; }
+.ls-hint { margin: 0; font-size: 15px; color: var(--ink-soft); }
+.ls-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.ls-tile { display: grid; justify-items: center; align-content: center; gap: 6px; min-height: 84px; padding: 10px 6px; border: 1.5px solid var(--line); border-radius: var(--r-md); background: var(--card); color: var(--ink); font: inherit; font-size: 15px; font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; box-shadow: var(--shadow-sm); transition: transform 120ms var(--ease), border-color 120ms; }
+.ls-tile:hover { border-color: var(--coral); background: var(--coral-wash); transform: translateY(-1px); }
+.ls-tile:active { transform: scale(0.97); }
+.ls-tile:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.ls-tile > svg { width: 34px; height: 34px; color: var(--coral-ink); stroke-width: 1.7; }
+.ls-more summary { cursor: pointer; font-weight: 700; color: var(--ink-soft); padding: 4px 0 8px; }
+.ls-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ls-bar .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.ls-view { margin: 0; }
+.ls-view button { display: inline-flex; align-items: center; gap: 6px; }
+.ls-view svg { width: 16px; height: 16px; }
+.ls-total { margin-left: auto; font-size: 17px; font-weight: 800; color: var(--ink); }
+.ls-canvas { height: clamp(340px, 58vh, 560px); background-color: var(--card); }
+.ls-item { cursor: grab; outline: none; }
+.ls-item:focus-visible > rect:first-child { stroke: var(--focus); stroke-width: 0.6; }
+.ls-zoom { position: absolute; right: 10px; bottom: 10px; display: grid; gap: 6px; }
+.ls-zoom .icon-btn { width: 36px; height: 36px; box-shadow: var(--shadow-sm); }
+.ls-empty { position: absolute; inset: 50% 16px auto; transform: translateY(-50%); display: grid; gap: 10px; justify-items: center; text-align: center; padding: 18px; border-radius: var(--r-lg); background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 16px; }
+.ls-empty p { margin: 0; }
+.ls-empty div { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.ls-selected { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1.5px solid var(--coral); border-radius: var(--r-md); background: var(--coral-wash); font-size: 16px; }
+.ls-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; flex: 1 1 220px; min-width: 0; }
+.ls-name .control { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; font-size: 16px; }
+.ls-size { font-weight: 700; color: var(--ink-soft); }
+.ls-selected .btn { margin-left: auto; }
+@media (max-width: 520px) { .ls-tiles { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); } .ls-total { margin-left: 0; width: 100%; } }
+/* == end W2a == */

@@ -22,7 +22,7 @@ export function DesignSheet({ onDone, onClose, initial, doneLabel = "Use this la
         <header>
           <div>
             <h2 id="sheet-title">Build your layout</h2>
-            <p className="muted">Drag and drop room blocks to sketch the space you need.</p>
+            <p className="muted">Tap a room to add it, then drag it where you want.</p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button>
         </header>
