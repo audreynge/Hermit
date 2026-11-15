@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 const FOCUSABLE = "a[href], button:not([disabled]), input, textarea, select, summary, [tabindex]:not([tabindex='-1'])";
 
-export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide = false, className = "" }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   // Callers pass inline arrows; keep the latest in a ref so parent re-renders don't re-run the focus effect.
   const close = useRef(onClose);
@@ -29,7 +29,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
   // Portal to <body>: inside <main> the dialog shares main's stacking context and the site header paints over it.
   return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close.current(); }}>
-      <div ref={ref} className={`card modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div ref={ref} className={`card modal${wide ? " wide" : ""}${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <header>
           <h2 id="modal-title">{title}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button>

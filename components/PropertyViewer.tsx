@@ -1,51 +1,68 @@
 "use client";
-import { Box, Plane, SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
-import { roomStops, tourUrl } from "@/lib/viewer/matterport";
+import { DoorOpen, Plane, Ruler } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { Block } from "@/lib/spec/parse";
 import type { ShellReport } from "@/lib/types";
+import { tourSteps, tourUrl } from "@/lib/viewer/matterport";
 import { Aerial } from "./Aerial";
 import { FitView } from "./FitView";
 import { Modal } from "./Modal";
 
-type View = "3d" | "aerial" | "fit";
+type View = "fit" | "inside" | "above";
 
-export function PropertyViewer({ report, onClose, initial = "3d" }: { report: ShellReport; onClose: () => void; initial?: View }) {
-  const [view, setView] = useState<View>(report.inside ? initial : "aerial");
-  const [stop, setStop] = useState<number | undefined>(undefined);
-  const stops = roomStops(report);
-  const tabs: [View, string, typeof Box][] = [["3d", "3D tour", Box], ["aerial", "Aerial", Plane], ["fit", "Fit", SlidersHorizontal]];
+export function PropertyViewer({ report, onClose, initial = "fit", design, furniture }: {
+  report: ShellReport; onClose: () => void; initial?: View; design?: Block[]; furniture?: Record<string, string[]>;
+}) {
+  const sid = report.inside?.sid;
+  const [view, setView] = useState<View>(initial === "inside" && !sid ? "fit" : initial);
+  const [step, setStep] = useState(0);
+  const [jump, setJump] = useState<number | undefined>(undefined);
+  const steps = useMemo(() => tourSteps(report, furniture), [report, furniture]);
+  // The tour only reloads when the step points at a different sweep.
+  const sweep = useMemo(() => { if (jump != null) return jump; for (let i = step; i >= 0; i--) if (steps[i].sweep != null) return steps[i].sweep; return undefined; }, [jump, step, steps]);
+  const go = (i: number) => { setJump(undefined); setStep(i); };
+  const tabs: [View, string, typeof Ruler][] = [["fit", "Check the fit", Ruler], ...(sid ? [["inside", "Step inside", DoorOpen] as [View, string, typeof Ruler]] : []), ["above", "From above", Plane]];
+
   return (
-    <Modal title={report.name.split(" · ")[0]} onClose={onClose} wide>
-      <p className="muted" style={{ marginBottom: 12 }}>{report.address}</p>
+    <Modal title={report.name.split(" · ")[0]} onClose={onClose} wide className="pv">
+      <p className="muted pv-address">{report.address}</p>
       <div className="tabs-pill" role="tablist" aria-label="Property views">
         {tabs.map(([k, label, Icon]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} data-active={view === k} disabled={k === "3d" && !report.inside} onClick={() => setView(k)}>
+          <button key={k} id={`pv-tab-${k}`} type="button" role="tab" aria-selected={view === k} aria-controls="pv-panel" data-active={view === k} onClick={() => setView(k)}>
             <Icon aria-hidden="true" /> {label}
           </button>
         ))}
       </div>
-      <div className="viewer-body" role="tabpanel" aria-label={`${view} view`}>
-        {view === "3d" && report.inside && (
-          <div className="viewer-3d">
-            <div className="viewer-frame">
-              <iframe key={stop ?? "start"} title={`Matterport 3D tour of ${report.name}`} src={tourUrl(report.inside.sid, stop)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
+      <div id="pv-panel" className="viewer-body pv-body" role="tabpanel" aria-labelledby={`pv-tab-${view}`}>
+        {view === "fit" && (
+          <FitView report={report} onShowInTour={sid ? (i) => { setJump(i); setView("inside"); } : undefined} {...{ design }} />
+        )}
+        {view === "inside" && sid && (
+          <div className="pv-tour">
+            <div className="pv-frame">
+              <iframe key={sweep ?? "start"} title={`3D tour of ${report.name.split(" · ")[0]}`} src={tourUrl(sid, sweep)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
             </div>
-            {stops.length > 0 && (
-              <nav aria-label="Jump to a room" className="room-stops">
-                <h3>Jump to a room</h3>
-                {stops.map((s) => (
-                  <button key={`${s.label}-${s.index}`} type="button" className="btn small" aria-pressed={stop === s.index} onClick={() => setStop(s.index)}>{s.label}</button>
-                ))}
-              </nav>
-            )}
+            <div className="pv-guide" role="region" aria-label="Hermit's guided tour">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/hermit-logo.svg" alt="" />
+              <p aria-live="polite">{steps[step].text}</p>
+              <div className="pv-guide-nav">
+                <button type="button" className="btn" onClick={() => go(step - 1)} disabled={step === 0}>Back</button>
+                <span className="muted num" aria-label={`Stop ${step + 1} of ${steps.length}`}>{step + 1} / {steps.length}</span>
+                {step < steps.length - 1
+                  ? <button type="button" className="btn primary" onClick={() => go(step + 1)}>Next room</button>
+                  : <button type="button" className="btn" onClick={() => go(0)}>Start over</button>}
+              </div>
+            </div>
           </div>
         )}
-        {view === "aerial" && <div className="viewer-frame aerial"><Aerial report={report} /></div>}
-        {view === "fit" && <FitView report={report} onShowInTour={report.inside ? (i) => { setStop(i); setView("3d"); } : undefined} />}
+        {view === "above" && (
+          <>
+            <div className="viewer-frame aerial"><Aerial report={report} /></div>
+            <p className="muted pv-cap">Photos © Vexcel Imaging (Esri World Imagery where Vexcel has none), centered on the record&apos;s coordinates.</p>
+          </>
+        )}
       </div>
-      <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-        {view === "3d" ? "3D tour from Matterport; needs an internet connection." : view === "aerial" ? "Aerial and oblique photos © Vexcel Imaging (Esri World Imagery where Vexcel has none). Centered on the record's coordinates, not a surveyed parcel." : "Your requested rooms mapped onto the measured floor plan."}
-      </p>
     </Modal>
   );
 }
