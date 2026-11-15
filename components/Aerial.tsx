@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCoords } from "@/lib/neighborhood/heat";
 import { esriStreetTile, esriTile, tileFor } from "@/lib/geometry/tiles";
 import type { ShellReport } from "@/lib/types";
@@ -8,10 +8,10 @@ const VIEWS = [["ortho", "Top-down"], ["oblique-north", "Looking north"], ["obli
 
 const FACES: Record<string, string> = { ortho: "Straight down", "oblique-north": "North", "oblique-east": "East", "oblique-south": "South", "oblique-west": "West" };
 
-function siteFacts(r: ShellReport) {
+function siteFacts(r: ShellReport, lotSqft?: number) {
   const hit = r.rules.find((h) => h.rule === "parking" || h.rule === "onsite_parking");
   const stalls = hit?.detail.match(/^(\d+) (?:recorded|on-site) stalls/)?.[1];
-  const lot = (r as ShellReport & { parcel?: { lotSqft?: number } }).parcel?.lotSqft;
+  const lot = lotSqft;
   return { parking: stalls ? Number(stalls).toLocaleString() : "Not on record", space: r.sqft ? `${r.sqft.toLocaleString()} sf` : "Not on record", lot: lot ? `${lot.toLocaleString()} sf` : null };
 }
 
@@ -50,9 +50,13 @@ function MiniMap({ address, lat, lon, facing }: { address: string; lat: number; 
 export function Aerial({ report }: { report: ShellReport }) {
   const [view, setView] = useState<(typeof VIEWS)[number][0]>("ortho");
   const [missing, setMissing] = useState<Set<string>>(new Set());
+  const [lotSqft, setLotSqft] = useState<number>();
+  useEffect(() => {
+    fetch(`/api/parcel/${encodeURIComponent(report.shellId)}`).then((r) => (r.ok ? r.json() : null)).then((d) => setLotSqft(d?.shell?.parcel?.lotSqft)).catch(() => {});
+  }, [report.shellId]);
   if (!report.above) return <p className="muted" style={{ padding: 16 }}>No coordinates on record for this property.</p>;
   if (missing.has("ortho")) return <EsriAerial report={report} />;
-  const f = siteFacts(report);
+  const f = siteFacts(report, lotSqft);
   const label = VIEWS.find(([k]) => k === view)![1];
   return (
     <div className="aerial-view">
@@ -76,9 +80,8 @@ export function Aerial({ report }: { report: ShellReport }) {
 }
 
 function EsriAerial({ report }: { report: ShellReport }) {
-  const [failed, setFailed] = useState(false);
   const a = report.above;
-  const { pt, byAddress, fail, dead } = useCoords(report.address, a?.lat, a?.lon, 9);
+  const { pt, byAddress, fail, dead } = useCoords(report.address, a?.lat, a?.lon);
   if (pt === undefined) return <p className="muted" style={{ padding: 16 }}>Finding the location...</p>;
   if (!pt) return <p className="muted" style={{ padding: 16 }}>No coordinates on record for this property.</p>;
   const z = 19;

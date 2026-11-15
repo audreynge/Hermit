@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Pt = { lat: number; lon: number };
 
 // Record coordinates first; the address geocoder is the second check when they're missing or the map tiles fail.
 export function useCoords(address: string, lat?: number, lon?: number, tiles = 9) {
   const has = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat!) <= 90 && Math.abs(lon!) <= 180;
-  const [fails, setFails] = useState(0);
+  const fails = useRef(0);
   const [force, setForce] = useState(false);
   const [geo, setGeo] = useState<Pt | null | undefined>(undefined);
   const need = !has || force;
@@ -21,10 +21,9 @@ export function useCoords(address: string, lat?: number, lon?: number, tiles = 9
   }, [need, geo, address]);
   // Counts tile errors per source; switching to the address point resets the count so the second source gets its own verdict.
   const fail = () => {
-    const n = fails + 1;
-    setFails(n);
-    if (n <= tiles / 2) return;
-    if (!need) { setForce(true); setFails(0); } else setLost(true);
+    if (++fails.current <= tiles / 2) return;
+    fails.current = 0;
+    if (!need) setForce(true); else setLost(true);
   };
   const pt: Pt | null | undefined = need ? geo : { lat: lat!, lon: lon! };
   return { pt, byAddress: need && !!geo, fail, dead: lost && need };
