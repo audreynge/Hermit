@@ -40,3 +40,14 @@ describe("furnishEdit", () => {
     expect(out).toEqual({ ops: [], reply: "There's no lamp yet. Want me to add one?", source: "gemini" });
   });
 });
+
+describe("whole-room furnishing", () => {
+  it("offline, 'refurnish everything' becomes one furnish op for every room", async () => {
+    const out = await furnishEdit({ text: "refurnish everything for 20 engineers", items: [] }, null);
+    expect(out.ops).toEqual([{ op: "furnish", scope: "all", brief: "refurnish everything for 20 engineers" }]);
+  });
+  it("offline, 'set this room up as an exam room' targets the room", async () => {
+    const out = await furnishEdit({ text: "set this room up as an exam room", items: [] }, null);
+    expect(out.ops[0]).toMatchObject({ op: "furnish", scope: "room" });
+  });
+});
