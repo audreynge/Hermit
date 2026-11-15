@@ -4,7 +4,7 @@
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
 import { Box, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Send, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
@@ -51,6 +51,59 @@ const OPEN_SQFT = 430; // ~40 m²
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
+// Shutting a Matterport viewer down (leaving the tab, or before it finished starting) makes Showcase's own unload code
+// reject promises nobody awaits ("No Data was registered to the Module", "IAnalytics module unloaded"...). They can't be
+// caught from outside the vendored bundle, and each one is a page error and a dev "Issues" entry. So a viewer we stop
+// showing is parked instead: moved, still running, into a hidden holder, and handed back the next time that scan's
+// tour opens (which is also instant). Disconnecting the element runs its teardown list, so we take that list first and
+// only give it back when a viewer is really retired (more than MAX_PARKED scans opened this session, or it failed).
+type Viewer = MatterportViewer & { teardownMethods?: (() => void)[]; hermitTeardown?: (() => void)[]; hermitFailed?: boolean };
+const MAX_PARKED = 3;
+const parked = new Map<string, Viewer>(); // scan sid → viewer, oldest first
+let holder: HTMLDivElement | null = null;
+function retire(v: Viewer) {
+  const t = v.teardownMethods;
+  if (t && v.hermitTeardown?.length) t.unshift(...v.hermitTeardown.splice(0));
+  try { v.remove(); } catch { /* already detached */ }
+}
+function park(sid: string, v: Viewer) {
+  if (v.hermitFailed || typeof document === "undefined") return retire(v);
+  const t = v.teardownMethods;
+  if (t?.length) (v.hermitTeardown ??= []).push(...t.splice(0)); // moving it must not shut it down
+  if (!holder || !holder.isConnected) {
+    holder = document.createElement("div");
+    holder.hidden = true;
+    holder.setAttribute("aria-hidden", "true");
+    holder.style.display = "none";
+    document.body.append(holder);
+  }
+  const old = parked.get(sid);
+  if (old && old !== v) retire(old);
+  parked.delete(sid);
+  holder.append(v);
+  parked.set(sid, v);
+  for (const [k, x] of parked) { if (parked.size <= MAX_PARKED) break; parked.delete(k); retire(x); }
+}
+// Showcase adds a window "unload" listener (session analytics). Where the browser disallows unload (Chrome's unload
+// deprecation), that listener would never run and the call only logs "Permissions policy violation" as a console
+// error. Skip the registration in exactly that case, so behavior is unchanged.
+let unloadQuieted = false;
+function quietUnload() {
+  if (unloadQuieted || typeof window === "undefined") return;
+  unloadQuieted = true;
+  const policy = (document as Document & { featurePolicy?: { allowsFeature?: (f: string) => boolean } }).featurePolicy;
+  if (policy?.allowsFeature?.("unload") !== false) return;
+  const add = window.addEventListener.bind(window);
+  window.addEventListener = ((type: string, ...rest: [EventListenerOrEventListenerObject, (boolean | AddEventListenerOptions)?]) => {
+    if (type !== "unload") add(type, ...rest);
+  }) as typeof window.addEventListener;
+}
+function unpark(sid: string): Viewer | undefined {
+  const v = parked.get(sid);
+  parked.delete(sid);
+  if (v) { const t = v.teardownMethods; if (t?.length) (v.hermitTeardown ??= []).push(...t.splice(0)); }
+  return v;
+}
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
 export function FurnishTour({ report, use, stop, onFail, items: sharedItems, setItems: setSharedItems, chat = true, handle }: {
@@ -148,41 +201,81 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
     setStatus((m) => ({ ...m, [id]: next ? "loading" : "failed" }));
   }, [withModel, makeView]);
 
-  // Start the SDK viewer once; any startup failure hands back to the iframe tour.
+  // Park the viewer before React detaches the stage: layout cleanup runs before the DOM removal, passive cleanup after.
+  useLayoutEffect(() => () => {
+    const v = viewer.current as Viewer | null;
+    viewer.current = null;
+    if (v) park(sid, v);
+  }, [sid]);
+  // Start the SDK viewer once (or take this scan's parked one back); any startup failure hands back to the iframe tour.
   useEffect(() => {
-    let dead = false;
+    let dead = false, failed = false;
     moved.current = false;
-    const fail = (why: string) => { console.warn(`[hermit] 3D furnishing unavailable (${why}); showing the basic tour`); onFail(); };
+    const subs: { cancel: () => void }[] = [];
+    let el: Viewer | null = null;
+    const fail = (why: string) => {
+      if (dead || failed) return; // once is enough, and never after unmount
+      failed = true;
+      console.warn(`[hermit] 3D furnishing unavailable (${why}); showing the basic tour`);
+      onFail();
+    };
+    const onError = (e: Event) => {
+      if (el) el.hermitFailed = true; // never hand a broken viewer back
+      fail((e as CustomEvent<{ error?: { message?: string } }>).detail?.error?.message ?? "viewer error");
+    };
     const timeout = setTimeout(() => { if (!sdk.current) fail("startup timed out"); }, STARTUP_MS);
     (async () => {
-      const { key } = await json<{ key: string | null }>("/api/tour-key");
-      if (!key) return fail("no SDK key");
-      await import("@matterport/webcomponent");
-      if (dead || !host.current) return;
-      const el = document.createElement("matterport-viewer") as MatterportViewer;
-      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
-      el.addEventListener("mpViewerError", (e) => fail(e.detail.error.message));
+      let v = unpark(sid);
+      if (!v) {
+        const { key } = await json<{ key: string | null }>("/api/tour-key");
+        if (dead) return;
+        if (!key) return fail("no SDK key");
+        await import("@matterport/webcomponent");
+        if (dead) return;
+        quietUnload();
+        v = document.createElement("matterport-viewer") as Viewer;
+        for (const [k, val] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) v.setAttribute(k, val);
+      }
+      if (dead || !host.current) { park(sid, v); return; }
+      el = v;
+      el.addEventListener("mpViewerError", onError);
       host.current.prepend(el);
       viewer.current = el;
       const s = await el.playingPromise;
       if (dead) return;
+      const sc = await createScene(s, onLoad);
+      if (dead) { try { sc.destroy(); } catch { /* the viewer is already gone */ } return; }
       sdk.current = s;
-      scene.current = await createScene(s, onLoad);
-      if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = scene.current; // for e2e tests
-      s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; });
-      s.Sweep.current.subscribe((sw) => {
+      scene.current = sc;
+      if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = sc; // for e2e tests
+      subs.push(s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; }));
+      subs.push(s.Sweep.current.subscribe((sw) => {
+        if (dead) return;
         if (sw.puckPosition) floorY.current = sw.puckPosition.y;
         const r = report.floorplan?.rooms.find((x) => x.id === sw.roomInfo?.id);
         setRoom(r ? { id: r.id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined } : undefined);
-      });
+      }));
       // Matterport's own controls can change the view too; mirror them (transitions are skipped).
-      s.Mode.current.subscribe((m) => {
+      subs.push(s.Mode.current.subscribe((m) => {
+        if (dead) return;
         const next = m === s.Mode.Mode.DOLLHOUSE ? "dollhouse" : m === s.Mode.Mode.FLOORPLAN ? "floorplan" : m === s.Mode.Mode.INSIDE ? "inside" : null;
         if (next) { setModeState(next); if (next !== "inside") setTrayOpen(false); } // from above, the tray would hide the model
-      });
+      }));
       setReady(true);
-    })().catch((e) => { if (!dead) fail(e instanceof Error ? e.message : String(e)); });
-    return () => { dead = true; clearTimeout(timeout); scene.current?.destroy(); scene.current = null; viewer.current?.remove(); };
+    })().catch((e) => fail(e instanceof Error ? e.message : String(e)));
+    // Close in order: stop listening, drop our furniture scene, forget the SDK, then park the viewer (if the layout
+    // cleanup hasn't already). Each step is guarded: the SDK may still be starting.
+    return () => {
+      dead = true;
+      clearTimeout(timeout);
+      for (const sub of subs) { try { sub.cancel(); } catch { /* already closed */ } }
+      try { scene.current?.destroy(); } catch { /* already gone */ }
+      scene.current = null;
+      sdk.current = null;
+      el?.removeEventListener("mpViewerError", onError);
+      if (el && viewer.current === el) { viewer.current = null; park(sid, el); }
+      setReady(false);
+    };
   }, [sid, report.floorplan, onFail, onLoad]);
 
   useEffect(() => { scene.current?.sync(items, selected); }, [items, selected, ready]);
@@ -387,9 +480,9 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
       if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }]); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); apply([{ op: "remove", id: p.id }]); }
       const a = ({ ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] } as Record<string, [number, number]>)[e.key];
-      if (a) {
+      if (a && scene.current) {
         e.preventDefault();
-        const f = scene.current!.camera().forward; // nudge relative to where the user is looking
+        const f = scene.current.camera().forward; // nudge relative to where the user is looking
         apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M });
       }
     };

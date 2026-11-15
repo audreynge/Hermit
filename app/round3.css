@@ -497,3 +497,8 @@ nav.primary svg { width: 21px; height: 21px; }
 .ov-io ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 16px; }
 @media (prefers-reduced-motion: reduce) { .ev-chev { transition: none; } }
 /* == end S8 == */
+/* F-B: Inside & furnish. Sizes read "145 sq ft", not "145 Sq Ft" (the room buttons capitalize their text). */
+.room-list .room-sqft { text-transform: none; white-space: nowrap; }
+.inside2-offline { margin: 0 0 10px; padding: 10px 14px; border-radius: 10px; background: var(--sand-1); color: var(--ink); font-size: 15px; }
+.inside2-plan { position: relative; z-index: 1; }
+/* == end F-B == */
