@@ -23,7 +23,8 @@ export function packFor(spec: Pick<RequirementSpec, "useType" | "mode">): Pack {
 export function seedRooms(spec: Pick<RequirementSpec, "useType" | "mode" | "rooms"> & { input?: RequirementSpec["input"] }): RoomReq[] {
   const pack = packFor(spec);
   const fromPack = (r: PackRoom): RoomReq => { const { w: _w, h: _h, ...rest } = r; return { ...rest, hard: r.hard ?? false }; };
-  if (!spec.rooms.length) return pack.rooms.map(fromPack);
+  // A layout with every room deleted means no rooms, not the pack's defaults.
+  if (!spec.rooms.length) return spec.input === "layout" ? [] : pack.rooms.map(fromPack);
   const merged = spec.rooms.map((r) => {
     const p = pack.rooms.find((x) => x.label === r.label);
     return p?.fixtures && !r.fixtures?.length ? { ...r, fixtures: p.fixtures } : r;

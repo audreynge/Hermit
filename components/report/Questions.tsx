@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { landlordQuestions } from "@/lib/packet";
 import type { ShellReport } from "@/lib/types";
 import { usePersisted } from "./shared";
-import type { ReportCtx } from "./ShellReportPage";
 
 // Landlord questions for one space. `picked` null = everything ticked (so new unknowns arrive ticked).
 export function useQuestions(report: Pick<ShellReport, "shellId" | "unknowns" | "buildout">, concerns: string[] = []) {
@@ -41,9 +40,4 @@ export function QuestionList({ q }: { q: ReturnType<typeof useQuestions> }) {
       </form>
     </>
   );
-}
-
-export function Questions({ report, challenge }: ReportCtx) {
-  const q = useQuestions(report, challenge?.shellId === report.shellId ? challenge.concerns : []);
-  return <section className="card pad"><h2>Questions for the landlord</h2><QuestionList q={q} /></section>;
 }

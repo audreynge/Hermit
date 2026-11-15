@@ -170,9 +170,9 @@ describe("draftEmail", () => {
 describe("compareRows", () => {
   it("lines up the matches on the same measures", () => {
     const rows = compareRows([report(), report({ shellId: "B", name: "Suite 400", matchScore: 80, weeksToOpen: [8, 20], costRange: [20000, 60000] })]);
-    expect(rows.map((r) => r.label)).toEqual(["Match", "Size", "Rooms already built", "Weeks to open", "Known work", "Parking"]);
-    expect(rows[0].values).toEqual(["92%", "80%"]);
-    expect(rows[3].values).toEqual(["1–4", "8–20"]);
+    expect(rows.map((r) => r.label)).toEqual(["Size", "Rooms already built", "Weeks to open", "Known work", "Parking"]);
+    expect(rows.flatMap((r) => r.values).some((v) => v.includes("%"))).toBe(false);
+    expect(rows[2].values).toEqual(["1–4", "8–20"]);
   });
 
   it("names the layout-matching step when the agent compared a drawing", () => {
@@ -183,7 +183,7 @@ describe("compareRows", () => {
 
   it("leads card highlights with layout similarity when the user drew a plan", () => {
     const r = { reasons: [], fit: { assignment: [] }, rules: [], similarity: { score: 81, scale: 1, breakdown: { program: 80, adjacency: null, size: 90, shape: 70 }, pairs: [] } } as unknown as ShellReport;
-    expect(highlights(r, { needs: {} } as RequirementSpec)[0]).toBe("Floor plan 81% like your drawing");
+    expect(highlights(r, { needs: {} } as RequirementSpec)[0]).toBe("Floor plan close to your drawing");
   });
 });
 

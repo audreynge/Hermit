@@ -11,7 +11,7 @@ import { basicsDone, CITY_AGAIN, deeperQuestion, interviewQuestion, plural, prog
 
 export type Msg = { role: "hermit" | "user"; text: string };
 export type IState = { spec: Draft; asked: string[]; history: Msg[]; field?: Field | null; quick?: string[]; ready?: boolean };
-export type ITurn = { reply: string; why?: string; quick: string[]; multi?: boolean; state: IState; ready: boolean; basicsDone: boolean; stages: FunnelStage[]; llm: boolean; progress?: number };
+export type ITurn = { reply: string; why?: string; quick: string[]; multi?: boolean; state: IState; ready: boolean; basicsDone: boolean; stages: FunnelStage[]; llm: boolean; progress?: number; search?: boolean };
 
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
 const SEARCH_ONLY = /\b(just search|search now|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
@@ -167,8 +167,9 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   });
   if (ready) {
     const lead = state.ready ? `${ack || "Updated."}${changed ? ` Sketch on the right: ${sketchText(spec)}.` : ""}` : `${ack} That's everything I need for ${describe(spec)}.`.trim();
-    const go = wantsSearch ? "Tap “See your matches” below and I'll send the crew in." : "You can tap “See your matches” below whenever you're ready.";
-    return out([lead, go, wantsSearch ? "" : q?.text ?? "Is there anything else you'd like me to factor in?"].filter(Boolean).join(" "), q?.why);
+    // A "search now" answer runs the search on the page (search: true), so there's nothing to tap.
+    if (wantsSearch) return { ...out(lead, q?.why), search: true };
+    return out([lead, "You can tap “See your matches” below whenever you're ready.", q?.text ?? "Is there anything else you'd like me to factor in?"].join(" "), q?.why);
   }
   const lead2 = notes.join(" ");
   const sketchNote = lead2 ? ` ${lead2}` : basics && !basicsDone(state.spec, state.asked) ? " I've sketched a typical layout on the right; change anything you like." : "";

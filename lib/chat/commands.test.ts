@@ -4,6 +4,9 @@ import { isLayoutEdit, localCommand } from "./commands";
 describe("localCommand", () => {
   it("routes quick replies and parcel questions locally", () => {
     expect(localCommand("Search with this")).toBe("search");
+    expect(localCommand("search now")).toBe("search");
+    expect(localCommand("Find matches")).toBe("search");
+    expect(localCommand("start over")).toBe("reset");
     expect(localCommand("Undo")).toBe("undo");
     expect(localCommand("undo the last change")).toBe("undo");
     expect(localCommand("Keep these changes")).toBe("keep");

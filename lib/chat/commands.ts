@@ -1,10 +1,11 @@
 import { objectType, roomType } from "../design/rooms";
 
 // Follow-ups answered in the browser, without a server round trip.
-export type LocalCommand = "search" | "undo" | "keep" | "studio" | "parcel";
+export type LocalCommand = "search" | "reset" | "undo" | "keep" | "studio" | "parcel";
 
 const RULES: [LocalCommand, RegExp][] = [
-  ["search", /^search with this$/i],
+  ["search", /^(search with this|search now|just search|run (the |a )?search|find (me )?(matches|spaces)|(see|show me) (my |the )?matches)[.!]?$/i],
+  ["reset", /^(start (over|again|fresh)|reset|new search|clear everything)[.!]?$/i],
   ["undo", /^undo( (that|it|the last change))?$/i],
   ["keep", /^keep( these changes| it)?$/i],
   ["studio", /^(open (the layout|in layout studio)|draw a layout)$/i],

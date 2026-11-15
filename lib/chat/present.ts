@@ -51,7 +51,7 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   const out: string[] = [];
   const access = accessLine(r, spec);
   if (access) out.push(access.text); // for a wheelchair user this decides the space, so it leads
-  if (r.similarity) out.push(`Floor plan ${r.similarity.score}% like your drawing`);
+  if (r.similarity && r.similarity.score >= 70) out.push("Floor plan close to your drawing");
   const area = areaOf(r);
   if (area && spec.sizeSqft) {
     const [lo, hi] = spec.sizeSqft;
@@ -183,7 +183,6 @@ export function compareRows(reports: ShellReport[]) {
     return p ? (p.status === "unknown" ? "unknown" : p.detail.match(/^(\d+)/)?.[1] ? `${p.detail.match(/^(\d+)/)![1]} stalls` : p.status) : "—";
   };
   return [
-    { label: "Match", values: reports.map((r) => `${r.matchScore}%`) },
     { label: "Size", values: reports.map((r) => (areaOf(r) ? `${fmt(areaOf(r)!)} sq ft` : "—")) },
     { label: "Rooms already built", values: reports.map((r) => (r.fit.assignment.length ? `${r.fit.assignment.filter((a) => a.roomId).length} of ${r.fit.assignment.length}` : "—")) },
     { label: "Weeks to open", values: reports.map((r) => `${r.weeksToOpen[0]}–${r.weeksToOpen[1]}`) },

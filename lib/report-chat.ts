@@ -19,7 +19,7 @@ export function reportFacts(r: ShellReport, spec: RequirementSpec) {
     askingRatePerSqftYear: rate ?? null, monthlyRent: monthlyRent ?? null, buildOutCost: buildOut ?? null, tiAllowance: ti ?? null,
     firstYearCostRange: firstYear ?? null, weeksToOpen: r.weeksToOpen, budgetMonthly: spec.budgetMonthly ?? null, budgetTotal: spec.budgetTotal ?? null,
     rooms: r.fit.assignment.map((a) => `${a.req}: ${a.roomId ? "already built" : "not built"}`),
-    fitScore: r.fit.score, hardFails: r.fit.hardFails,
+    hardFails: r.fit.hardFails,
     work: r.work.map((w) => ({ item: w.item, cost: range(w.low, w.high), weeks: `${w.weeksLow}-${w.weeksHigh}` })),
     rules: r.rules.map((x) => `${x.rule}: ${x.status}: ${x.detail}`),
     unknowns: r.unknowns.map((u) => u.question),

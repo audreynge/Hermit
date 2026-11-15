@@ -1,12 +1,10 @@
 "use client";
-import { MessageCircle } from "lucide-react";
 import { useMemo } from "react";
 import { emptyProfile, type Profile } from "@/lib/packet";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { FloorPlan } from "./FloorPlan";
 import { useQuestions } from "./Questions";
 import { useFurnished, useMoney, usePersisted } from "./shared";
-import type { ReportCtx } from "./ShellReportPage";
 
 const $ = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
@@ -61,14 +59,5 @@ export function PacketDoc({ report, spec, runId, profile }: { report: ShellRepor
       <section><h3>Questions for the landlord</h3><ol>{picked.map((q) => <li key={q}>{q}</li>)}</ol></section>
       <p className="small muted">Screening summary from public data and the 3D scan, ref {runId}. Not an inspection or a legal review.</p>
     </article>
-  );
-}
-
-export function Packet({ report, spec, runId, go }: ReportCtx) {
-  return (
-    <div className="packet-tab">
-      <p><button type="button" className="btn primary" onClick={() => go("broker")}><MessageCircle aria-hidden="true" /> Fill it in with Hermit</button></p>
-      <PacketDoc report={report} spec={spec} runId={runId} />
-    </div>
   );
 }

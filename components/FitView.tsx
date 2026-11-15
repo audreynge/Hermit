@@ -223,7 +223,7 @@ function ProposalStrip({ p, onKeep, onUndo }: { p: Proposal; onKeep?: () => void
   return (
     <div className="row" role="group" aria-label="Proposed changes" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--sand-2)", marginBottom: 8 }}>
       <span role="status" style={{ fontSize: "var(--t-sm)" }}>
-        <strong>Proposed{p.kept ? " (kept)" : ""}:</strong> fit {d.fit[0]} → {d.fit[1]} · known work {range(d.cost[1])} (was {range(d.cost[0])}) · {d.weeks[1][0]}–{d.weeks[1][1]} wks
+        <strong>Proposed{p.kept ? " (kept)" : ""}:</strong> {d.fit[1] > d.fit[0] ? "fits better" : d.fit[1] < d.fit[0] ? "fits worse" : "same fit"} · known work {range(d.cost[1])} (was {range(d.cost[0])}) · {d.weeks[1][0]}–{d.weeks[1][1]} wks
       </span>
       <span className="row" style={{ gap: 6 }}>
         {!p.kept && onKeep && <button type="button" className="btn small" onClick={onKeep}>Keep</button>}

@@ -26,7 +26,7 @@ export function SavedList() {
         <li key={s.shellId} className="card pad saved-card">
           <h2><Link href={`/shell/${s.shellId}?run=${s.runId}`}>{s.name}</Link></h2>
           <p className="muted">{s.address}</p>
-          <p>{s.verdict} · {s.matchScore}% match</p>
+          <p>{s.verdict}</p>
           <button type="button" className="btn small" onClick={() => { const next = items.filter((x) => x.shellId !== s.shellId); setJSON("hermit:saved2", next); setItems(next); }}><Heart aria-hidden="true" fill="currentColor" /> Remove</button>
         </li>
       ))}

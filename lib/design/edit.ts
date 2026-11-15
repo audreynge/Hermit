@@ -71,7 +71,7 @@ export function describeOutcome(o: EditOutcome, before: number): string {
     if (n) lines.push(`Updated your layout (${n} change${n > 1 ? "s" : ""}). It now has ${o.blocks.filter((b) => b.kind !== "object").length} rooms, about ${Math.round(o.blocks.filter((b) => b.kind !== "object").reduce((s, b) => s + b.w * b.h, 0)).toLocaleString()} sq ft.`);
   } else {
     const d = o.evaluation.diff;
-    if (o.ops.length > before) lines.push(`Proposed changes: fit ${d.fit[0]} → ${d.fit[1]}, known work ${workRange(d.cost[1])} (was ${workRange(d.cost[0])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
+    if (o.ops.length > before) lines.push(`Proposed changes: ${d.fit[1] > d.fit[0] ? "fits better" : d.fit[1] < d.fit[0] ? "fits worse" : "same fit"}, known work ${workRange(d.cost[1])} (was ${workRange(d.cost[0])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
     if (d.hardFailsCleared.length) lines.push(`Clears: ${d.hardFailsCleared.join("; ")}.`);
   }
   lines.push(...o.notes);
