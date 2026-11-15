@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { isSaved, toggleSaved } from "@/lib/client/persist";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
-import { intent, TABS } from "@/lib/report-chat";
+import { intent, screenText, TABS } from "@/lib/report-chat";
+import { hermitContext } from "@/lib/client/session";
 import type { Turn } from "@/lib/chat/converse";
 import type { ShellReport } from "@/lib/types";
 import { usePersisted } from "./shared";
@@ -96,13 +97,19 @@ export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit 
     return r.turn.reply;
   }
 
+  // What's on screen and what the user has done here, so the answer can refer to it.
+  const screen = () => screenText({
+    tab, tour: furnish.current?.describe(), told: hermitContext(),
+    fit: fit && { kept: fit.kept, changes: fit.ops.length, nowMatched: fit.diff.nowMatched, stillMissing: fit.diff.stillMissing },
+  });
+
   async function doAsk(next: Msg[]): Promise<Msg> {
     const q = next[next.length - 1].text;
     if (tab === "inside") {
-      const out = await post<{ answer?: string; followUp?: string | null }>("/api/ask", { runId, shellId: report.shellId, question: q, room: null, history: next.slice(-8).map(({ role, text }) => ({ role, text })) });
+      const out = await post<{ answer?: string; followUp?: string | null }>("/api/ask", { runId, shellId: report.shellId, question: q, room: null, screen: screen(), history: next.slice(-8).map(({ role, text }) => ({ role, text })) });
       return { role: "hermit", text: out.answer ?? "Sorry, I couldn't answer that.", followUp: out.followUp };
     }
-    const j = await post<{ reply?: string; action?: Action }>("/api/report-chat", { runId, shellId: report.shellId, tab, messages: next.slice(-40).map(({ role, text }) => ({ role, text })) });
+    const j = await post<{ reply?: string; action?: Action }>("/api/report-chat", { runId, shellId: report.shellId, tab, screen: screen(), messages: next.slice(-40).map(({ role, text }) => ({ role, text })) });
     let reply = j.reply ?? "I couldn't answer just now. Try again in a moment.";
     if (j.action?.type === "save") {
       if (isSaved(report.shellId)) reply = "This space is already saved.";

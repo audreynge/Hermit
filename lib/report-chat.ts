@@ -74,3 +74,15 @@ export function intent(text: string): "edit" | "furnish" | "ask" {
   if (EDIT.test(text)) return "edit";
   return FURNISH.test(text) && !/\?\s*$/.test(text) ? "furnish" : "ask";
 }
+
+const TAB_NAMES: Record<string, string> = { overview: "Overview", inside: "Inside (3D tour and fit check)", aerial: "From above (aerial view)", lease: "Lease coach", broker: "Talk to your broker" };
+
+/** What the user sees and has done on the report page, for the chat's prompt: the tab, the 3D tour, a fit-out proposal
+ *  and what they told Hermit while searching. Capped so a crowded tour can't crowd out the report facts. */
+export function screenText(s: {
+  tab: string; tour?: string | null; told?: string;
+  fit?: { kept: boolean; changes: number; nowMatched: string[]; stillMissing: string[] } | null;
+}): string {
+  const fit = s.fit && `Proposed fit-out (${s.fit.kept ? "kept" : "not kept yet"}): ${s.fit.changes} change${s.fit.changes === 1 ? "" : "s"}; now matched: ${s.fit.nowMatched.join(", ") || "none"}; still missing: ${s.fit.stillMissing.join(", ") || "none"}.`;
+  return [`Open tab: ${TAB_NAMES[s.tab] ?? s.tab}.`, s.tour, fit, s.told && `What they told Hermit while searching: ${s.told}.`].filter(Boolean).join("\n").slice(0, 1500);
+}

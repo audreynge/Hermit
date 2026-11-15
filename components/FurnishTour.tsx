@@ -21,7 +21,7 @@ type Room = NonNullable<View["room"]>;
 type Status = "searching" | "loading" | "ready" | "none" | "failed";
 type Tab = "suggested" | "placed" | "search";
 // What the floating Hermit chat uses to furnish: send a request, get Hermit's reply back.
-export type FurnishApi = { ready: boolean; send: (text: string) => Promise<string> };
+export type FurnishApi = { ready: boolean; send: (text: string) => Promise<string>; describe: () => string };
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
@@ -598,7 +598,16 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
       return "Something went wrong reaching the assistant. Try again, or use the furniture bar.";
     } finally { setBusy(false); }
   }
-  useEffect(() => { if (api) api.current = { ready, send }; });
+  // What the tour shows right now, in one line for the report chat's prompt.
+  function describe() {
+    const counts = new Map<string, number>();
+    for (const p of items) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
+    return [`3D tour, ${MODES.find(([m]) => m === mode)?.[1].toLowerCase() ?? mode} view`, here && `standing in ${here.name}`,
+      picked === ALL ? "working on the whole space" : targetRoom && targetRoom.id !== here?.id && `working on ${targetRoom.name}`,
+      items.length ? `furniture placed: ${[...counts].map(([n, c]) => `${c} ${n}`).join(", ")}` : "no furniture placed yet",
+      sel && `selected: ${sel.name}`].filter(Boolean).join("; ") + ".";
+  }
+  useEffect(() => { if (api) api.current = { ready, send, describe }; });
   useEffect(() => () => { if (api) api.current = null; }, [api]);
 
   async function runSearch(terms: string[], name: string) {
