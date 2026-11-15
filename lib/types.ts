@@ -277,6 +277,7 @@ export type AerialCount = {
   model: string;
   source: string; // human-readable citation
   retrieved: string; // ISO date
+  runs?: { stalls: number | null; rooftopUnits: number | null }[]; // each vision run's counts (2, or 3 with a tie-break), for audit
 };
 
 // "Hermit looked closer": a vision model looked at real Matterport panorama photos of one room for one feature.
