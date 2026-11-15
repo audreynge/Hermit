@@ -47,7 +47,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
           </div>
         )}
         {reports.map((r, i) => {
-          const unverified = (r.buildout ?? []).filter((b) => b.status !== "seen");
           return (
             <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
               onSelect={() => onSelect(i)}
@@ -60,7 +59,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
                     <p><strong>{r.verdict}.</strong> About <span className="num">{r.weeksToOpen[0]}–{r.weeksToOpen[1]}</span> weeks to open.</p>
                   </div>
                   {r.conflicts?.[0] && <p className="postcard-flag" role="note">Heads up: {r.conflicts[0].name} ({r.conflicts[0].what}) is {r.conflicts[0].where}. Possible exclusive.</p>}
-                  {unverified.length > 0 && <p className="chips-line">{unverified.slice(0, 3).map((b) => <span key={b.item} className="chip-unv">{b.item}: unverified</span>)}</p>}
                 </div>
               } />
           );
