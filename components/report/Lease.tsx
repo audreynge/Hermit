@@ -7,7 +7,7 @@ import type { ReportCtx } from "./ShellReportPage";
 type Coach = { keyPoints?: string[]; summary: string[]; terms: Record<string, string | null>; redFlags: { flag: string; why: string; ask: string }[]; text?: string; llm?: boolean };
 type Loi = { years: number; rentPsf: number; freeMonths: number; tiPsf: number; startMonths: number; guaranteeCap: boolean };
 type Turn = { role: "user" | "assistant"; text: string };
-const MAX_PDF = 15 * 1024 * 1024;
+const MAX_PDF = 3 * 1024 * 1024;
 
 const toBase64 = (f: File) => new Promise<string>((ok, no) => {
   const r = new FileReader();
@@ -34,11 +34,9 @@ export function Lease({ report, spec }: ReportCtx) {
   const pick = async (f?: File) => {
     if (!f) return;
     if (f.type !== "application/pdf" && !/\.pdf$/i.test(f.name)) return setErr("That isn't a PDF. Upload a PDF or paste the text.");
-    if (f.size > MAX_PDF) return setErr("That PDF is over 15 MB. Paste the parts you're unsure about instead.");
+    if (f.size > MAX_PDF) return setErr("That PDF is too big (3 MB max). Paste the lease text instead.");
     try { setPdf({ name: f.name, data: await toBase64(f) }); setErr(""); } catch { setErr("Couldn't open that file."); }
   };
-
-  const source = () => (pdf && (!coach || coach.llm || !coach.text) ? { pdf: pdf.data, filename: pdf.name } : { text: coach?.text || text });
 
   const post = async (body: object) => {
     const r = await fetch("/api/lease", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -62,7 +60,7 @@ export function Lease({ report, spec }: ReportCtx) {
     const history = chat;
     setChat([...history, { role: "user", text: question }]);
     try {
-      const { answer } = await post({ ...source(), question, history });
+      const { answer } = await post({ text: coach?.text ?? text, question, history });
       setChat((c) => [...c, { role: "assistant", text: answer }]);
     } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't reach the server."); } finally { setAsking(false); }
   };
@@ -78,7 +76,7 @@ export function Lease({ report, spec }: ReportCtx) {
           {pdf ? <p><FileText aria-hidden="true" className="inline-icon" /> <strong>{pdf.name}</strong> <button type="button" className="btn" onClick={() => { setPdf(null); if (fileRef.current) fileRef.current.value = ""; }}>Remove</button></p> : <p>Drop a lease PDF here</p>}
           <input ref={fileRef} id="lease-pdf" type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(e) => void pick(e.target.files?.[0])} />
           <button type="button" className="btn" onClick={() => fileRef.current?.click()}><Upload aria-hidden="true" /> {pdf ? "Choose a different PDF" : "Upload a PDF"}</button>
-          <span className="muted small">PDF, up to 15 MB</span>
+          <span className="muted small">PDF, up to 3 MB</span>
         </div>
         {!pdf && <>
           <label className="muted" htmlFor="lease-text">Or paste the lease text</label>
@@ -90,15 +88,15 @@ export function Lease({ report, spec }: ReportCtx) {
           <div className="coach">
             {!!coach.keyPoints?.length && <>
               <h3>What matters most</h3>
-              <ul className="key-points">{coach.keyPoints.map((s) => <li key={s}>{s}</li>)}</ul>
+              <ul className="key-points">{coach.keyPoints.map((s, i) => <li key={i}>{s}</li>)}</ul>
             </>}
             <h3>Red flags and what to ask for</h3>
-            {coach.redFlags.length ? <ul className="flags">{coach.redFlags.map((f) => <li key={f.flag}><strong>{f.flag}.</strong> {f.why} <em>Ask:</em> {f.ask}</li>)}</ul> : <p>No common red flags spotted.</p>}
+            {coach.redFlags.length ? <ul className="flags">{coach.redFlags.map((f, i) => <li key={i}><strong>{f.flag}.</strong> {f.why} <em>Ask:</em> {f.ask}</li>)}</ul> : <p>No common red flags spotted.</p>}
             {Object.values(coach.terms).some(Boolean) && <>
               <h3>The terms</h3>
               <dl className="terms">{Object.entries(coach.terms).filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k.replace(/([A-Z])/g, " $1").toLowerCase()}</dt><dd>{v}</dd></div>)}</dl>
             </>}
-            {!coach.keyPoints?.length && <ul>{coach.summary.map((s) => <li key={s}>{s}</li>)}</ul>}
+            {!coach.keyPoints?.length && <ul>{coach.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>}
 
             <h3>Ask about this lease</h3>
             <div className="lease-chat" role="log" aria-live="polite">

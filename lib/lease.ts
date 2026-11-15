@@ -1,6 +1,6 @@
 import { inflateSync } from "node:zlib";
 
-export const MAX_PDF_BYTES = 15 * 1024 * 1024;
+export const MAX_PDF_BYTES = 3 * 1024 * 1024;
 
 // Red flags we look for even without a model, so the coach works offline.
 export const RULES: [RegExp, string, string, string][] = [
@@ -33,7 +33,7 @@ export function extractPdfText(buf: Buffer): string {
   for (const m of raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
     const chunk = Buffer.from(m[1], "latin1");
     let body: string;
-    try { body = inflateSync(chunk).toString("latin1"); } catch { body = m[1]; }
+    try { body = inflateSync(chunk, { maxOutputLength: 8 * 1024 * 1024 }).toString("latin1"); } catch { body = m[1]; }
     if (/\bBT\b/.test(body)) parts.push(pdfStrings(body));
   }
   const text = parts.join("\n").replace(/\s+/g, " ").trim();
