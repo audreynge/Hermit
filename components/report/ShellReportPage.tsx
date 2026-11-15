@@ -7,7 +7,6 @@ import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { PlanStep } from "@/lib/crew/planner";
 import type { SiteFile } from "@/lib/neighborhood/types";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
-import { Journey } from "../studio/Journey";
 import { Broker } from "./Broker";
 import { Furnish } from "./Furnish";
 import { Inside } from "./Inside";
@@ -37,7 +36,7 @@ const PANELS = { overview: Overview, inside: Inside, furnish: Furnish, neighborh
 
 export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: string }) {
   const { report, runId, spec } = props;
-  // The URL is the source of truth so Journey links and go() (replaceState) both switch tabs.
+  // The URL is the source of truth so links and go() (replaceState) both switch tabs.
   const params = useSearchParams();
   const tab = toTab(params.get("tab") ?? props.initialTab);
   const [saved, setSaved] = useState(false);
@@ -46,10 +45,8 @@ export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: st
   const ctx: ReportCtx = { ...props, go };
   const Panel = PANELS[tab];
   const labelFor = (id: TabId, label: string) => (id === "broker" && spec.mode === "home" ? "Talk to the landlord" : label);
-  const step = tab === "broker" || tab === "lease" ? 2 : 1;
   return (
     <article className="shell-page">
-      <Journey step={step} links={["/studio", `?run=${runId}&tab=inside`, `?run=${runId}&tab=broker`]} />
       <header className="shell-head">
         <div>
           <p className="back"><Link href="/studio"><ArrowLeft aria-hidden="true" className="inline-icon" /> See other matches</Link></p>
