@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 520" fill="none" role="img" aria-label="Minimal ocean shoreline with a small hermit crab on the sand">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#F3FAFD"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient><linearGradient id="water" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#88CFE9"/><stop offset="1" stop-color="#C9EFF3"/></linearGradient></defs>
+<path d="M0 0H850V520H0Z" fill="url(#sky)"/>
+<path d="M0 167C205 158 387 164 545 153C681 147 788 160 850 153V320C696 367 523 340 372 351C210 362 108 336 0 360Z" fill="url(#water)"/>
+<path d="M0 348C160 324 239 380 414 345C580 312 715 355 850 306V520H0Z" fill="#F9E8DA"/>
+<path d="M0 335C162 321 249 367 416 338C586 306 707 345 850 297" stroke="#FFFDF9" stroke-width="12" stroke-linecap="round"/>
+<path d="M0 347C162 332 249 378 416 348C586 316 707 355 850 309" stroke="#DDF4F5" stroke-width="4" stroke-linecap="round"/>
+<g stroke="#FFFFFF" stroke-linecap="round" opacity=".6"><path d="M90 227h86"/><path d="M355 242h52"/><path d="M630 215h92"/></g>
+<g transform="translate(525 332)"><ellipse cx="96" cy="113" rx="122" ry="21" fill="#E7C7B6" opacity=".4"/><path d="M55 89l-27 26M75 98l-17 26M127 98l20 24M148 86l31 24" stroke="#EB654B" stroke-width="14" stroke-linecap="round"/><path d="M60 80C46 40 74 9 117 9C164 9 180 47 165 82" fill="#FFE5D4" stroke="#F3A887" stroke-width="5"/><path d="M72 79C56 49 82 22 113 22C150 22 166 50 151 75" stroke="#F3B89B" stroke-width="7"/><path d="M92 72C85 56 100 43 114 43C136 43 139 63 124 71" stroke="#F7C5AE" stroke-width="8" stroke-linecap="round"/><ellipse cx="105" cy="88" rx="65" ry="37" fill="#FB6A4A"/><path d="M47 94C26 80 15 100 29 112M160 95c19-15 29 3 16 17" stroke="#F46A4A" stroke-width="14" stroke-linecap="round"/><circle cx="85" cy="84" r="3.6" fill="#442F2C"/><circle cx="124" cy="84" r="3.6" fill="#442F2C"/><path d="M96 95q9 10 18 0" stroke="#442F2C" stroke-width="2.8" stroke-linecap="round"/><circle cx="70" cy="95" r="6" fill="#FFB49B" opacity=".8"/><circle cx="140" cy="95" r="6" fill="#FFB49B" opacity=".8"/></g>
+<g transform="translate(452 463)" stroke="#E5A684" stroke-width="3"><path d="M0 15C8-12 33-12 44 15Z" fill="#FFF6EC"/><path d="M21 14V0M12 14 8 5M30 14 34 5"/></g>
+<g fill="#DAAE98" opacity=".6"><circle cx="440" cy="437" r="2"/><circle cx="470" cy="429" r="2"/><circle cx="715" cy="447" r="2"/><circle cx="753" cy="463" r="1.6"/><circle cx="800" cy="405" r="1.8"/></g>
+</svg>

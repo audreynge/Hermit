@@ -1,0 +1,17 @@
+/* Import this file next to CoastalDecor.tsx or in your global app stylesheet */
+@import './tokens.css';
+@import './animations.css';
+.hermit-hero-coast { position: relative; width: 100%; border-radius: 22px; overflow: hidden; }
+.hermit-hero-coast img { display: block; width: 100%; height: auto; }
+.hermit-crab-loader { display: grid; justify-items: center; gap: 10px; padding: 20px; color: var(--hermit-ink); border: 1px solid var(--hermit-border); border-radius: var(--hermit-radius-lg); background: linear-gradient(180deg,#FFFDFB,#FFF5EB); }
+.hermit-crab-loader strong { font-size: 15px; display: flex; align-items: center; gap: 5px; }
+.hermit-progress-track { width: min(100%, 300px); height: 8px; background: #EAE1DC; border-radius: 99px; overflow: hidden; }
+.hermit-progress-fill { height: 100%; background-color: var(--hermit-coral); border-radius: inherit; transition: width .35s ease; }
+.hermit-loader-percentage { color: var(--hermit-muted); font-size: 12px; }
+.hermit-skeleton-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.hermit-skeleton-card { border: 1px solid var(--hermit-border); border-radius: 16px; background: white; overflow: hidden; }
+.hermit-skeleton-photo { height: 170px; }
+.hermit-skeleton-content { padding: 16px; display: grid; gap: 10px; }
+.hermit-skeleton-line { height: 13px; border-radius: 5px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media(max-width:700px) { .hermit-skeleton-grid { grid-template-columns: 1fr; } .hermit-coastal-strip { width: 72vw; height: 50px; } .hermit-footer-shore { height: 50px; } }

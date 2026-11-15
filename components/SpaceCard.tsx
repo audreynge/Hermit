@@ -48,9 +48,8 @@ function status(r: ShellReport) {
   return { listed, evidence };
 }
 
-function facts(r: ShellReport, area: number | undefined, price?: string): string[] {
+function facts(r: ShellReport, area: number | undefined): string[] {
   const out: string[] = [];
-  if (price) out.push(price);
   if (area) out.push(`${Math.round(area).toLocaleString()} sq ft`);
   const a = r.fit?.assignment ?? [];
   if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
@@ -59,8 +58,8 @@ function facts(r: ShellReport, area: number | undefined, price?: string): string
   return out;
 }
 
-export function SpaceCard({ report, spec, selected, saved, index, onSelect, onDetails, onSave, onParcel, extra }: {
-  report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean; index?: number;
+export function SpaceCard({ report, spec, selected, saved, index, enterDelay = 0, onSelect, onDetails, onSave, onParcel, extra }: {
+  report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean; index?: number; enterDelay?: number;
   onSelect: () => void; onDetails: () => void; onSave: () => void; onParcel?: () => void;
   extra?: React.ReactNode; // extra: the studio's verdict and crew flags
 }) {
@@ -69,7 +68,7 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onDe
   const { listed, evidence } = status(report);
   const access = accessLine(report, spec);
   return (
-    <article className="space" data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
+    <article className="space hermit-enter hermit-interactive" style={{ animationDelay: `${enterDelay}ms` }} data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
       <div className="space-photo">
         <Thumb report={report} />
         {index !== undefined && <span className="space-pin" aria-hidden="true">{index + 1}</span>}
@@ -82,10 +81,13 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onDe
         </button>
       </div>
       <div className="space-body">
-        <h3 id={`sp-${report.shellId}`}>
-          <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
-        </h3>
-        <p className="space-facts num">{facts(report, area, head?.priced ? head.text : undefined).join(" · ")}</p>
+        <div className="space-title">
+          <h3 id={`sp-${report.shellId}`}>
+            <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
+          </h3>
+          {head?.priced && <span className="space-price num">{head.text}</span>}
+        </div>
+        <p className="space-facts num">{facts(report, area).join(" · ")}</p>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
         <ul>{highlights(report, spec).map((h) => {
           const concern = h === access?.text && !access.ok; // a door problem must not wear a checkmark
