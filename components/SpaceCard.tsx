@@ -1,7 +1,9 @@
 "use client";
 import { Bookmark, BookmarkCheck, Check, FileText, LandPlot, MapPin, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { accessLine, areaOf, highlights } from "@/lib/chat/present";
+import { accessLine, areaOf, highlights, parkingFact } from "@/lib/chat/present";
+import { an } from "@/lib/text";
+import { fitRows, sizeText } from "@/lib/uses/rooms";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
 const cityOf = (address: string) => address.split(", ").slice(-2).join(", ");
@@ -48,14 +50,22 @@ function status(r: ShellReport) {
   return { listed, evidence };
 }
 
-function facts(r: ShellReport, area: number | undefined): string[] {
-  const out: string[] = [];
-  if (area) out.push(`${Math.round(area).toLocaleString()} sq ft`);
-  const a = r.fit?.assignment ?? [];
-  if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
-  const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/^(\d+) recorded stalls/)?.[1];
-  if (stalls) out.push(`${stalls} parking`);
-  return out;
+// The card's room count, from the same rule as the chat and the report (lib/uses/rooms.ts fitRows), shortened:
+// "1 of 7 rooms built, 2 set up as exam rooms". Never "7/7 matched" when most rooms would have to change use.
+const plural = (w: string) => (/(s|sh|ch|x)$/.test(w) ? `${w}es` : `${w}s`);
+export function cardRooms(r: ShellReport, spec?: RequirementSpec): string {
+  if (!r.fit?.assignment?.length) return "";
+  const rows = fitRows(r, spec);
+  const total = rows.built.length + rows.setUp.length + rows.convert.length + rows.unsure.length + rows.toBuild.length;
+  const groups = new Map<string, number>();
+  for (const s of rows.setUp) { const k = s.req.replace(/\s*#\d+$/, ""); groups.set(k, (groups.get(k) ?? 0) + 1); }
+  const setUp = [...groups].map(([label, n]) => `, ${n} set up as ${n === 1 ? an(label) : plural(label)}`).join("");
+  return `${rows.built.length} of ${total} rooms built${setUp}`;
+}
+
+function facts(r: ShellReport, spec: RequirementSpec): string[] {
+  const size = sizeText(r);
+  return [size && size.charAt(0).toUpperCase() + size.slice(1), cardRooms(r, spec)].filter(Boolean);
 }
 
 export function SpaceCard({ report, spec, selected, saved, index, enterDelay = 0, onSelect, onDetails, onSave, onParcel, extra }: {
@@ -67,6 +77,7 @@ export function SpaceCard({ report, spec, selected, saved, index, enterDelay = 0
   const head = headline(report, area);
   const { listed, evidence } = status(report);
   const access = accessLine(report, spec);
+  const park = parkingFact(report);
   return (
     <article className="space hermit-enter hermit-interactive" style={{ animationDelay: `${enterDelay}ms` }} data-selected={selected} onClick={onSelect} aria-labelledby={`sp-${report.shellId}`}>
       <div className="space-photo">
@@ -87,9 +98,12 @@ export function SpaceCard({ report, spec, selected, saved, index, enterDelay = 0
           </h3>
           {head?.priced && <span className="space-price num">{head.text}</span>}
         </div>
-        <p className="space-facts num">{facts(report, area).join(" · ")}</p>
+        <p className="space-facts num">
+          {facts(report, spec).join(" · ")}
+          {park && <>{" · "}{park.text}{park.ask && <span className="space-ask"> · ask where</span>}</>}
+        </p>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
-        <ul>{highlights(report, spec).map((h) => {
+        <ul>{highlights(report, spec).filter((h) => !/^\d+ of \d+ rooms already built/.test(h)).map((h) => { /* the room count is already in the facts line */
           const concern = h === access?.text && !access.ok; // a door problem must not wear a checkmark
           return <li key={h}>{concern ? <TriangleAlert aria-hidden="true" style={{ color: "var(--warn)" }} /> : <Check aria-hidden="true" />} {concern && <span className="sr-only">Concern: </span>}{h}</li>;
         })}</ul>

@@ -202,3 +202,35 @@ header.top { background: transparent; backdrop-filter: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .decor { opacity: 0.35; } :root:not([data-theme="light"]) .water-shimmer { display: none; } }
 :root[data-theme="dark"] .decor { opacity: 0.35; }
 :root[data-theme="dark"] .water-shimmer { display: none; }
+
+/* U2: "How Hermit decided" in main's results style, its "How we know" links, the chat's pointer to it, card parking hint. */
+.studio-right .crew { border-radius: 28px; padding: 24px 22px 18px; box-shadow: var(--soft-shadow); scroll-margin-top: 88px; }
+.studio-right .crew:focus-visible { outline: 3px solid var(--focus, var(--coral)); outline-offset: 3px; }
+.crew-head { align-items: center; row-gap: 6px; }
+.crew-head h2 { display: flex; align-items: center; gap: 12px; font-size: 27px; }
+.crew-head h2 svg { width: 30px; height: 30px; flex: none; color: var(--coral); stroke-width: 1.8; }
+.crew-head > p { flex-basis: 100%; margin: 0; font-size: 15px; }
+.crew-list { max-height: none; overflow: visible; gap: 10px; margin-top: 14px; }
+.crew-row { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 12px 14px; border-radius: 16px; font-size: 15px; line-height: 1.45; border: 1px solid var(--line); background: var(--card); }
+.crew-row[data-kind="veto"], .crew-row[data-kind="swap"] { border-left-width: 4px; }
+.crew-row[data-kind="veto"] { border-color: var(--veto-wash); border-left-color: var(--veto); }
+.crew-row[data-kind="swap"] { border-color: var(--warn-wash); border-left-color: var(--warn); }
+.crew-row[data-kind="look"] { border-color: var(--sea-tint); }
+.dec-body { min-width: 0; display: grid; gap: 4px; justify-items: start; }
+.dec-body p { margin: 0; overflow-wrap: anywhere; }
+.dec-tag { display: inline-block; font-size: 12px; font-weight: 800; padding: 1px 9px; border-radius: 999px; background: var(--sand-2); color: var(--ink); margin-right: 6px; vertical-align: 1px; }
+.dec-photo { display: block; margin-top: 6px; width: 176px; max-width: 100%; height: 132px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); background: var(--sand-1); }
+.ev { display: inline; }
+.ev-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 2px; border: 0; background: none; color: var(--coral-ink); font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; vertical-align: baseline; }
+.ev-chev { width: 14px; height: 14px; transition: transform 0.15s var(--ease); }
+.ev-btn[aria-expanded="true"] .ev-chev { transform: rotate(180deg); }
+.ev-body:not([hidden]) { display: block; margin-top: 4px; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--sand-1); border-radius: 0 8px 8px 0; font-size: 13px; font-weight: 400; color: var(--ink-soft); line-height: 1.45; overflow-wrap: anywhere; text-align: left; }
+.ev-line { display: block; }
+.think-jump { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; width: 100%; text-align: left; font: inherit; font-size: 14px; color: var(--ink-soft); cursor: pointer; transition: border-color 200ms var(--hermit-ease), background-color 200ms var(--hermit-ease); }
+.think-jump .think-head { margin: 0; grid-column: 1; }
+.think-jump-line { grid-column: 1; }
+.think-jump .think-toggle { grid-column: 2; grid-row: 1 / span 2; color: var(--coral-ink); }
+.think-jump:hover { border-color: var(--coral); }
+.space-ask { color: var(--warn); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .ev-chev, .think-jump { transition: none; } }
+html[data-motion="reduced"] :is(.ev-chev, .think-jump) { transition: none; }

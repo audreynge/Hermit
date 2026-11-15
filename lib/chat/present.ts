@@ -149,6 +149,38 @@ export function funnelText(summary: string): string {
   return summary.replace(/ scans indexed/, " spaces on file");
 }
 
+/** Every space's short name the run's events give: funnel removals, vetoes, reports, and the drop tool's own summary. */
+export function runNames(events: TraceEvent[]): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const e of events) {
+    if (e.type === "funnel") for (const s of e.stages) for (const r of s.removed) names.set(r.id, displayName(r.name));
+    if (e.type === "veto") names.set(e.shellId, displayName(e.name));
+    if (e.type === "report") for (const r of e.reports) names.set(r.shellId, displayName(r.name));
+    // "dropped 2: Suite 9, Medical Office" lists names in the order of args.drops; use it only when the counts line up.
+    if (e.type === "tool" && e.tool === "drop_candidate") {
+      const ids = ((e.args as { drops?: { shellId?: string }[] })?.drops ?? []).map((d) => d.shellId);
+      const listed = e.summary.match(/^dropped \d+: (.+)$/)?.[1].split(", ") ?? [];
+      if (ids.length && ids.length === listed.length) ids.forEach((id, i) => { if (id && !names.has(id)) names.set(id, listed[i]); });
+    }
+  }
+  return names;
+}
+
+/** The decisions that changed the result, in one line: "Ruled out 2 spaces, looked closer at 2 spaces in the scan photos and changed the top pick." */
+export function decisionLine(events: TraceEvent[]): string {
+  const out = new Set(events.flatMap((e) => (e.type === "drop" || e.type === "veto" ? [e.shellId] : []))).size;
+  const looked = new Set(events.flatMap((e) => (e.type === "escalate" ? [e.shellId] : []))).size;
+  const swapped = events.some((e) => (e.type === "rerank" && /^Changed the top pick|outscored/i.test(e.reason)) || (e.type === "challenge" && e.outcome === "swapped"));
+  const parts = [
+    out ? `ruled out ${out} space${out === 1 ? "" : "s"}` : "",
+    looked ? `looked closer at ${looked} space${looked === 1 ? "" : "s"} in the scan photos` : "",
+    swapped ? "changed the top pick" : "",
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  const s = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `${s.charAt(0).toUpperCase()}${s.slice(1)}.`;
+}
+
 export type Step ={ id: string; icon: string; label: string; tone: "info" | "warn" };
 
 export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step[] {
@@ -156,14 +188,10 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
   const add = (id: string, icon: string, label: string, tone: Step["tone"] = "info") => { if (!steps.some((s) => s.label === label)) steps.push({ id, icon, label, tone }); };
   // "From above" only when something was actually counted on an aerial photo, not just because parking was asked for.
   const fromAbove = (ev?: { source: string }[]) => !!ev?.some((x) => /aerial|vexcel/i.test(x.source) && !/not counted/i.test(x.source));
-  const aerial = events.some((e) => (e.type === "drop" && fromAbove(e.evidence)) || (e.type === "escalate" && fromAbove(e.evidence)) || (e.type === "report" && e.reports.some((r) => r.aerial)));
-  const names = new Map<string, string>();
+  // A report's aerial counts only when a stall count came back (null = the two counts disagreed, nothing was counted).
+  const aerial = events.some((e) => (e.type === "drop" && fromAbove(e.evidence)) || (e.type === "escalate" && fromAbove(e.evidence)) || (e.type === "report" && e.reports.some((r) => r.aerial?.stalls?.n != null)));
+  const names = runNames(events);
   const ruled = new Set<string>();
-  for (const e of events) {
-    if (e.type === "funnel") for (const s of e.stages) for (const r of s.removed) names.set(r.id, displayName(r.name));
-    if (e.type === "veto") names.set(e.shellId, displayName(e.name));
-    if (e.type === "report") for (const r of e.reports) names.set(r.shellId, displayName(r.name));
-  }
   const LEVEL: Record<string, string> = { city: `City: ${CITY[spec.city]} permitting`, county: "County: health permits", state: `State: ${STATE[spec.city]} licensing`, federal: "Federal: ADA" };
   for (const e of events) {
     if (e.type === "tool" && e.tool === "search_shells") add(e.id, "search", `Searched spaces in ${CITY[spec.city]}`);
@@ -196,7 +224,7 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       const name = named ? own![1] : e.type === "veto" ? displayName(e.name) : names.get(e.shellId);
       const why = (named ? own![2] : e.reason).split(/[;(]/)[0].replace(/^[a-z_]+: /, "").replace(/\.$/, "").trim();
       const what = why.charAt(0).toLowerCase() + why.slice(1);
-      add(e.id, "x", name ? `Ruled out ${name}: ${what}` : `Ruled out: ${why}`, "warn");
+      add(e.id, "x", `Ruled out ${name ?? "one space"}: ${what}`, "warn");
     }
     if (e.type === "escalate") {
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];

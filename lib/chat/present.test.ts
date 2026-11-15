@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accessLine, compareRows, displayName, draftEmail, highlights, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "./present";
+import { accessLine, compareRows, decisionLine, displayName, draftEmail, highlights, searchCounts, summarizeResults, thinkingSteps, traceSummary } from "./present";
 import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
 
 const spec: RequirementSpec = {
@@ -117,9 +117,21 @@ describe("thinkingSteps", () => {
     { type: "tool", id: "2", tool: "search_shells", args: {}, resultId: "r1", summary: "2659 indexed → 2291 rejected by hard filters → 368 kept", ms: 3 },
     { type: "tool", id: "3", tool: "screen_sites", args: {}, resultId: "r2", summary: "screened 20", ms: 1 },
     { type: "drop", id: "4", shellId: "X", reason: "zoning: Zone R3 is residential", evidence: [] },
+    { type: "tool", id: "4t", tool: "drop_candidate", args: { drops: [{ shellId: "X", reason: "zoning" }] }, resultId: "r4", summary: "dropped 1: Tower", ms: 0 },
     { type: "tool", id: "5", tool: "evaluate_candidates", args: {}, resultId: "r3", summary: "evaluated 8", ms: 4 },
     { type: "escalate", id: "6", shellId: "A", question: "Is there a sink in the rooms assigned to the requested spaces?", outcome: "not observed" },
   ];
+
+  it("names a ruled-out space from the drop tool's summary when no other event does", () => {
+    expect(thinkingSteps(events, spec).map((s) => s.label)).toContain("Ruled out Tower: zone R3 is residential");
+    const bare = events.filter((e) => e.type !== "tool" || e.tool !== "drop_candidate");
+    expect(thinkingSteps(bare, spec).map((s) => s.label)).toContain("Ruled out one space: zone R3 is residential");
+  });
+
+  it("doesn't claim a look from above when the aerial count came back empty", () => {
+    const ev: TraceEvent[] = [...events, { type: "report", id: "8", reports: [report({ aerial: { stalls: { n: null } } as never })] }];
+    expect(thinkingSteps(ev, spec).map((s) => s.label)).not.toContain("Looked at parking from above");
+  });
 
   it("turns real trace events into topical thinking steps", () => {
     const labels = thinkingSteps(events, spec).map((s) => s.label);
@@ -153,6 +165,21 @@ describe("thinkingSteps", () => {
   it("only mentions checks the spec asked for", () => {
     const labels = thinkingSteps(events, { ...spec, needs: {} }).map((s) => s.label);
     expect(labels).not.toContain("Checked electrical power");
+  });
+});
+
+describe("decisionLine", () => {
+  it("counts the decisions that changed the result, once per space", () => {
+    const ev: TraceEvent[] = [
+      { type: "drop", id: "1", shellId: "X", reason: "Medical Office: corridor too narrow", evidence: [] },
+      { type: "veto", id: "2", agent: "access", shellId: "X", name: "Medical Office", reason: "narrow", evidence: [] },
+      { type: "drop", id: "3", shellId: "Y", reason: "Suite 214: has no restrooms", evidence: [] },
+      { type: "escalate", id: "4", shellId: "A", question: "Is there a sink?", outcome: "observed" },
+      { type: "rerank", id: "5", order: ["A"], reason: "Changed the top pick: Medical Office was dropped.", evidence: [] },
+    ];
+    expect(decisionLine(ev)).toBe("Ruled out 2 spaces, looked closer at 1 space in the scan photos and changed the top pick.");
+    expect(decisionLine(ev.slice(3, 4))).toBe("Looked closer at 1 space in the scan photos.");
+    expect(decisionLine([])).toBe("");
   });
 });
 

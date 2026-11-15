@@ -1,7 +1,7 @@
 "use client";
-import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
+import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Route, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { displayName, funnelText, searchCounts } from "@/lib/chat/present";
+import { decisionLine, displayName, funnelText, searchCounts } from "@/lib/chat/present";
 import { an } from "@/lib/text";
 import type { Evidence as Ev, PanoCheck, ShellReport, TraceEvent } from "@/lib/types";
 import { Evidence, panoUrl } from "../Evidence";
@@ -211,7 +211,7 @@ function plannedBy(planner: string, recorded: boolean): string {
   return who ? `planned by ${who}` : "";
 }
 
-export function CrewTrace({ events, running, recorded = false }: { events: TraceEvent[]; running: boolean; useLabel?: string; recorded?: boolean }) {
+export function CrewTrace({ events, running, recorded = false }: { events: TraceEvent[]; running: boolean; recorded?: boolean }) {
   const [tech, setTools] = useState(false);
   const [fetched, setFetched] = useState<Record<string, string>>({});
   const asked = useRef(new Set<string>());
@@ -239,11 +239,11 @@ export function CrewTrace({ events, running, recorded = false }: { events: Trace
   const done = events.find((e) => e.type === "done") as Extract<TraceEvent, { type: "done" }> | undefined;
   const ruledOut = events.filter((e) => e.type === "veto" || e.type === "drop").length;
   return (
-    <section className="card crew" aria-labelledby="crew-title">
+    <section className="card crew" id="crew" tabIndex={-1} aria-labelledby="crew-title">
       <header className="crew-head">
-        <h2 id="crew-title">How Hermit decided</h2>
+        <h2 id="crew-title"><Route aria-hidden="true" /> How Hermit decided</h2>
         <button type="button" className="btn small crew-toggle" aria-pressed={tech} onClick={() => setTools((t) => !t)}>{tech ? "Hide tool calls" : "Show tool calls"}</button>
-        <p className="muted">{running ? "Working…" : done ? (tech ? [`${done.toolCalls} tool calls`, `${(done.ms / 1000).toFixed(1)} s`, `${ruledOut} ruled out`, plannedBy(done.planner, recorded)].filter(Boolean).join(" · ") : ruledOut ? `${ruledOut} ruled out` : "Done") : ""}</p>
+        <p className="muted">{running ? "Working…" : done ? (tech ? [`${done.toolCalls} tool calls`, `${(done.ms / 1000).toFixed(1)} s`, `${ruledOut} ruled out`, plannedBy(done.planner, recorded)].filter(Boolean).join(" · ") : decisionLine(events) || "Done") : ""}</p>
       </header>
       <ol className="crew-list">
         {list.map((r) => {
@@ -256,7 +256,7 @@ export function CrewTrace({ events, running, recorded = false }: { events: Trace
                 {r.detail && <p className="crew-detail">{r.detail}</p>}
                 {r.photo && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="dec-photo" src={r.photo.src} alt={r.photo.alt} width={96} height={72} loading="lazy" />
+                  <img className="dec-photo" src={r.photo.src} alt={r.photo.alt} width={176} height={132} loading="lazy" />
                 )}
                 {r.how && <Evidence lines={r.how.map((h) => tidy(h, names))} />}
               </div>
