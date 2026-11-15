@@ -44,7 +44,7 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   if (range) spec.sizeSqft = [num(range[1]), num(range[2])];
   else if (single) spec.sizeSqft = [Math.round(num(single[1]) * 0.8), Math.round(num(single[1]) * 1.2)];
 
-  const people = t.match(/(\d+)\s*(?:people|employees|staff|person|seats|desks)/);
+  const people = t.match(/(\d+)\s*(?:people|employees|staff|person|seats|desks|engineers?|developers?|devs|workers?|team members|hires)/);
   if (people) {
     spec.headcount = Number(people[1]);
     spec.sizeSqft ??= [spec.headcount * 150, spec.headcount * 250];
