@@ -6,7 +6,7 @@ import type { SiteFile } from "@/lib/neighborhood/types";
 import type { ShellReport } from "@/lib/types";
 
 const CHIPS = [["Morning", 8], ["Midday", 12], ["Evening", 18], ["Night", 22]] as const;
-const Z = 16, SPAN = 5 * 256;
+const Z = 16, COLS = 7, ROWS = 5, HX = 3, HY = 2; // 7 x 5 tiles: wide enough to fill a full-width card
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
 // Server and browser Math.log/tan differ in the last bits, so map positions are rounded or hydration mismatches.
 const px = (v: number) => Math.round(v * 10) / 10;
@@ -19,7 +19,7 @@ export function FootHeatmap({ report, site, heat = true }: { report: ShellReport
   const [hour, setHour] = useState(12);
   const expandBtn = useRef<HTMLButtonElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
-  const { pt, byAddress, fail, dead: lost } = useCoords(report.address, report.above?.lat ?? site?.lat, report.above?.lon ?? site?.lon, 25);
+  const { pt, byAddress, fail, dead: lost } = useCoords(report.address, report.above?.lat ?? site?.lat, report.above?.lon ?? site?.lon, COLS * ROWS);
   useEffect(() => {
     if (!open) return;
     const prev = expandBtn.current;
@@ -33,7 +33,7 @@ export function FootHeatmap({ report, site, heat = true }: { report: ShellReport
   const dead = pt === null || lost;
   const t = pt ? tileFor(pt.lat, pt.lon, Z) : null;
   const c = pt ? world(pt.lat, pt.lon) : null;
-  const ox = t ? px(2 * 256 + t.fx * 256) : 0, oy = t ? px(2 * 256 + t.fy * 256) : 0;
+  const ox = t ? px(HX * 256 + t.fx * 256) : 0, oy = t ? px(HY * 256 + t.fy * 256) : 0;
   // Heat sources come from the server (places + job blocks); older payloads only have places.
   const spots = heat ? (site?.heat ?? (site?.pois ?? []).map((p) => ({ lat: p.lat, lon: p.lon, w: 0.8 }))) : [];
   const fed = site?.heatSources?.length ? site.heatSources : site?.pois?.length ? ["nearby places (OpenStreetMap)"] : [];
@@ -58,16 +58,16 @@ export function FootHeatmap({ report, site, heat = true }: { report: ShellReport
           <p className="heat-empty">Finding the location...</p>
         ) : (
           <>
-            <div className="heat-world" style={{ width: SPAN, height: SPAN, marginLeft: -ox, marginTop: -oy }} role="img" aria-label={heat ? `Street map near ${report.address} with estimated foot traffic at ${hourLabel(hour)}` : `Street map near ${report.address}`}>
-              {Array.from({ length: 25 }, (_, i) => {
-                const dx = (i % 5) - 2, dy = Math.floor(i / 5) - 2;
+            <div className="heat-world" style={{ width: COLS * 256, height: ROWS * 256, marginLeft: -ox, marginTop: -oy }} role="img" aria-label={heat ? `Street map near ${report.address} with estimated foot traffic at ${hourLabel(hour)}` : `Street map near ${report.address}`}>
+              {Array.from({ length: COLS * ROWS }, (_, i) => {
+                const dx = (i % COLS) - HX, dy = Math.floor(i / COLS) - HY;
                 return (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={i} alt="" width={256} height={256} src={esriStreetTile(Z, t.x + dx, t.y + dy)} style={{ left: (dx + 2) * 256, top: (dy + 2) * 256 }}
+                  <img key={i} alt="" width={256} height={256} src={esriStreetTile(Z, t.x + dx, t.y + dy)} style={{ left: (dx + HX) * 256, top: (dy + HY) * 256 }}
                     onError={fail} />
                 );
               })}
-              <svg width={SPAN} height={SPAN} aria-hidden="true">
+              <svg width={COLS * 256} height={ROWS * 256} aria-hidden="true">
                 <defs>
                   <radialGradient id={`${id}-g`}>
                     <stop offset="0" stopColor="#f26a4b" stopOpacity="0.9" />

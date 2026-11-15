@@ -7,7 +7,8 @@ import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { PlanStep } from "@/lib/crew/planner";
 import type { SiteFile } from "@/lib/neighborhood/types";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
-import { Aerial } from "../Aerial";
+import { Aerial, AerialFinding } from "../Aerial";
+import { FootHeatmap } from "../FootHeatmap";
 import type { Proposal } from "../FitView";
 import type { FurnishApi } from "../FurnishTour";
 import type { FitoutOp } from "@/lib/design/fitout";
@@ -36,12 +37,17 @@ const TABS: { id: TabId; label: string; Icon: typeof Box }[] = [
 ];
 const LEGACY: Record<string, TabId> = { rules: "overview", money: "overview", questions: "broker", packet: "broker", neighborhood: "aerial", furnish: "inside" };
 const toTab = (t?: string | null): TabId => (t && (LEGACY[t] ?? TABS.find((x) => x.id === t)?.id)) || "overview";
-function Above({ report }: ReportCtx) {
+function Above({ report, spec, site }: ReportCtx) {
   return (
-    <section className="card pad aerial-section" aria-label="Aerial view">
-      <div className="aerial-frame"><Aerial report={report} /></div>
-      <p className="muted small">Photos © Vexcel Imaging (Esri World Imagery where Vexcel has none), centered on the record&apos;s coordinates.</p>
-    </section>
+    <div className="above">
+      <section className="card pad aerial-section" aria-label="Aerial view">
+        <AerialFinding report={report} mode={spec.mode} />
+        <div className="aerial-frame"><Aerial report={report} /></div>
+        <p className="muted small">Photos © Vexcel Imaging (Esri World Imagery where Vexcel has none), centered on the record&apos;s coordinates.</p>
+      </section>
+      {/* Walk-ins matter for a storefront or clinic; homes and enterprise sites already have the street map above. */}
+      {spec.mode === "business" && <FootHeatmap report={report} site={site} />}
+    </div>
   );
 }
 const PANELS = { overview: Overview, inside: Inside, aerial: Above, lease: Lease, broker: Broker };
@@ -66,7 +72,7 @@ export function ShellReportPage(props: Omit<ReportCtx, "go" | "furnish" | "fit" 
           <p className="back"><Link href="/studio"><ArrowLeft aria-hidden="true" className="inline-icon" /> See other matches</Link></p>
           <h1>{report.name}</h1>
           <p className="muted">{report.address || "Address not in the index"}{report.sqft ? ` · ${report.sqft.toLocaleString()} sf` : ""}
-            {" "}<span className={`stamp-inline small ${report.badge === "scan-verified" ? "ok" : "rec"}`}>{report.badge === "scan-verified" ? "Scan-verified" : "Record-only"}</span></p>
+            {" "}<span className={`stamp-inline small ${report.badge === "scan-verified" ? "ok" : "rec"}`}>{report.badge === "scan-verified" ? "3D scan" : "Records only"}</span></p>
         </div>
         <button type="button" className="btn" aria-pressed={saved} onClick={() => setSaved(toggleSaved(report, runId))}><Heart aria-hidden="true" fill={saved ? "currentColor" : "none"} /> {saved ? "Saved" : "Save"}</button>
       </header>
