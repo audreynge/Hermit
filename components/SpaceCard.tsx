@@ -54,7 +54,7 @@ function facts(r: ShellReport, area: number | undefined, price?: string): string
   if (area) out.push(`${Math.round(area).toLocaleString()} sq ft`);
   const a = r.fit?.assignment ?? [];
   if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
-  const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/^(\d+) recorded stalls/)?.[1];
+  const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/(\d+) recorded stalls?/i)?.[1];
   if (stalls) out.push(`${stalls} parking`);
   return out;
 }
