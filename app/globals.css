@@ -500,14 +500,14 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .furnish-overlay line { stroke: #fff; stroke-width: 2; stroke-dasharray: 6 4; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.8)); }
 .furnish-overlay g[data-kind="measure"] line { stroke: var(--coral); stroke-dasharray: none; stroke-width: 3; }
 .furnish-overlay text { fill: #fff; font: 700 13px/1 system-ui, sans-serif; paint-order: stroke; stroke: rgb(0 0 0 / 0.75); stroke-width: 3px; }
-.furnish-banner { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); top: 64px; margin: 0; padding: 8px 14px; border-radius: 10px; background: var(--ink); color: var(--card); font-weight: 600; font-size: 14px; box-shadow: var(--shadow); pointer-events: none; }
+.furnish-banner { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); top: 118px; margin: 0; padding: 8px 14px; border-radius: 10px; background: var(--ink); color: var(--card); font-weight: 600; font-size: 14px; box-shadow: var(--shadow); pointer-events: none; }
 .furnish-loading { position: absolute; z-index: 3; left: 12px; top: 56px; display: flex; gap: 8px; align-items: center; margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
 .furnish-loading svg { width: 18px; height: 18px; }
 .furnish-extras { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .furnish-room select { min-height: 32px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; }
 .furnish-hint { display: inline-flex; gap: 6px; align-items: center; padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--card) 88%, transparent); font-size: 13px; font-weight: 600; color: var(--ink-soft); }
 .furnish-hint svg { width: 15px; height: 15px; }
-.furnish-toolbar { position: absolute; z-index: 3; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); max-width: calc(100% - 20px); flex-wrap: nowrap; white-space: nowrap; }
+.furnish-toolbar { position: absolute; z-index: 3; top: 64px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); max-width: calc(100% - 20px); flex-wrap: nowrap; white-space: nowrap; }
 .furnish-toolbar strong { text-transform: capitalize; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 180px; }
 .furnish-toolbar .badge { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .furnish-toolbar .icon-btn { width: 36px; height: 36px; }
@@ -560,4 +560,20 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
   .furnish-card { width: 160px; }
   .strip-nav { display: none; }
   .furnish-hint { display: none; }
+}
+
+/* Tour views, room picker and "Furnish" (top right); the target room is outlined on the floor in every view. */
+.furnish-bar { position: absolute; z-index: 3; top: 10px; right: 10px; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; padding: 6px; border-radius: 14px; background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: var(--shadow); }
+.furnish-bar .seg { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--sand-1, #f4eee6); }
+.furnish-bar .seg button { display: inline-flex; gap: 6px; align-items: center; min-height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-soft); cursor: pointer; }
+.furnish-bar .seg button svg { width: 16px; height: 16px; }
+.furnish-bar .seg button[aria-pressed="true"] { background: var(--card); color: var(--coral-ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.furnish-bar .seg button:focus-visible, .furnish-bar select:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+.furnish-bar .btn svg { width: 16px; height: 16px; }
+.furnish-tip { position: absolute; z-index: 3; top: 64px; right: 10px; margin: 0; padding: 6px 12px; border-radius: 999px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; pointer-events: none; }
+.furnish-overlay .room-outline { fill: color-mix(in srgb, var(--coral) 16%, transparent); stroke: var(--coral); stroke-width: 3; stroke-linejoin: round; }
+.furnish-toast { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 760px) {
+  .furnish-bar .seg button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .furnish-bar .seg button { padding: 0 8px; }
 }

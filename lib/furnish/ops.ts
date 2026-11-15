@@ -15,7 +15,7 @@ export type Placed = {
   color?: string; material?: MaterialName;
   fitted?: Size; // size as rendered (the model's real proportions at the target height); used for picking and walls
 };
-type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
+export type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
 /** What the user sees: the rendered size once the model is fitted, else the target size. */
 export const dims = (p: Placed): Size => p.fitted ?? p.size;
 /** Where the user is and what they point at, read from the SDK when the ops are applied. */
@@ -47,9 +47,9 @@ export const FurnishOp = z.discriminatedUnion("op", [
 export type FurnishOp = z.infer<typeof FurnishOp>;
 export type FurnishResult = { value: Placed[]; applied: FurnishOp[]; rejected: Rejected[]; selected?: string };
 
-const toPlan = (v: Vec): Pt => ({ x: v.x, y: -v.z });
-const toWorld = (p: Pt, y: number): Vec => ({ x: p.x, y, z: -p.y });
-const yawFacing = (dx: number, dz: number) => ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360;
+export const toPlan = (v: Vec): Pt => ({ x: v.x, y: -v.z });
+export const toWorld = (p: Pt, y: number): Vec => ({ x: p.x, y, z: -p.y });
+export const yawFacing = (dx: number, dz: number) => ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360;
 const unit = (x: number, z: number) => { const l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; };
 
 /** Keeps a footprint of radius r inside the room: pulls an outside or too-close point inward from the nearest wall. */
@@ -156,7 +156,7 @@ export function freeSpot(pos: Vec, size: Size, rotY: number, items: Placed[], vi
   return at(0, 0);
 }
 
-const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
+export const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
 
 /** Applies validated ops in order. Unknown ids, bad colors and too many ops are rejected with a reason, never guessed. */
 export function applyFurnishOps(items: Placed[], raw: unknown[], view: View): FurnishResult {
