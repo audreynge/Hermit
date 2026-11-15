@@ -1,10 +1,12 @@
 // "Furnish this place": decide what goes in each room for the user's intended use, then lay it out.
 // Gemini (or offline templates) picks items and how they relate (place/of); layout.ts computes every position.
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { pointInPolygon, shoelaceArea } from "../geometry/polygon";
 import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
+import { getCached, putCached } from "../regs/cache";
 import { clampSize, ftIn, normName, typicalSize, type Size } from "./catalog";
-import { DEPENDENT, layoutRoom, PLACES, type Obstacle, type Place, type PlanItem, type PlanRoom } from "./layout";
+import { DEPENDENT, layoutRoom, PLACES, type Layout, type Obstacle, type Place, type PlanItem, type PlanRoom } from "./layout";
 
 const MAX_ITEMS = 30; // per request: each item is a model search + download in the browser
 const MAX_COUNT: Partial<Record<Place, number>> = { grid: 20, around: 8 };
@@ -112,18 +114,24 @@ const USES: { re: RegExp; public?: T[]; private?: T[]; kitchen?: T[] }[] = [
   { re: /office|startup|agency|law|account|consult|studio|tech|cowork|insurance|real estate/, public: [["d", "desk", "grid", { count: 12 }], ["ch", "office chair", "front", { of: "d" }]], private: [["d", "desk", "wall", { wall: "far" }], ["ch", "office chair", "front", { of: "d" }], ["bs", "bookshelf", "wall", { pri: 2 }]] },
 ];
 
-function template(use: string, label: string, done: Set<string>): PlanItem[] {
+type Planned = PlanItem & { once?: boolean };
+function template(use: string, label: string, done: Set<string>): Planned[] {
   if (EMPTY.has(label)) return [];
   const u = USES.find((x) => x.re.test(use.toLowerCase()));
   const rows = (u && (label === "kitchen" ? u.kitchen : PUBLIC.has(label) ? u.public : u.private)) ?? HOME[label] ?? HOME.other;
   return rows.filter(([, name, , o]) => !(o?.once && done.has(name))).map(([key, name, place, o = {}]) => ({
     key, name, terms: [name, ...(o.terms ?? [])], size: typicalSize(name).size, count: o.count ?? 1, place, priority: o.pri ?? 1,
-    ...(o.of && { of: o.of }), ...(o.wall && { wall: o.wall === "near" ? "near-door" as const : "far-from-door" as const }),
+    ...(o.of && { of: o.of }), ...(o.once && { once: true }), ...(o.wall && { wall: o.wall === "near" ? "near-door" as const : "far-from-door" as const }),
   }));
 }
 
 async function geminiPlans(g: GeminiClient, input: PlanIn, rooms: PlanRoom[], placedIn: (id: string) => string[]) {
-  const text = [`Intended use: ${input.use.slice(0, 80) || "home"}`, `User asked: ${input.text.slice(0, 500)}`, "Rooms:", ...rooms.map((r) => describeRoom(r, placedIn(r.id)))].join("\n");
+  const use = input.use.slice(0, 80) || "home", asked = input.text.slice(0, 500), lines = rooms.map((r) => describeRoom(r, placedIn(r.id)));
+  // Same use, request and rooms (ids, sizes, doors, contents, what's placed) -> same plan.
+  const key = `furnish-plan:${createHash("sha256").update([normName(use), normName(asked), ...lines].join("\n")).digest("hex")}`;
+  const hit = await getCached<Record<string, PlanItem[]>>(key);
+  if (hit) return new Map(Object.entries(hit));
+  const text = [`Intended use: ${use}`, `User asked: ${asked}`, "Rooms:", ...lines].join("\n");
   const out = Loose.safeParse(await geminiJson(g, PROMPT, [{ text }], SCHEMA));
   if (!out.success) return null;
   const plans = new Map<string, PlanItem[]>();
@@ -132,6 +140,8 @@ async function geminiPlans(g: GeminiClient, input: PlanIn, rooms: PlanRoom[], pl
     const seen = new Set<string>();
     plans.set(r.roomId, r.items.slice(0, 12).flatMap((i) => toItem(i, seen) ?? []));
   }
+  // An unwritable cache costs a repeat call next time, not this plan.
+  if ([...plans.values()].some((p) => p.length)) await putCached(key, Object.fromEntries(plans), 30).catch(() => null);
   return plans;
 }
 
@@ -152,22 +162,28 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
     }
   }
   const source = got ? "gemini" as const : "offline" as const;
-  const once = new Set<string>(); // offline "once" items already planned for an earlier room
-  const planFor = (r: PlanRoom) => got ? got.get(r.id) ?? [] : template(input.use, r.label, once).filter((t) => !inRoom(r.id).includes(t.name));
+  const once = new Set<string>(); // offline "once" items already placed in an earlier room
+  const planFor = (r: PlanRoom): Planned[] => got ? got.get(r.id) ?? [] : template(input.use, r.label, once).filter((t) => !inRoom(r.id).includes(t.name));
 
   // Fair share of the item budget per room; then what rooms left unused goes back to rooms that hit their share, the
   // current room (first) first. A bigger budget only appends to a room's greedy layout, so re-running it is safe.
-  const plans = rooms.map((r) => { const p = planFor(r); for (const t of p) once.add(t.name); return p; });
-  const share = Math.floor(MAX_ITEMS / rooms.length);
-  const lays = rooms.map((r, i) => layoutRoom(plans[i], r, existing, share + (i < MAX_ITEMS % rooms.length ? 1 : 0)));
+  // Rooms are laid out in order so a "once" item that didn't fit one room goes to the next room that wants it.
+  const share = Math.floor(MAX_ITEMS / rooms.length), plans: Planned[][] = [], lays: Layout[] = [];
+  rooms.forEach((r, i) => {
+    plans[i] = planFor(r);
+    lays[i] = layoutRoom(plans[i], r, existing, share + (i < MAX_ITEMS % rooms.length ? 1 : 0));
+    for (const l of lays[i].placed) if (plans[i].find((t) => t.key === l.key)?.once) once.add(l.name);
+  });
   for (let i = 0; i < rooms.length; i++) {
     const spare = MAX_ITEMS - lays.reduce((n, l) => n + l.placed.length, 0);
-    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plans[i], rooms[i], existing, lays[i].placed.length + spare);
+    // Leave out "once" items this room didn't place that a later room has since taken.
+    const plan = plans[i].filter((t) => !t.once || !once.has(t.name) || lays[i].placed.some((l) => l.key === t.key));
+    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], existing, lays[i].placed.length + spare);
   }
   const ops: object[] = [], dropped: PlanOut["dropped"] = [];
   for (const l of lays) {
     for (const p of l.placed) ops.push({ op: "add", name: p.name, terms: p.terms, size: p.size, pos: { x: p.pos.x, z: -p.pos.y }, rotY: p.rotY });
-    for (const x of l.dropped) { const hit = dropped.find((y) => y.name === x.name); if (hit) hit.count += x.count; else dropped.push({ ...x }); }
+    for (const x of l.dropped.filter((d) => !once.has(d.name))) { const hit = dropped.find((y) => y.name === x.name); if (hit) hit.count += x.count; else dropped.push({ ...x }); }
   }
   const capped = lays.some((l) => l.capped);
   // The reply says only what was actually placed (the model's own summary could name things that didn't fit).

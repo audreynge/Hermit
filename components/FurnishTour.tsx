@@ -32,8 +32,14 @@ const json = async <T,>(url: string, body?: unknown): Promise<T> => {
 };
 type Found = { models: Model[]; size?: Size; sizeSource?: "table" | "gemini" | "default" };
 // Models ranked by how well they fit the item's real size (the server measures their files); with a name, its size too.
-const lookup = (terms: string[], name?: string): Promise<Found> =>
-  json<Found>(`/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`).catch(() => ({ models: [] }));
+// One request per distinct query in flight: a furnish can add 20 identical chairs at once.
+const lookups = new Map<string, Promise<Found>>();
+const lookup = (terms: string[], name?: string): Promise<Found> => {
+  const url = `/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
+  let p = lookups.get(url);
+  if (!p) lookups.set(url, p = json<Found>(url).catch(() => ({ models: [] })).finally(() => lookups.delete(url)));
+  return p;
+};
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
 type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };

@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { closeDb } from "../db";
 import type { GeminiClient } from "../llm/gemini";
 import type { RoomGraph } from "../types";
 import { planRooms, type PlanRoom } from "./layout";
@@ -16,7 +20,33 @@ type Add = { op: string; name: string; pos: { x: number; z: number }; rotY: numb
 const names = (ops: object[]) => (ops as Add[]).map((o) => o.name);
 const it2 = (o: object) => ({ terms: ["thing"], w: 0.5, d: 0.5, h: 0.5, count: 1, of: null, wall: null, priority: 1, ...o });
 
+beforeEach(() => {
+  process.env.HERMIT_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "hermit-p-")), "h.db");
+  closeDb();
+});
+
 describe("planFurnish", () => {
+  it("caches Gemini's plan by use, request and room signature", async () => {
+    const f = fake({ rooms: [{ roomId: "b", items: [it2({ key: "bed", name: "bed", w: 1.6, d: 2.1, h: 0.6, place: "wall" })] }] });
+    const ask = (text: string, w = 4) => planFurnish({ text, use: "Home", rooms: [room("b", "bedroom", w, 4)], placed: [] }, f.g);
+    const a = await ask("furnish this");
+    const b = await ask("Furnish  this");
+    expect(f.seen).toHaveLength(1);
+    expect(b).toEqual(a);
+    expect(b.source).toBe("gemini");
+    await ask("furnish this", 5); // different room size
+    expect(f.seen).toHaveLength(2);
+  });
+
+  it("offline: a once item that doesn't fit its room goes to the next public room", async () => {
+    const rooms = [room("a", "reception", 1.2, 1.2), room("b", "living", 6, 4, { polygon: rect(6, 4, 2, 0) })];
+    const out = await planFurnish({ text: "furnish everything", use: "dental practice", rooms, placed: [] }, null);
+    const desks = (out.ops as Add[]).filter((o) => o.name === "reception desk");
+    expect(desks).toHaveLength(1);
+    expect(desks[0].pos.x).toBeGreaterThan(2); // in the second room
+    expect(out.reply).not.toMatch(/No room for:.*reception desk/);
+  });
+
   it("lays out Gemini's plan: validated, capped, positions in world coordinates", async () => {
     const f = fake({ rooms: [
       { roomId: "op", items: [
