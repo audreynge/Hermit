@@ -54,6 +54,12 @@ function answerField(spec: Draft, field: Field | null | undefined, text: string)
     case "bays":
       next.needs.driveInBays = /none|no/.test(t) ? 0 : n || 1;
       break;
+    case "price":
+      if (n > 0) next.avgPrice = n;
+      break;
+    case "days":
+      next.daysOpen = /every|7|seven|daily/.test(t) ? 7 : /weekday|5|five/.test(t) ? 5 : n >= 1 && n <= 7 ? n : undefined;
+      break;
     case "musts":
       for (const c of chipsIn(text, packFor(next).chips)) next = toggleChip(c, next, true);
       break;
@@ -77,7 +83,9 @@ const SYSTEM = `You are Hermit, a warm, expert space consultant: part broker, co
 Return JSON. "update": only facts the user's LAST message states or clearly implies (null otherwise; never invent). Room labels: simple nouns like "exam room", "lab", "office", "reception", "bathroom", "storage", "kitchen", "dining", "styling floor", "conference", "bedroom". Fixtures: sink, toilet, shower, hood, shampoo sink. If they ask for a room to be smaller or bigger, return that room with a new minSqft. "removeRooms": labels they want gone.
 "acknowledgement": one short, friendly sentence that answers or reflects what they said; if it matters, add the expert implication ("Exam rooms need sinks, so I'll look for plumbing"). No exclamation marks, no fluff.
 "question": rephrase NEXT QUESTION naturally in one sentence, keeping its meaning. If NEXT QUESTION is "none", write "" (empty).
-The screen has only two things: this chat on the left and a sketch of their space on the right (rooms they can drag, resize or delete). There are no property cards until the crew searches. If they ask where to click or what to do, say so plainly; when the interview is finished, the "Walk inside the matches" button sits at the bottom of the chat.
+The screen has only two things: this chat on the left and a sketch of their space on the right (rooms they can drag, resize or delete). YOU edit that sketch through "update": each entry in "rooms" sets that room's total count and size (absolute, not added), and the sketch redraws from it. CURRENT SKETCH lists what is drawn now.
+When they ask you to change, fit or plan the layout (e.g. "map it out for 50 engineers"), return the whole set of rooms that layout needs, with counts and minSqft, plus headcount and sizeMinSqft/sizeMaxSqft. Office rule of thumb: open desks ~50 sq ft per person (one "open" room sized for all desks), a private office per ~10 people, a conference room per ~12, a bathroom per ~15, a kitchen, and 150–200 sq ft per person overall.
+Only say you changed the sketch if "update" actually changes it. There are no property cards until the crew searches. If they ask where to click or what to do, say so plainly; when the interview is finished, the "Walk inside the matches" button sits at the bottom of the chat.
 Never claim compliance, availability or guarantees. Never use the words "compliant", "certified" or "guaranteed".`;
 
 export async function interviewTurn(state: IState, text: string | null, shells: Shell[]): Promise<ITurn> {
@@ -104,10 +112,11 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   if (hasGemini() && text && !tapped) {
     try {
       const history: Content[] = state.history.slice(-8).map((m) => ({ role: m.role === "hermit" ? "model" : "user", parts: [{ text: m.text }] }));
-      const out = await generateJSON(SYSTEM, [...history, { role: "user", parts: [{ text: `What I know: ${spec.useType ? describe(spec) : "nothing yet"}.\nUser's last message: ${text}\nNEXT QUESTION: ${q ? q.text : "none"}${state.ready ? "\n(The interview is finished; the Walk inside button is showing in the chat.)" : ""}` }] }], Update, 9000);
+      const out = await generateJSON(SYSTEM, [...history, { role: "user", parts: [{ text: `What I know: ${spec.useType ? describe(spec) : "nothing yet"}.\nCURRENT SKETCH: ${sketchText(spec)}\nUser's last message: ${text}\nNEXT QUESTION: ${q ? q.text : "none"}${state.ready ? "\n(The interview is finished; the Walk inside button is showing in the chat.)" : ""}` }] }], Update, 9000);
       if (out) {
         llm = true;
         spec = applyUpdate(spec, out.update, !!state.spec.useType);
+        spec = fitHeadcount(spec, state.spec.headcount);
         ({ stages, pool } = funnel(asSpec(spec), shells));
         q = done() ? null : nextQuestion(spec, pool, asked);
         ack = cleanWording(out.acknowledgement);
@@ -117,19 +126,41 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
       // the deterministic interview continues
     }
   }
+  if (!llm) spec = fitHeadcount(spec, state.spec.headcount);
   if (!ack && text && !tapped) ack = "Got it.";
+  const changed = sketchText(spec) !== sketchText(state.spec);
 
   const history: Msg[] = [...state.history, ...(text ? [{ role: "user" as const, text }] : [])];
   const basics = basicsDone(spec, asked);
   if (!q) {
     const reply = state.ready
-      ? `${ack || "Updated."} Your sketch is up to date. Tap “Walk inside the matches” whenever you're ready.`
+      ? `${ack || "Updated."}${changed ? ` Sketch on the right: ${sketchText(spec)}.` : ""} Tap “Walk inside the matches” whenever you're ready.`
       : `${ack} That's everything I need for ${describe(spec)}. Tap “Walk inside the matches” below and I'll send the crew in.`.trim();
     return { reply, quick: [], state: { spec, asked, history: [...history, { role: "hermit", text: reply }], field: null, quick: [], ready: true }, ready: true, basicsDone: true, stages, llm };
   }
   const sketchNote = basics && !basicsDone(state.spec, state.asked) ? " I've sketched a typical layout on the right; change anything you like." : "";
   const reply = `${ack}${sketchNote} ${q.text}`.trim();
   return { reply, why: q.why, quick: q.quick, multi: q.multi, state: { spec, asked, history: [...history, { role: "hermit", text: reply }], field: q.field, quick: q.quick, ready: false }, ready: false, basicsDone: basics, stages, llm };
+}
+
+const sketchText = (s: Draft) => {
+  const rooms = s.useType ? seedRooms(s) : [];
+  const area = rooms.reduce((t, r) => t + r.count * (r.minSqft ?? 100), 0);
+  const size = s.sizeSqft ? `, target ${s.sizeSqft[0].toLocaleString()}–${s.sizeSqft[1].toLocaleString()} sq ft` : "";
+  return rooms.length ? `${rooms.map((r) => `${r.count} ${r.label}${r.minSqft ? ` (${r.minSqft} sq ft)` : ""}`).join(", ")}; about ${area.toLocaleString()} sq ft of rooms${size}` : "nothing drawn yet";
+};
+
+// A bigger team must not leave a 2,500 sq ft range and a 300 sq ft open area behind, whether or not the model resized them.
+export function fitHeadcount(spec: Draft, prevHeadcount?: number): Draft {
+  const hc = spec.headcount;
+  if (!hc || hc === prevHeadcount || spec.mode === "home") return spec;
+  const s: Draft = { ...spec };
+  if (!s.sizeSqft || s.sizeSqft[1] < hc * 100) s.sizeSqft = [hc * 150, hc * 250];
+  if (packFor(s).key === "office") {
+    s.rooms = seedRooms(s).map((r) => (r.label === "open" && (r.minSqft ?? 0) < hc * 40 ? { ...r, minSqft: hc * 50 } : r));
+    s.input = "chat";
+  }
+  return s;
 }
 
 function applyUpdate(spec: Draft, u: z.infer<typeof Update>["update"], useLocked: boolean): Draft {

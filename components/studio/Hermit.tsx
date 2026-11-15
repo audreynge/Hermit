@@ -1,24 +1,33 @@
 "use client";
-import { RotateCcw, Sparkles } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { Box, PencilRuler, RotateCcw, Sparkles, SquareDashed } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { IState, ITurn } from "@/lib/interview/turn";
 import { roomOf, type Furn } from "@/lib/spec/furnish";
 import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
+import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/blocks";
+import type { Block } from "@/lib/spec/parse";
+import { thinkingSteps } from "@/lib/chat/present";
+import { ROOM_TYPES } from "@/lib/design/rooms";
 import type { Draft } from "@/lib/spec/survey";
 import { packFor, seedRooms } from "@/lib/uses/packs";
 import type { FunnelStage, RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/types";
 import { Counter, type Extra } from "./Counter";
 import { CrewTrace } from "./CrewTrace";
 import { Interview, type ChatMsg } from "./Interview";
-import { Postcard } from "./Postcard";
 import { ShellReportView } from "./ShellReportView";
-import { Sketch } from "./Sketch";
+import { DesignSheet } from "../DesignSheet";
+import { LayoutPreview } from "../LayoutPreview";
+import { Plan3D, rectPoly } from "../Plan3D";
+import { Thinking } from "../Thinking";
+import { MatchingSpaces } from "./MatchingSpaces";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EMPTY: Draft = { mode: "business", useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" };
-type Persist = { iv: IState; messages: ChatMsg[]; layout: SketchRoom[]; furniture: Furn[]; ready: boolean; basics: boolean; reports: ShellReport[]; events: TraceEvent[]; runId: string | null };
+type Persist = { iv: IState; messages: ChatMsg[]; layout: SketchRoom[]; furniture: Furn[]; extras?: Block[]; ready: boolean; basics: boolean; reports: ShellReport[]; events: TraceEvent[]; runId: string | null };
+const FILL = Object.fromEntries(ROOM_TYPES.map((r) => [r.type, r.fill]));
+const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -29,11 +38,17 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export function Hermit() {
   const params = useSearchParams();
   const replay = params.get("replay");
+  const firstQ = params.get("q");
+  const router = useRouter();
   const [iv, setIv] = useState<IState>({ spec: EMPTY, asked: [], history: [] });
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [stages, setStages] = useState<FunnelStage[]>([]);
   const [layout, setLayout] = useState<SketchRoom[]>([]);
   const [furniture, setFurniture] = useState<Furn[]>([]);
+  const [extras, setExtras] = useState<Block[]>([]); // doors, windows: Layout Studio objects that aren't furniture
+  const [drawing, setDrawing] = useState(params.get("design") === "draw");
+  const [view, setView] = useState<"2d" | "3d">("2d");
+  const [shown, setShown] = useState(0);
   const [ready, setReady] = useState(false);
   const [basics, setBasics] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -66,7 +81,7 @@ export function Hermit() {
   }, []);
 
   const runSearch = useCallback(async (s: RequirementSpec, replayId?: string) => {
-    setEvents([]); setReports([]); setRunning(true); setOpen(null);
+    setEvents([]); setReports([]); setRunning(true); setOpen(null); setShown(0);
     try {
       const res = replayId ? await fetch(`/api/agent?replay=${encodeURIComponent(replayId)}`) : await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
       if (!res.ok || !res.body) throw new Error(res.status === 404 ? "No recorded demo run is available yet." : `Search failed (${res.status})`);
@@ -102,24 +117,34 @@ export function Hermit() {
       void runSearch({ ...EMPTY, city: "houston", useType: "space" } as RequirementSpec, replay);
       return;
     }
+    if (firstQ) {
+      // Started from the hero: a fresh search, and the typed request is the first answer.
+      save(KEYS.chat, null);
+      setMessages([{ id: uid(), role: "user", text: firstQ }]);
+      void ask({ spec: EMPTY, asked: [], history: [{ role: "hermit", text: "What are you opening, or looking for?" }] }, firstQ);
+      router.replace("/studio");
+      return;
+    }
     const p = load<Persist>(KEYS.chat);
     if (p?.iv?.spec && p.messages?.length) {
-      setIv(p.iv); setMessages(p.messages); setLayout(p.layout ?? []); setFurniture(p.furniture ?? []); setReady(p.ready); setBasics(p.basics); setReports(p.reports); setEvents(p.events); setRunId(p.runId);
+      setIv(p.iv); setMessages(p.messages); setLayout(p.layout ?? []); setFurniture(p.furniture ?? []); setExtras(p.extras ?? []); setReady(p.ready); setBasics(p.basics); setReports(p.reports); setEvents(p.events); setRunId(p.runId);
       void recount(p.iv.spec);
       return;
     }
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
-  }, [replay, runSearch, recount, ask]);
+  }, [replay, runSearch, recount, ask, firstQ, router]);
 
   useEffect(() => {
     if (!started.current || replay || !messages.length) return;
-    save(KEYS.chat, { iv, messages, layout, furniture, ready, basics, reports, events, runId } satisfies Persist);
-  }, [iv, messages, layout, furniture, ready, basics, reports, events, runId, replay]);
+    save(KEYS.chat, { iv, messages, layout, furniture, extras, ready, basics, reports, events, runId } satisfies Persist);
+  }, [iv, messages, layout, furniture, extras, ready, basics, reports, events, runId, replay]);
 
   const finalSpec = (s: Draft): RequirementSpec => {
     const adj = adjacency(layout);
     const rooms = seedRooms(s).map((r) => (adj[r.label] ? { ...r, adjacentTo: adj[r.label] } : r));
-    return { ...s, city: s.city ?? "houston", useType: s.useType || "office", rooms };
+    // A layout drawn in Layout Studio also goes to match_layout, which ranks scans by floor-plan similarity.
+    const drawn = s.input === "layout" && layout.length ? { layout: layout.map(({ label, x, y, w, h }) => ({ label, x, y, w, h })) } : {};
+    return { ...s, city: s.city ?? "houston", useType: s.useType || "office", rooms, ...drawn };
   };
 
   const search = () => {
@@ -151,7 +176,24 @@ export function Hermit() {
     setMessages((m) => (m.at(-1)?.agent === "sketch" ? [...m.slice(0, -1), { ...m.at(-1)!, text: `Sketch updated: ${note}.` }] : [...m, { id: uid(), role: "hermit", agent: "sketch", text: `Sketch updated: ${note}.` }]));
   };
 
-  const reset = () => { save(KEYS.chat, null); setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setStages([]); setReports([]); setEvents([]); setReady(false); setBasics(false); setLayout([]); setFurniture([]); started.current = true; void ask({ spec: EMPTY, asked: [], history: [] }, null); };
+  // "Use this layout" from Layout Studio: the drawing becomes the sketch (rooms pinned where drawn) and the room requirements.
+  const applyBlocks = (blocks: Block[]) => {
+    setDrawing(false);
+    const next = blocksToSketch(blocks);
+    const roomBlocks = blocks.filter((b) => b.kind !== "object");
+    const home = roomBlocks.some((b) => ["bedroom", "living room", "laundry", "garage"].includes(b.label));
+    const base = spec.useType ? spec : { ...spec, mode: home ? "home" as const : spec.mode, useType: home ? "home" : roomBlocks.some((b) => b.label === "exam room") ? "medical clinic" : "office" };
+    setLayout(next.layout); setFurniture(next.furniture); setExtras(next.extras);
+    const area = Math.round(roomBlocks.reduce((t, b) => t + b.w * b.h, 0));
+    const rooms = roomsFromBlocks(blocks, base.useType ? seedRooms(base) : []);
+    const ivNext = { ...iv, spec: { ...base, rooms, input: "layout" as const } };
+    setIv(ivNext);
+    if (!basics && base.useType) setBasics(true);
+    void recount(ivNext.spec);
+    setMessages((m) => [...m, { id: uid(), role: "hermit", agent: "sketch", text: `Layout updated: ${roomBlocks.length} rooms, about ${area.toLocaleString()} sq ft. I'll match it against real floor plans.` }]);
+  };
+
+  const reset = () => { save(KEYS.chat, null); setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setStages([]); setReports([]); setEvents([]); setReady(false); setBasics(false); setLayout([]); setFurniture([]); setExtras([]); setShown(0); started.current = true; void ask({ spec: EMPTY, asked: [], history: [] }, null); };
 
   // Furniture by room label, so the tour guide can say "your desk goes here".
   const furnitureByRoom = useMemo(() => {
@@ -176,9 +218,37 @@ export function Hermit() {
     return out;
   }, [events, reports]);
 
+  const runSpec = useMemo(() => ({ ...spec, city: spec.city ?? "houston", useType: spec.useType || "office" }) as RequirementSpec, [spec]);
+  const steps = useMemo(() => thinkingSteps(events, runSpec), [events, runSpec]);
+  // Reveal the crew's checks one at a time ("Here's what I checked" once done); instant with reduced motion or a restored run.
+  useEffect(() => {
+    if (shown >= steps.length) return;
+    const t = setTimeout(() => setShown((n) => Math.min(steps.length, n + 1)), running && !reduceMotion() ? 520 : 0);
+    return () => clearTimeout(t);
+  }, [shown, steps.length, running]);
+  const finished = !running && events.some((e) => e.type === "done") && shown >= steps.length;
+  const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
+
   const searched = running || events.length > 0;
-  const showSketch = basics && !!spec.useType;
+  const showSketch = (basics && !!spec.useType) || layout.length > 0;
   const cta = ready && !searched;
+
+  const layoutCard = (
+    <div className="layout-card">
+      <div className="layout-card-head">
+        <h2><SquareDashed aria-hidden="true" /> Your layout</h2>
+        <div className="view-switch" role="group" aria-label="Layout view">
+          <button type="button" aria-pressed={view === "2d"} onClick={() => setView("2d")}>2D plan</button>
+          <button type="button" aria-pressed={view === "3d"} onClick={() => setView("3d")}><Box aria-hidden="true" /> 3D model</button>
+        </div>
+        <button type="button" className="btn primary small" onClick={() => setDrawing(true)}><PencilRuler aria-hidden="true" /> Build your layout</button>
+      </div>
+      {view === "3d" && blocks.some((b) => b.kind !== "object")
+        ? <Plan3D solids={blocks.filter((b) => b.kind !== "object").map((b) => ({ id: b.id, label: b.label, polygon: rectPoly(b), height: 9, fill: FILL[b.label] ?? "#f7efe9" }))} label={`Your layout in 3D: ${layout.length} rooms`} height={340} wallScale={0.45} />
+        : <LayoutPreview blocks={blocks} />}
+      <p className="muted small">Drag rooms, furniture, doors and windows in Layout Studio; Hermit matches the drawing against real scanned floor plans.</p>
+    </div>
+  );
 
   return (
     <div className="studio">
@@ -199,27 +269,26 @@ export function Hermit() {
         <div className="studio-right">
           {searched && (
             <>
-              <div className="postcards" aria-label="Shells picked for you">
-                {reports.map((r) => <Postcard key={r.shellId} report={r} onOpen={() => setOpen(r)} />)}
-                {!running && !reports.length && <p className="card pad">No shell passed every check. Try relaxing a requirement in the chat.</p>}
-              </div>
+              {steps.length > 0 && <div className="card pad"><Thinking steps={steps.slice(0, shown)} total={steps.length} done={finished} /></div>}
+              <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} onOpen={setOpen} />
               <CrewTrace events={events} running={running} useLabel={pack.label.toLowerCase()} />
             </>
           )}
           {showSketch ? (
             searched
-              ? <details className="card pad"><summary>Your sketch</summary><Sketch rooms={sketchRooms} pack={pack} layout={layout} furniture={furniture} wheelchair={spec.needs.wheelchair} onRooms={onRooms} onMove={setLayout} onFurniture={setFurniture} /></details>
-              : <Sketch rooms={sketchRooms} pack={pack} layout={layout} furniture={furniture} wheelchair={spec.needs.wheelchair} onRooms={onRooms} onMove={setLayout} onFurniture={setFurniture} />
+              ? <details className="card pad"><summary>Your layout</summary>{layoutCard}</details>
+              : <div className="card pad">{layoutCard}</div>
           ) : !searched && (
             <div className="card sketch-placeholder">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/hermit-logo.svg" alt="" />
-              <p><strong>Your space will appear here.</strong> Answer a few questions and I&apos;ll sketch what you need, room by room.</p>
+              <p><strong>Your space will appear here.</strong> Answer a few questions and I&apos;ll sketch what you need, room by room, or <button type="button" className="linkish" onClick={() => setDrawing(true)}>build your layout</button> yourself.</p>
             </div>
           )}
         </div>
       </div>
       <p className="truth">Real data: {stages[0]?.count.toLocaleString() ?? "14,944"} Matterport scans from the CoStar hackathon index, measured with the Matterport API. Some CoStar record details aren&apos;t loaded yet and show as unknown. Aerials are Esri imagery while Vexcel access is pending. Hermit screens; it doesn&apos;t inspect, certify code status or promise availability.</p>
+      {drawing && <DesignSheet initial={blocks} onDone={applyBlocks} onClose={() => setDrawing(false)} />}
       {open && <ShellReportView report={open} onClose={() => setOpen(null)} packetHref={runId ? `/packet/${runId}/${open.shellId}` : undefined} furniture={furnitureByRoom} />}
     </div>
   );

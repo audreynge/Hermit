@@ -1,13 +1,6 @@
-import { PageHead } from "@/components/Chrome";
-import { SavedList } from "@/components/SavedList";
+import { SavedList } from "@/components/Inboxes";
 
 export const metadata = { title: "Saved · Hermit" };
-
 export default function SavedPage() {
-  return (
-    <>
-      <PageHead title="Saved spaces" sub="Spaces you've bookmarked, with their full reports and email drafts." />
-      <SavedList />
-    </>
-  );
+  return <div className="narrow"><header className="page-intro"><h1>Saved spaces</h1><p>Shells you&apos;ve hearted, with their full reports.</p></header><SavedList /></div>;
 }

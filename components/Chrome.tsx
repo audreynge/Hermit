@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, LayoutDashboard, MessageCircle } from "lucide-react";
+import { Bookmark, Home, MapPin, MessageCircle, MessageSquare, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -28,9 +28,12 @@ function AiConnect() {
 }
 
 const NAV = [
-  { href: "/", label: "Chat", Icon: MessageCircle },
-  { href: "/studio", label: "Studio", Icon: LayoutDashboard },
+  { href: "/", label: "Home", Icon: Home },
+  { href: "/studio", label: "Find a space", Icon: Search },
+  { href: "/chat", label: "Chat", Icon: MessageCircle },
+  { href: "/address", label: "Check an address", Icon: MapPin },
   { href: "/saved", label: "Saved", Icon: Bookmark },
+  { href: "/messages", label: "Messages", Icon: MessageSquare },
 ];
 
 export function Header() {
@@ -44,8 +47,8 @@ export function Header() {
       </Link>
       <nav className="primary" aria-label="Primary">
         {NAV.map(({ href, label, Icon }) => (
-          <Link key={href} href={href} aria-current={(href === "/" ? path === "/" : path.startsWith(href)) ? "page" : undefined}>
-            <Icon aria-hidden="true" strokeWidth={1.8} /> {label}
+          <Link key={href} href={href} aria-current={(href === "/" ? path === "/" : path.startsWith(href) || (href === "/studio" && path.startsWith("/shell"))) ? "page" : undefined}>
+            <Icon aria-hidden="true" strokeWidth={1.8} /> <span>{label}</span>
           </Link>
         ))}
       </nav>

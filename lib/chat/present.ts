@@ -151,6 +151,8 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];
       add(e.id, "eye", thing ? `Looking for ${an(thing)} in the scan` : "Double-checking a detail in the scan");
     }
+    if (e.type === "areas" && e.areas.length) add(e.id, "search", `Neighborhood scout ranked the best areas: ${e.areas.slice(0, 3).map((x) => x.zip).join(", ")}`);
+    if (e.type === "challenge") add(e.id, "alert", e.outcome === "swapped" ? `The Skeptic challenged ${e.name} and the crew swapped the top pick` : `The Skeptic challenged ${e.name}; it kept the top spot`, e.outcome === "swapped" ? "warn" : "info");
     if (e.type === "rerank") add(e.id, "sort", "Re-ranking on measured evidence");
     if (e.type === "tool" && e.tool === "verify_reports") add(e.id, "check", e.summary.replace(/ \((rules[^)]*)\)/, ""), /[1-9]\d* (demoted|flagged)|unavailable/.test(e.summary) ? "warn" : "info");
     if (e.type === "error") add(e.id, "alert", e.message, "warn");

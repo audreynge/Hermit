@@ -27,6 +27,8 @@ export function FurnArt({ type, w, h }: { type: FurnType; w: number; h: number }
       return <g><rect x={0.1 * w} y={0} width={0.8 * w} height={0.3 * h} rx={0.15} fill={white} stroke={ink} strokeWidth={sw} /><ellipse cx={w / 2} cy={0.65 * h} rx={0.45 * w} ry={0.33 * h} fill={white} stroke={ink} strokeWidth={sw} /></g>;
     case "shower":
       return <g><rect x={0} y={0} width={w} height={h} fill={water} stroke={ink} strokeWidth={sw} /><path d={`M0 0 L${w} ${h} M${w} 0 L0 ${h}`} stroke={ink} strokeWidth={sw * 0.6} /></g>;
+    case "counter": case "stool":
+      return <rect x={0} y={0} width={w} height={h} rx={0.3} fill={wood} stroke={ink} strokeWidth={sw} />;
     case "hood":
       return <g><rect x={0} y={0} width={w} height={h} fill="#d9dde2" stroke={ink} strokeWidth={sw} /><path d={`M0 ${h / 2} H${w} M${w / 3} 0 V${h} M${(2 * w) / 3} 0 V${h}`} stroke={ink} strokeWidth={sw * 0.6} /></g>;
   }

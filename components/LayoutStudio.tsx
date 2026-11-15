@@ -75,8 +75,10 @@ const TEMPLATES: Record<string, { label: string; items: Item[] }> = {
   ] },
   blank: { label: "Blank canvas", items: [] },
 };
-export function LayoutStudio({ onDone, doneLabel = "Use this layout" }: { onDone: (items: Block[]) => void; doneLabel?: string }) {
-  const [items, setItems] = useState<Item[]>(TEMPLATE);
+// initial: start from this layout (the studio's current sketch) instead of the last stored draft.
+export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial }: { onDone: (items: Block[]) => void; doneLabel?: string; initial?: Block[] }) {
+  const seeded = !!initial?.length;
+  const [items, setItems] = useState<Item[]>(seeded ? initial!.map((b) => ({ ...b, kind: b.kind ?? "room" })) : TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);
   const [future, setFuture] = useState<Item[][]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -101,14 +103,15 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout" }: { onDone
   const [status, setStatus] = useState("");
   useEffect(() => {
     const prev = load<Item[]>(KEYS.layout);
-    if (prev) setItems(prev);
+    if (prev && !seeded) setItems(prev);
     const all = loadLayouts();
     const open = all.find((l) => l.id === load<string>(KEYS.layoutOpen));
     if (open) { setOpenId(open.id); setName(open.name); }
     setLibrary(all);
     setLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { if (loaded) save(KEYS.layout, items); }, [items, loaded]);
+  useEffect(() => { if (loaded && !seeded) save(KEYS.layout, items); }, [items, loaded, seeded]);
 
   const commit = useCallback((next: Item[], before = items) => {
     setPast((p) => [...p.slice(-49), before]);

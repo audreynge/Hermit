@@ -15,7 +15,7 @@ export function SourceChip({ e }: { e: Evidence | string }) {
 const LAYER_LABEL = { costar: "Record / listing", matterport: "Matterport scan", aerial: "Aerial" } as const;
 const CELL_ICON = { agree: Check, disagree: X, absent: Minus };
 
-function Triangulation({ rows }: { rows: TriRow[] }) {
+export function Triangulation({ rows }: { rows: TriRow[] }) {
   return (
     <table className="tri">
       <caption>Inside and out: a claim is confirmed only when two layers agree</caption>
@@ -37,7 +37,7 @@ function Triangulation({ rows }: { rows: TriRow[] }) {
   );
 }
 
-function Score({ report }: { report: ShellReport }) {
+export function Score({ report }: { report: ShellReport }) {
   const sum = (report.score ?? []).reduce((s, l) => s + l.earned, 0);
   return (
     <table className="score">
