@@ -1,11 +1,24 @@
 import type { FitResult, RequirementSpec, Room, RoomGraph } from "../types";
 import { minCostAssignment } from "./hungarian";
-import { IMPLIED_FIXTURES, labelCost } from "./labels";
+import { IMPLIED_FIXTURES, labelCost, normalizeRoomLabel } from "./labels";
+
+// Built = same room type. A request with no canonical type ("exam room") is built only by a room tagged with that exact name.
+const sameType = (req: string, observed: string) =>
+  normalizeRoomLabel([req]) === "other" ? req.toLowerCase() === observed.toLowerCase() : labelCost(req, observed) === 0;
 import { packFor } from "../uses/packs";
 const SCAN_MIN_SLACK = 0.7;
 
 const BUILD_COST = 70;
 const NOT_A_ROOM = new Set(["hallway", "outdoor"]);
+const BLOCKED = 1e6;
+
+export const isBathroom = (label: string) => normalizeRoomLabel([label]) === "bathroom";
+
+// Counted rooms rank first: every bathroom, plus the use's primary rooms (any room asked for 2+ of, or that the pack asks 2+ of).
+export function countedKind(spec: Pick<RequirementSpec, "useType" | "mode">, r: { label: string; count: number }): "bathroom" | "primary" | null {
+  if (isBathroom(r.label)) return "bathroom";
+  return r.count >= 2 || packFor(spec).rooms.some((p) => p.label === r.label && p.count >= 2) ? "primary" : null;
+}
 
 function sizeCost(area: number, min?: number, max?: number): number {
   if (min && area < min) return Math.min(60, ((min - area) / min) * 80);
@@ -26,12 +39,17 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
   const rooms = g.rooms.filter((r) => r.areaSqft > 1 && !NOT_A_ROOM.has(r.label));
 
   const cost = reqs.map((req) => {
+    const bath = isBathroom(req.label);
     const real = rooms.map((room) => {
+      const label = labelCost(req.label, room.label);
+      if (bath !== isBathroom(room.label) || label >= 100) return BLOCKED;
       const have = fixturesIn(room, g);
       const missing = (req.fixtures ?? []).filter((f) => !have.has(f.toLowerCase())).length;
-      return labelCost(req.label, room.label) + sizeCost(room.areaSqft, req.minSqft, req.maxSqft) + missing * 20;
+      return label + sizeCost(room.areaSqft, req.minSqft, req.maxSqft) + missing * 20;
     });
-    return [...real, ...reqs.map(() => BUILD_COST)];
+    // Leaving a counted room unfilled costs more, so bathrooms and primary rooms claim measured rooms first.
+    const skip = countedKind(spec, req) ? BUILD_COST * 3 : BUILD_COST;
+    return [...real, ...reqs.map(() => skip)];
   });
   const pick = minCostAssignment(cost);
 
@@ -42,11 +60,13 @@ export function fit(spec: RequirementSpec, g: RoomGraph): FitResult {
   const labelsInformative = rooms.length > 0 && labeled / rooms.length >= 0.5;
   const assignment = reqs.map((req, i) => {
     const j = pick[i];
-    const room = j >= 0 && j < rooms.length ? rooms[j] : null;
-    const c = j >= 0 ? cost[i][j] : BUILD_COST;
+    const room = j >= 0 && j < rooms.length && cost[i][j] < BLOCKED ? rooms[j] : null;
+    const c = room ? cost[i][j] : BUILD_COST;
     if (!room) {
-      if (req.hard && labelsInformative) hardFails.push(`Required ${req.key} not found among ${rooms.length} measured rooms (scan ${g.sid})`);
-      else if (req.hard) unknowns.push(`${req.key}: not identifiable in scan ${g.sid} (${labeled} of ${rooms.length} rooms labeled)`);
+      // Counted rooms are never hard fails here: lib/agent/tools.ts decides drop vs rank-last from roomCounts.
+      const counted = countedKind(spec, req);
+      if (!labelsInformative && (counted || req.hard)) unknowns.push(`${req.key}: not identifiable in scan ${g.sid} (${labeled} of ${rooms.length} rooms labeled)`);
+      else if (req.hard && !counted) hardFails.push(`Required ${req.key} not found among ${rooms.length} measured rooms (scan ${g.sid})`);
       else edits.push(`Build ${req.key}${req.minSqft ? ` (~${req.minSqft} sf)` : ""}`);
     } else {
       if (req.maxSqft && room.areaSqft > 2 * req.maxSqft) edits.push(`Divide ${Math.round(room.areaSqft)} sf ${room.label} room for ${req.key}`);
@@ -110,3 +130,71 @@ function scoreAdjacency(
   });
   return scores.length ? Math.round(scores.reduce((s, x) => s + x, 0) / scores.length) : null;
 }
+
+export type RoomCount = { label: string; kind: "bathroom" | "primary"; need: number; have: number; convert: string[]; unknown: number };
+
+const ROOM_WORDS: Record<string, string> = { living: "living room", open: "open area", other: "unlabeled room" };
+
+// Required counts per counted room type. Only same-type rooms count as built; a substitute (living room for a
+// bedroom) is "to convert". No scan means every count is unknown, never met.
+export function roomCounts(spec: RequirementSpec, f: FitResult, g: RoomGraph | null): RoomCount[] {
+  const out = new Map<string, RoomCount>();
+  for (const r of spec.rooms) {
+    const kind = countedKind(spec, r);
+    if (!kind || r.count <= 0) continue;
+    const key = kind === "bathroom" ? "bathroom" : r.label;
+    const c = out.get(key) ?? { label: key, kind, need: 0, have: 0, convert: [], unknown: 0 };
+    const rows = f.assignment.filter((a) => a.req === r.label || a.req.startsWith(`${r.label} #`));
+    c.need += r.count;
+    if (!g || !rows.length) c.unknown += r.count;
+    else for (const a of rows) {
+      const room = a.roomId ? g.rooms.find((x) => x.id === a.roomId) : undefined;
+      if (room && sameType(r.label, room.label)) c.have++;
+      else if (room) c.convert.push(ROOM_WORDS[room.label] ?? room.label);
+      else if (f.unknowns.some((u) => u.startsWith(`${a.req}:`))) c.unknown++;
+    }
+    out.set(key, c);
+  }
+  return [...out.values()];
+}
+
+export const missingOf = (c: RoomCount) => Math.max(0, c.need - c.have - c.convert.length - c.unknown);
+export const roomNoun = (spec: Pick<RequirementSpec, "mode">, c: RoomCount, n: number) => {
+  const w = c.kind === "bathroom" ? (spec.mode === "home" ? "bathroom" : "restroom") : c.label;
+  return n === 1 || /s$/.test(w) ? w : `${w}s`;
+};
+
+// "Has 1 restroom; you need 2" for each short count.
+export const shortfalls = (spec: Pick<RequirementSpec, "mode">, counts: RoomCount[]) =>
+  counts.filter((c) => missingOf(c) > 0).map((c) => `Has ${c.have || "no"} ${roomNoun(spec, c, c.have || 2)}${c.convert.length ? ` (plus ${c.convert.length} to convert)` : ""}; you need ${c.need}`);
+
+const ORDINAL = ["first", "second", "third", "fourth", "fifth", "sixth"];
+const plural = (w: string) => (/s$/.test(w) ? w : `${w}s`);
+
+// "the living room", or "3 offices and the open area", for rooms that could be converted.
+function convertPhrase(labels: string[]) {
+  const n = new Map<string, number>();
+  for (const l of labels) n.set(l, (n.get(l) ?? 0) + 1);
+  return [...n].map(([l, k]) => (k === 1 ? `the ${l}` : `${k} ${plural(l)}`)).join(" and ");
+}
+
+// "1 of 2 bedrooms already built; the living room could become the second". Never a "0 of N" line for an unconfirmed count.
+export function countLine(spec: Pick<RequirementSpec, "mode">, counts: RoomCount[], scanned = true): string {
+  if (!counts.length) return "";
+  const blind = (c: RoomCount) => !c.have && !c.convert.length && c.unknown === c.need;
+  if (!scanned || counts.every(blind)) return `room counts not confirmed (${scanned ? "the scan's room labels are unclear" : "no scan"})`;
+  const built = counts.filter((c) => !blind(c)).map((c) => `${c.have} of ${c.need} ${roomNoun(spec, c, c.need)}${c.unknown ? ` (${c.unknown} not confirmed)` : ""}`);
+  const unsure = counts.filter(blind).map((c) => `${c.need} ${roomNoun(spec, c, c.need)} not confirmed`);
+  const swaps = counts.filter((c) => c.convert.length).map((c) => c.convert.length === 1
+    ? `the ${c.convert[0]} could become the ${ORDINAL[c.have] ?? "next"}${c.need - c.have > 1 ? ` ${roomNoun(spec, c, 1)}` : ""}`
+    : `${convertPhrase(c.convert)} could become ${roomNoun(spec, c, 2)}`);
+  return [`${built.join(", ")} already built`, ...unsure, ...swaps].join("; ");
+}
+
+// Missing a bathroom or 2+ primary rooms is a drop; anything short still ranks below spaces that meet every count.
+export const severe = (counts: RoomCount[]) =>
+  counts.some((c) => c.kind === "bathroom" && missingOf(c) > 0) || counts.filter((c) => c.kind === "primary").reduce((s, c) => s + missingOf(c), 0) > 1;
+export const countTier = (counts: RoomCount[]) => (counts.some((c) => missingOf(c) > 0) ? 2 : counts.some((c) => c.unknown || c.convert.length) ? 1 : 0);
+
+// "3 exam rooms, 2 restrooms": what the user needs, for spaces with no scan to count from.
+export const needLine = (spec: Pick<RequirementSpec, "mode">, counts: RoomCount[]) => counts.map((c) => `${c.need} ${roomNoun(spec, c, c.need)}`).join(", ");

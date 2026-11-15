@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { AGENTS, consult, needsAgent, type AgentId, type Verdict } from "../crew";
 import { searchShells, type Candidate } from "../query/shells";
-import { fit as fitRooms } from "../reason/fit";
-import { IMPLIED_FIXTURES } from "../reason/labels";
+import { countLine, countTier, fit as fitRooms, isBathroom, missingOf, roomCounts, severe, shortfalls } from "../reason/fit";
+import { IMPLIED_FIXTURES, normalizeRoomLabel } from "../reason/labels";
 import { checkRules } from "../reason/rules";
 import { estimateWork } from "../reason/work";
 import type { ParcelZone } from "../regs/zoning";
@@ -13,7 +13,7 @@ import { concerns, weight } from "../crew/skeptic";
 import { competitorCount, transitCount } from "../neighborhood/summarize";
 import { useCategory } from "../reason/rules";
 import type { SiteFile } from "../neighborhood/types";
-import type { Evidence, RequirementSpec, RoomGraph, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
+import type { Evidence, RequirementSpec, RoomGraph, RoomReq, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
 import { buildReport, displayName, scoreLines, total, type Evaluation } from "./report";
 import { auditInput, checkReport, mustHaves, type Auditor } from "./verify";
 
@@ -47,11 +47,11 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first. (Scout.)",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
   screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
-  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Must-have failures and missing required rooms are dropped automatically (dropped: true).",
+  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Each row gives required room counts (rooms) and what's short (missing). Must-have failures are dropped automatically (dropped: true). Rows with wouldDrop: true (a missing bathroom or 2+ missing primary rooms) are dropped at submit_reports unless fewer than 3 candidates would remain, in which case they are reported last.",
   consult_specialist: "Hand evaluated candidates to one specialist: code (zoning/parking/fire/power), access (corridor widths, floors, stairs; only useful if the user needs step-free access), systems (HVAC/power, hidden infrastructure), surveyor (aerial site check). A specialist veto removes the candidate.",
   inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
-  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated, non-vetoed candidates in your chosen rank order. An independent verifier then re-checks every report against the must-haves and sources.",
+  submit_reports: "Finish: produce Shell Reports for up to 5 evaluated, non-vetoed candidates. Rank is set in code: spaces with every required room count come first, then by evidence score. An independent verifier then re-checks every report against the must-haves and sources.",
   research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
@@ -78,8 +78,19 @@ export class Run {
 
   constructor(public userSpec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {
     // Rooms the user never described come from the use pack, so a missing sink or restroom counts as work.
-    this.spec = { ...userSpec, rooms: seedRooms(userSpec) };
+    this.spec = { ...userSpec, rooms: withRecordCounts(userSpec, seedRooms(userSpec)) };
   }
+
+  counts(e: Evaluation) {
+    return roomCounts(this.spec, e.fit, e.graph);
+  }
+
+  // Required room counts outrank everything: met, then unconfirmed, then short (fewest missing first); score breaks ties.
+  byRoomFit = (a: Evaluation, b: Evaluation) => {
+    const ca = this.counts(a), cb = this.counts(b);
+    const miss = (c: typeof ca) => c.reduce((s, x) => s + missingOf(x), 0);
+    return countTier(ca) - countTier(cb) || miss(ca) - miss(cb) || b.finalScore - a.finalScore;
+  };
 
   overBudget() {
     return this.calls >= BUDGET.toolCalls || Date.now() - this.started > BUDGET.ms;
@@ -211,10 +222,11 @@ export class Run {
   }
 
   private evaluateWith(ids: string[], zones: Map<string, ParcelZone | null>) {
-    const rows = ids.flatMap((id) => {
+    const fresh: Evaluation[] = [];
+    const seen = ids.flatMap((id) => {
       const c = this.shell(id);
       if (!c || this.dropped.has(id)) return [];
-      if (this.evaluated.has(id)) return [this.row(this.evaluated.get(id)!)];
+      if (this.evaluated.has(id)) return [this.evaluated.get(id)!];
       let graph: RoomGraph | null = null;
       if (c.shell.sid && this.graphReads < BUDGET.roomGraphs) {
         this.graphReads++;
@@ -228,10 +240,12 @@ export class Run {
       const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, lines, finalScore: 0, escalations: [], verdicts: [], similarity };
       rescore(e);
       this.evaluated.set(id, e);
-      // A missing room is work to build, not a failed must-have; only a far-too-small measured area drops here.
-      if (!this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")))) this.verdict(consult("inspector", this.spec, e), e);
-      return [this.row(e)];
+      // Must-haves and a far-too-small measured area drop here; required room counts are enforced at submit, after every veto.
+      if (!this.enforce(id, rules, fit.hardFails.filter((f) => f.startsWith("Measured area")))) fresh.push(e);
+      return [e];
     });
+    for (const e of fresh) if (!this.dropped.has(e.shell.id)) this.verdict(consult("inspector", this.spec, e), e);
+    const rows = seen.map((e) => this.row(e));
     return { result: { rows }, summary: `Inspector walked ${rows.filter((r) => r.scan).length} scans (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
   }
 
@@ -276,9 +290,22 @@ export class Run {
     return { result: { rows: out }, summary: `${AGENTS[agent].name} reviewed ${out.length}: ${vetoes} veto${vetoes === 1 ? "" : "es"}, ${out.filter((o) => o.status === "warn").length} flagged` };
   }
 
+  // Missing a bathroom or 2+ primary rooms drops the space, worst first, as long as 3 evaluated candidates remain.
+  private enforceCounts() {
+    const alive = [...this.evaluated.values()].filter((e) => !this.dropped.has(e.shell.id));
+    let left = alive.length;
+    for (const e of alive.filter((x) => severe(this.counts(x))).sort((a, b) => this.byRoomFit(b, a))) {
+      if (left <= 3) break;
+      this.dropOne(e.shell.id, shortfalls(this.spec, this.counts(e)).join("; "));
+      left--;
+    }
+  }
+
   private row(e: Evaluation) {
+    const counts = this.counts(e);
     return {
       id: e.shell.id, name: displayName(e.shell.name), dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
+      rooms: countLine(this.spec, counts, !!e.graph), missing: shortfalls(this.spec, counts), wouldDrop: severe(counts),
       hardFails: e.fit.hardFails, roomUnknowns: e.fit.unknowns, ruleFails: e.rules.filter((r) => r.status === "fail").map((r) => r.rule),
       unknowns: e.rules.filter((r) => r.status === "unknown").map((r) => r.rule),
       unverifiedFixtures: unverifiedFixtures(this.spec, e),
@@ -342,7 +369,7 @@ export class Run {
     const s = this.screened.get(id);
     const evidence: Evidence[] = [
       ...(e?.rules ?? s?.flags ?? []).filter((r) => r.status === "fail").flatMap((r) => r.evidence),
-      ...(e?.fit.hardFails.length && e.graph ? [{ source: "matterport", ref: `${e.graph.sid} room graph`, confidence: 0.8 }] : []),
+      ...(e?.graph && (e.fit.hardFails.length || severe(this.counts(e))) ? [{ source: "matterport", ref: `${e.graph.sid} room graph`, confidence: 0.8 }] : []),
     ];
     this.dropped.add(id);
     this.emit({ type: "drop", id: rid("ev"), shellId: id, reason, evidence });
@@ -360,7 +387,9 @@ export class Run {
     const killer = (c: typeof mine) => c.some((x) => x.weight >= 3);
     // A deal-killer (a possible exclusive next door) hands the top spot to the best finalist without one, if it's
     // close on score; otherwise the runner-up must be clearly less risky overall.
-    const others = chosen.slice(1).map((id) => ({ id, e: this.evaluated.get(id)!, c: concerns(this.spec, this.evaluated.get(id)!, site(id)) }));
+    // Concerns never lift a space over one with more of the rooms you need.
+    const others = chosen.slice(1).filter((id) => countTier(this.counts(this.evaluated.get(id)!)) === countTier(this.counts(top)))
+      .map((id) => ({ id, e: this.evaluated.get(id)!, c: concerns(this.spec, this.evaluated.get(id)!, site(id)) }));
     const clean = killer(mine) ? others.find((o) => !killer(o.c) && o.e.finalScore >= top.finalScore - 10) : undefined;
     const second = others[0];
     const alt = clean ?? (second && weight(mine) >= 3 && weight(second.c) + 2 <= weight(mine) && second.e.finalScore >= top.finalScore - 6 ? second : undefined);
@@ -384,16 +413,23 @@ export class Run {
       this.emit({ type: "tool", id: rid("ev"), tool: "research_regulations", args: {}, resultId: rid("research_regulations"), summary: r.summary, ms: Date.now() - t0 });
     }
     // Guardrail: a specialist with veto power that the user's needs call for reviews every finalist, whatever the planner chose.
-    for (const agent of ["code", "access"] as const) {
+    const guard = (list: string[]) => { for (const agent of ["code", "access"] as const) {
       if (!needsAgent(agent, this.userSpec).needed) continue;
-      const missed = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id) && !this.evaluated.get(id)!.verdicts.some((v) => v.agent === agent));
+      const missed = list.filter((id) => this.evaluated.has(id) && !this.dropped.has(id) && !this.evaluated.get(id)!.verdicts.some((v) => v.agent === agent));
       if (!missed.length) continue;
       this.emit({ type: "handoff", id: rid("ev"), to: agent, shellIds: missed, why: `Hermit's rule: ${AGENTS[agent].name} reviews every finalist before a report goes out` });
       for (const id of missed) this.verdict(consult(agent, this.spec, this.evaluated.get(id)!), this.evaluated.get(id)!);
-    }
-    // The planner picks which spaces to report; rank follows the evidence score so every position is explainable.
-    const chosen = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id))
-      .sort((a, b) => this.evaluated.get(b)!.finalScore - this.evaluated.get(a)!.finalScore).slice(0, 5);
+    } };
+    guard(ids);
+    this.enforceCounts();
+    // The planner picks which spaces to report; rank follows room counts, then the evidence score.
+    const picked = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id));
+    // Short spaces kept only because fewer than 3 would remain still go out, last, saying what's missing.
+    if (picked.length < 3) picked.push(...[...this.evaluated.values()]
+      .filter((e) => !this.dropped.has(e.shell.id) && !picked.includes(e.shell.id) && severe(this.counts(e)))
+      .sort(this.byRoomFit).slice(0, 3 - picked.length).map((e) => e.shell.id));
+    guard(picked);
+    const chosen = picked.filter((id) => !this.dropped.has(id)).sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
     if (ids.length && !chosen.length && !ids.some((id) => this.vetoes.has(id))) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped/vetoed); call evaluate_candidates first`);
     for (const id of chosen) {
       const e = this.evaluated.get(id)!;
@@ -406,11 +442,20 @@ export class Run {
       const veto = this.vetoes.get(first.shell.id);
       const top = displayName(this.evaluated.get(chosen[0])!.shell.name), scout = displayName(first.shell.name);
       const skeptic = this.swappedFrom === first.shell.id;
+      const firstEval = this.evaluated.get(first.shell.id);
+      const topEval = this.evaluated.get(chosen[0])!;
+      const roomsWin = firstEval && !this.dropped.has(first.shell.id) && (() => {
+        const a = this.counts(topEval), b = this.counts(firstEval);
+        const miss = (c: typeof a) => c.reduce((s, x) => s + missingOf(x), 0);
+        return countTier(a) < countTier(b) || miss(a) < miss(b);
+      })();
+      const short = roomsWin ? shortfalls(this.spec, this.counts(firstEval!))[0] ?? countLine(this.spec, this.counts(firstEval!)) : undefined;
       this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: skeptic
         ? `The Skeptic flagged a possible exclusive conflict at the Scout's first pick, ${scout}. ${top} takes the top spot.`
         : veto
         ? `${AGENTS[veto.agent].name} vetoed the Scout's first pick, ${scout} (${veto.headline.charAt(0).toLowerCase()}${veto.headline.slice(1)}). ${top} takes the top spot.`
         : this.dropped.has(first.shell.id) ? `The Scout's first pick, ${scout}, was dropped. ${top} takes the top spot.`
+        : short ? `${top} has more of the rooms you need already built. The Scout's first pick, ${scout}: ${short.charAt(0).toLowerCase()}${short.slice(1)}.`
         : `After walking the scans, ${top} outscored the Scout's first pick, ${scout}.` });
     }
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
@@ -478,6 +523,23 @@ export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string
     for (const f of req?.fixtures ?? []) if (!have.has(f)) out.add(f);
   }
   return [...out];
+}
+
+// Bedrooms and baths typed as numbers override the pack's counts (0 = none required, e.g. a studio); a half bath is
+// still a room. Pack bathroom lines step aside when the user named their own, so "restroom" never stacks on "bathroom".
+function withRecordCounts(spec: RequirementSpec, rooms: RoomReq[]): RoomReq[] {
+  const mine = spec.rooms.length;
+  const userBath = rooms.slice(0, mine).some((r) => isBathroom(r.label));
+  let out = rooms.filter((r, i) => i < mine || !userBath || !isBathroom(r.label));
+  const set = (match: (label: string) => boolean, label: string, n: number | undefined) => {
+    if (n == null) return;
+    const first = out.find((r) => match(r.label));
+    out = out.filter((r) => !match(r.label));
+    if (n > 0) out.push({ ...(first ?? { hard: false }), label: first?.label ?? label, count: n });
+  };
+  set(isBathroom, "bathroom", spec.baths == null ? undefined : Math.ceil(spec.baths));
+  set((l) => normalizeRoomLabel([l]) === "bedroom", "bedroom", spec.beds);
+  return out;
 }
 
 // Evidence score lines, blended 50/50 with layout similarity when the user drew a plan.

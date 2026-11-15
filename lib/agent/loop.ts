@@ -40,7 +40,7 @@ export async function runAgent(spec: RequirementSpec, emit: (e: TraceEvent) => v
 }
 
 const alive = (run: Run) => [...run.evaluated.values()].filter((e) => !run.dropped.has(e.shell.id));
-const ordered = (run: Run) => alive(run).sort((a, b) => b.finalScore - a.finalScore || a.shell.id.localeCompare(b.shell.id));
+const ordered = (run: Run) => alive(run).sort((a, b) => run.byRoomFit(a, b) || a.shell.id.localeCompare(b.shell.id));
 const plan = (run: Run, text: string) => run.emit({ type: "plan", id: newEventId(), text: cleanWording(text) });
 
 // One fixable code gap is priced as work; a zoning conflict or stacked gaps rule a candidate out.
@@ -111,7 +111,7 @@ const SYSTEM = `You are the planner for Hermit's crew. Hermit finds existing spa
 Your crew: ${Object.entries(AGENTS).map(([k, a]) => `${a.name} (${k}) ${a.does}`).join("; ")}.
 Work from evidence; tools compute geometry, rules and costs. Never invent measurements, compliance or availability. Null fields are unknown, not passes.
 Plan cost-aware: search_shells first (regulation research starts automatically); match_layout right after if the spec has a drawn layout; screen_sites (cheap) on up to 20; evaluate_candidates (expensive, max ${BUDGET.roomGraphs}) on the highest-ranked search results in rank order, skipping only ones screening already ruled out; consult_specialist only where the user's needs make that specialist matter (Access only if they need step-free access); inspect_view only when one uncertain fact could change the ranking (max ${BUDGET.inspections}).
-Must-haves the user selected are enforced in code: a candidate whose record fails one is dropped automatically (rows show dropped: true); don't submit those. Unknown is not a fail. A specialist veto is binding. When a veto removes the leading candidate, say so. Finish with submit_reports (≤5 ids, best first); an independent verifier then audits them. Budget: ${BUDGET.toolCalls} tool calls.
+Must-haves the user selected are enforced in code: a candidate whose record fails one is dropped automatically (rows show dropped: true); don't submit those. Unknown is not a fail. Required room counts (bathrooms, and the use's primary rooms such as exam rooms, offices or bedrooms) are the top priority: a space with every count met always ranks above one without; evaluate rows show the counts (rooms) and shortfalls (missing). Quote those counts exactly and never call an unconfirmed room present. A specialist veto is binding. When a veto removes the leading candidate, say so. Finish with submit_reports (≤5 ids, best first); an independent verifier then audits them. Budget: ${BUDGET.toolCalls} tool calls.
 Before each tool call, write one short sentence saying what you're checking and why.`;
 
 const toolList = () => (Object.keys(ToolInputs) as ToolName[]).map((name) => ({ name, description: TOOL_DESCRIPTIONS[name], schema: z.toJSONSchema(ToolInputs[name]) }));
