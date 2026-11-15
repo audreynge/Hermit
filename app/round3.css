@@ -445,3 +445,55 @@ nav.primary svg { width: 21px; height: 21px; }
 .crab .hat[data-agent="skeptic"] { background: #9d174d; } .crab .hat[data-agent="advocate"] { background: #155e75; }
 .crew-toggle { margin-left: auto; }
 /* == end CREW == */
+
+/* S8: decisions, evidence, aerial */
+/* "How we know" disclosure (components/Evidence.tsx) */
+.ev { display: inline; }
+.ev-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 2px; border: 0; background: none; color: var(--coral-ink); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; vertical-align: baseline; }
+.ev-chev { width: 14px; height: 14px; transition: transform 0.15s var(--ease); }
+.ev-btn[aria-expanded="true"] .ev-chev { transform: rotate(180deg); }
+.ev-body:not([hidden]) { display: block; margin-top: 4px; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--sand-1); border-radius: 0 8px 8px 0; font-size: 13px; font-weight: 400; color: var(--ink-soft); line-height: 1.45; overflow-wrap: anywhere; text-align: left; }
+.ev-line { display: block; }
+/* How Hermit decided (components/studio/CrewTrace.tsx) */
+.dec-body { min-width: 0; display: grid; gap: 2px; justify-items: start; }
+.dec-body p { overflow-wrap: anywhere; }
+.dec-tag { display: inline-block; font-size: 12px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: var(--sand-2); color: var(--ink); margin-right: 4px; vertical-align: 1px; }
+.dec-photo { display: block; margin-top: 6px; width: 96px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+/* Aerial count (components/Aerial.tsx) */
+.aerial-finding { display: grid; gap: 4px; justify-items: start; margin: 8px 0 12px; font-size: 17px; }
+.aerial-finding p:first-child { font-weight: 700; }
+.aerial-counted { position: absolute; inset: 0; display: grid; place-items: center; background: #1d2a2c; container-type: size; }
+.aerial-counted-box { position: relative; width: min(100cqw, 100cqh); aspect-ratio: 1; }
+.aerial-counted-box img { display: block; width: 100%; height: 100%; }
+.aerial-counted-box svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.aerial-counted .ab-halo { fill: none; stroke: rgb(0 0 0 / 0.75); stroke-width: 6px; vector-effect: non-scaling-stroke; }
+.aerial-counted .ab-line { fill: none; stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
+.aerial-counted .ab-roof .ab-line { stroke: #ffd27a; }
+.aerial-counted .ab-lot .ab-line { stroke: #7fd0ef; stroke-dasharray: 7 4; }
+.aerial-legend { position: absolute; top: 8px; left: 8px; margin: 0; padding: 4px 10px; list-style: none; display: grid; gap: 2px; border-radius: 8px; background: rgb(0 0 0 / 0.72); color: #fff; font-size: 13px; }
+.aerial-legend li { display: flex; align-items: center; gap: 6px; }
+.ab-swatch { display: inline-block; width: 16px; height: 10px; border: 2px solid; }
+.ab-swatch.ab-roof { border-color: #ffd27a; }
+.ab-swatch.ab-lot { border-color: #7fd0ef; border-style: dashed; }
+.aerial-inset .aerial-legend, .aerial-inset .aerial-credit { display: none; }
+.aerial-credit { position: absolute; left: 8px; bottom: 6px; padding: 0 6px; border-radius: 4px; background: rgb(0 0 0 / 0.65); color: #fff; font-size: 12px; font-weight: 700; }
+/* Hermit looked closer (components/report/InsideFurnish.tsx) */
+.room-check { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 4px 10px 6px; font-size: 14px; }
+.room-list .rc-seen { width: auto; display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; min-height: 44px; padding: 3px 12px 3px 3px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--ink); font-weight: 700; text-transform: none; cursor: zoom-in; }
+.room-list .rc-seen img { width: 44px; height: 44px; object-fit: cover; border-radius: 7px; }
+.rc-note { color: var(--ink-soft); }
+.rc-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--card); color: var(--ink); }
+.rc-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+.rc-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.rc-dialog-head h3 { font-size: 19px; text-transform: none; }
+.rc-fig { margin: 0 0 10px; }
+.rc-fig img { display: block; width: 100%; height: auto; max-height: 42vh; object-fit: contain; border-radius: 10px; background: #111; }
+.rc-fig figcaption { margin-top: 6px; font-size: 15px; }
+/* Overview: also fits + Inside & out (components/report/Overview.tsx) */
+.ov-also { font-size: 17px; }
+.ov-io { border-top: 1px solid var(--line); padding-top: 8px; }
+.ov-io summary { cursor: pointer; font-weight: 800; min-height: 32px; }
+.ov-io summary .muted { font-weight: 400; font-size: 15px; }
+.ov-io ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 16px; }
+@media (prefers-reduced-motion: reduce) { .ev-chev { transition: none; } }
+/* == end S8 == */

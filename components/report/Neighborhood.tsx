@@ -1,5 +1,5 @@
 "use client";
-import { Aerial } from "../Aerial";
+import { Aerial, AerialFinding } from "../Aerial";
 import { FootHeatmap } from "../FootHeatmap";
 import { Bus, Car, Store, Users } from "lucide-react";
 import { useState } from "react";
@@ -54,12 +54,15 @@ function AnswerCard({ title, a, Icon }: { title: string; a: Answer; Icon: typeof
 
 export function Neighborhood({ site, use, report, spec }: ReportCtx) {
   const home = spec.mode === "home";
+  const [provider, setProvider] = useState<"vexcel" | "esri">();
   // Vexcel aerial (top-down and four oblique angles) from the search page, shown whenever the space has coordinates.
+  // The caption credits whoever's photo is actually showing: Vexcel, or Esri only when it's the real fallback.
   const above = report.above ? (
     <section className="card pad aerial-section" aria-labelledby="aerial-title">
       <h3 id="aerial-title">Aerial view</h3>
-      <div className="aerial-frame"><Aerial report={report} /></div>
-      <p className="muted small">Satellite view of the building and lot (Vexcel ortho and oblique imagery where licensed, Esri otherwise).</p>
+      <AerialFinding report={report} mode={spec.mode} />
+      <div className="aerial-frame"><Aerial report={report} onProvider={setProvider} /></div>
+      <p className="muted small">{provider === "esri" ? "Esri World Imagery photo of the building and lot (Vexcel has no photo of this spot)." : provider === "vexcel" ? "Vexcel aerial photos of the building and lot." : "Aerial photos of the building and lot."}</p>
     </section>
   ) : null;
   if (!site) return <div className="neighborhood"><p className="card pad">Hermit doesn&apos;t have neighborhood data for this space (no coordinates in the index).</p>{above}</div>;

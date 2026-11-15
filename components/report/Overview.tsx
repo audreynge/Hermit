@@ -1,6 +1,8 @@
 "use client";
 import { AlertTriangle, CheckCircle2, ExternalLink, HelpCircle, XCircle } from "lucide-react";
-import type { RuleHit, RuleStatus } from "@/lib/types";
+import type { Layer, RequirementSpec, RuleHit, RuleStatus, ShellReport, TriRow } from "@/lib/types";
+import { parkingFinding } from "../Aerial";
+import { Evidence, checkSource, listWords } from "../Evidence";
 import { fitLead, fitRows } from "@/lib/uses/rooms";
 import type { ReportCtx } from "./ShellReportPage";
 
@@ -51,6 +53,66 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
   );
 }
 
+const LAYER: Record<Layer, string> = { costar: "the CoStar record", matterport: "the scan", aerial: "the aerial photo" };
+const LAYER_SHORT: Record<Layer, string> = { costar: "CoStar record", matterport: "Scan", aerial: "Aerial photo" };
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const pluralWord = (w: string) => (/(s|sh|ch|x)$/.test(w) ? `${w}es` : `${w}s`);
+const baseReq = (req: string) => req.replace(/\s*#\d+$/, "").toLowerCase();
+
+// One plain line per claim: which layers back it, in words. Details (the layers' own notes) go behind "How we know".
+function triLine(t: TriRow): { text: string; lines: string[] } {
+  const layers = (Object.keys(t.cells) as Layer[]).filter((l) => t.cells[l].state !== "absent");
+  const agree = layers.filter((l) => t.cells[l].state === "agree");
+  const says = t.verdict === "confirmed" ? `${listWords(agree.map((l) => LAYER[l]))} agree`
+    : t.verdict === "conflict" ? `${listWords(layers.map((l) => LAYER[l]))} disagree, so ask the landlord`
+    : layers.length === 1 ? (t.cells[layers[0]].state === "agree" ? `only ${LAYER[layers[0]]} shows it` : `${LAYER[layers[0]]} says no`)
+    : "not known yet";
+  return { text: `${t.claim}: ${says}`, lines: [...layers.map((l) => `${LAYER_SHORT[l]}: ${t.cells[l].note}.`), t.detail] };
+}
+
+// Scan-photo checks for the fixtures you asked for, per room type ("Exam room sinks: seen in 1 of 2 exam rooms").
+function checkLines(report: ShellReport, spec: RequirementSpec): { text: string; lines: string[] }[] {
+  const checks = (report.checks ?? []).filter((c) => !report.inside?.sid || c.sid === report.inside.sid);
+  if (!checks.length) return [];
+  const out: { text: string; lines: string[] }[] = [];
+  const src = [checkSource(checks[0]) ?? "", "Photos show what's there, not what's behind the walls."];
+  for (const room of spec.rooms) {
+    const ids = report.fit.assignment.filter((a) => a.roomId && baseReq(a.req) === room.label.toLowerCase()).map((a) => a.roomId);
+    const byValue = new Map<string, string[]>();
+    for (const fx of room.fixtures ?? []) {
+      const cs = checks.filter((c) => ids.includes(c.roomId) && c.feature.toLowerCase() === fx.toLowerCase());
+      if (!cs.length) continue;
+      const seen = cs.filter((c) => c.result === "seen").length;
+      const value = seen === cs.length ? "seen in the scan photos" : seen ? `seen in ${seen} of ${cs.length} ${pluralWord(room.label)}`
+        : cs.some((c) => c.result === "unclear") ? "couldn't tell from the photos" : "none seen in the photos";
+      byValue.set(value, [...(byValue.get(value) ?? []), ids.length > 1 ? pluralWord(fx) : fx]);
+    }
+    for (const [value, fx] of byValue) out.push({ text: `${cap(room.label)} ${listWords(fx)}: ${value}`, lines: src });
+  }
+  if (!out.length) {
+    const seen = [...new Set(checks.filter((c) => c.result === "seen" && report.fit.assignment.some((a) => a.roomId === c.roomId)).map((c) => c.feature))];
+    if (seen.length) out.push({ text: `Seen in the scan photos of your rooms: ${listWords(seen)}`, lines: src });
+  }
+  return out;
+}
+
+// "Inside & out": the record, the scan and the aerial photo side by side, one line per key claim. Closed by default.
+function InsideOut({ report, spec }: { report: ShellReport; spec: RequirementSpec }) {
+  const parking = parkingFinding(report);
+  const rows = (report.triangulation ?? []).filter((t) => !(parking && /^(parking|room for \d+ cars?)/i.test(t.claim))).map(triLine);
+  if (parking) rows.push({ text: `Parking: ${parking.short}`, lines: parking.lines });
+  rows.push(...checkLines(report, spec));
+  if (!rows.length) return null;
+  return (
+    <details className="ov-io">
+      <summary>Inside &amp; out <span className="muted">how the CoStar record, the scan and the aerial photo line up</span></summary>
+      <ul>
+        {rows.map((r) => <li key={r.text}><span>{r.text}</span> <Evidence lines={r.lines} /></li>)}
+      </ul>
+    </details>
+  );
+}
+
 export function Overview({ report, spec, plan, go }: ReportCtx) {
   const home = spec.mode === "home";
   const rows = fitRows(report);
@@ -73,6 +135,8 @@ export function Overview({ report, spec, plan, go }: ReportCtx) {
         <h2 id="ov-verdict">{report.verdict}</h2>
         <p className="ov-lead">{report.summary}</p>
         {price ? <p>{budget ? (price <= budget ? `$${price.toLocaleString()}, within your budget.` : `$${price.toLocaleString()}, over your $${budget.toLocaleString()} budget.`) : `Listed at $${price.toLocaleString()}.`}</p> : null}
+        {report.alsoFits?.length ? <p className="ov-also">Also fits: {listWords(report.alsoFits.map((f) => f.label.toLowerCase()))}. <Evidence lines={report.alsoFits.slice(0, 3).map((f) => `${cap(f.label)}: ${f.why}`)} /></p> : null}
+        <InsideOut report={report} spec={spec} />
       </section>
 
       <Section id="ov-fit" title={home ? "Will my stuff fit?" : "Will it fit?"}

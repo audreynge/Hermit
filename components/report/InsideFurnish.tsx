@@ -9,7 +9,9 @@ import { glyphFor, fromPlacement, roomOf, toFootprint } from "@/lib/furnish/foot
 import { FURNITURE, roomOf as sketchRoomOf, type Furn, type FurnType } from "@/lib/spec/furnish";
 import { place, type Wall } from "@/lib/spec/place";
 import type { SketchRoom } from "@/lib/spec/sketch";
+import type { PanoCheck } from "@/lib/types";
 import { roomStop, tourSteps, tourUrl } from "@/lib/viewer/matterport";
+import { Evidence, checkSource, listWords, panoUrl } from "../Evidence";
 import { FurnishTour, type TourHandle, type TourTarget } from "../FurnishTour";
 import { GuideCard } from "../GuideCard";
 import { Furniture } from "../studio/Furniture";
@@ -31,7 +33,9 @@ const post = async <T,>(url: string, body: unknown): Promise<T> => {
   return r.json() as Promise<T>;
 };
 
-export function InsideFurnish({ report, runId, use }: ReportCtx) {
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
   const sid = report.inside?.sid;
   const g = report.floorplan;
   const [items, setItems] = useFurnished(report.shellId, sid);
@@ -46,6 +50,8 @@ export function InsideFurnish({ report, runId, use }: ReportCtx) {
   const [target, setTarget] = useState<Target>();
   const handle = useRef<TourHandle | null>(null);
   const n = useRef(0);
+  const [photo, setPhoto] = useState<{ room: string; checks: PanoCheck[] } | null>(null);
+  const dlg = useRef<HTMLDialogElement | null>(null);
 
   const approx = !!g && isApproximate(g);
   const shaped = useMemo(() => (g ? roomsWithShape(g).filter((r) => isApproximate(g) || r.floorId === mainFloor(g)) : []), [g]);
@@ -143,9 +149,23 @@ export function InsideFurnish({ report, runId, use }: ReportCtx) {
       const reply = in3d && !named ? await handle.current!.send(q) : has2d ? await place2d(q, named ?? sel) : "This scan has no room outlines, so I can only place furniture in the 3D tour.";
       setLog([...base, { role: "hermit", text: reply }]);
     } catch {
-      setLog([...base, { role: "hermit", text: "I couldn't reach the server. Try again?" }]);
+      setLog([...base, { role: "hermit", text: "Hermit couldn't answer just now. Try again in a minute; the plan, photos and tour still work." }]);
     } finally { setBusy(false); }
   };
+
+  // "Hermit looked closer": scan-photo checks for one of your rooms. Shows the fixtures you asked for in that room
+  // (seen, not seen or unclear); with none asked for, only what was seen. Rooms are matched by Matterport room id.
+  const roomChecks = (roomId: string, req: string) => {
+    const mine = (report.checks ?? []).filter((c) => c.roomId === roomId && (!sid || c.sid === sid));
+    if (!mine.length) return null;
+    const base = req.replace(/\s*#\d+$/, "").toLowerCase();
+    const asked = spec.rooms.find((r) => r.label.toLowerCase() === base)?.fixtures?.map((f) => f.toLowerCase());
+    const rel = asked?.length ? mine.filter((c) => asked.includes(c.feature.toLowerCase())) : mine.filter((c) => c.result === "seen");
+    const seen = rel.filter((c) => c.result === "seen");
+    const first = seen.find((c) => panoUrl(c));
+    return { seen, notSeen: rel.filter((c) => c.result === "not_seen"), unclear: rel.filter((c) => c.result === "unclear"), thumb: first && panoUrl(first) };
+  };
+  useEffect(() => { if (photo && dlg.current && !dlg.current.open) dlg.current.showModal(); }, [photo]);
 
   const selRoom = sel ? shaped.find((r) => r.id === sel) : undefined;
   const selFoot = footprints.find((f) => f.id === selItem);
@@ -209,14 +229,44 @@ export function InsideFurnish({ report, runId, use }: ReportCtx) {
       <aside className="inside2-side card" aria-label="Rooms and Hermit">
         <h2>Your rooms in this space</h2>
         <ol className="room-list">
-          {report.fit.assignment.map((a) => (
-            <li key={a.req}>
-              {a.roomId ? <button type="button" aria-pressed={sel === a.roomId} onClick={() => pickRoom(a.roomId!)}>
-                <strong>{a.req}</strong> <span className="muted">{Math.round(g?.rooms.find((r) => r.id === a.roomId)?.areaSqft ?? 0)} sf</span>
-              </button> : <span className="room-missing"><strong>{a.req}</strong> <span>not built here yet</span></span>}
-            </li>
-          ))}
+          {report.fit.assignment.map((a) => {
+            const c = a.roomId ? roomChecks(a.roomId, a.req) : null;
+            return (
+              <li key={a.req}>
+                {a.roomId ? <button type="button" aria-pressed={sel === a.roomId} onClick={() => pickRoom(a.roomId!)}>
+                  <strong>{a.req}</strong> <span className="muted">{Math.round(g?.rooms.find((r) => r.id === a.roomId)?.areaSqft ?? 0)} sf</span>
+                </button> : <span className="room-missing"><strong>{a.req}</strong> <span>not built here yet</span></span>}
+                {c && (c.seen.length > 0 || c.notSeen.length > 0 || c.unclear.length > 0) && (
+                  <div className="room-check">
+                    {c.seen.length > 0 && (
+                      <button type="button" className="rc-seen" onClick={() => setPhoto({ room: a.req.replace(/\s*#(\d+)$/, " $1"), checks: c.seen })}>
+                        {c.thumb && <img src={c.thumb} alt="" width={44} height={44} />}
+                        <span>{cap(listWords(c.seen.map((x) => x.feature)))} seen<span className="sr-only"> in the scan photos of {a.req}. Open the photo.</span></span>
+                      </button>
+                    )}
+                    {c.notSeen.length > 0 && <span className="rc-note">No {listWords(c.notSeen.map((x) => x.feature), "or")} seen in the photos</span>}
+                    {c.unclear.length > 0 && <span className="rc-note">Couldn&apos;t tell from the photos ({listWords(c.unclear.map((x) => x.feature))})</span>}
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ol>
+        <dialog ref={dlg} className="rc-dialog" aria-labelledby="rc-title" onClose={() => setPhoto(null)}>
+          {photo && <>
+            <div className="rc-dialog-head">
+              <h3 id="rc-title">{cap(photo.room)}: {listWords(photo.checks.map((x) => x.feature))} seen</h3>
+              <button type="button" className="btn small" onClick={() => dlg.current?.close()} autoFocus>Close</button>
+            </div>
+            {photo.checks.map((x) => (
+              <figure key={x.feature} className="rc-fig">
+                {panoUrl(x) && <img src={panoUrl(x)} alt={`Scan photo of the ${photo.room}: ${x.note}`} />}
+                <figcaption>{x.note}</figcaption>
+              </figure>
+            ))}
+            <Evidence lines={[checkSource(photo.checks[0]), "A photo shows what's there, not what's behind the walls (plumbing, drains, power): ask the landlord."]} />
+          </>}
+        </dialog>
 
         <section className="ask" aria-labelledby="hermit-ask-title">
           <h3 id="hermit-ask-title">Tell Hermit what to put where, or ask about the space</h3>
