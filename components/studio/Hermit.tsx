@@ -145,7 +145,7 @@ export function Hermit() {
     if (started.current) return;
     started.current = true;
     if (replay) {
-      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays the crew's exact steps without calling any outside service." }]);
+      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays my exact steps without calling any outside service." }]);
       void runSearch({ ...EMPTY, city: "houston", useType: "space" } as RequirementSpec, replay);
       return;
     }

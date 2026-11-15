@@ -74,7 +74,7 @@ const TEXT: Record<Field, (spec: Draft, asked: string[]) => string> = {
     ? "How many bedrooms do you need?"
     : "Roughly how much space? Square feet is great, or tell me how many people work there on a busy day.",
   moveIn: () => "When do you need to be in? It decides how much build-out is worth waiting for.",
-  budget: (spec) => spec.mode === "home" ? "What's your budget? Tell me if that's monthly rent or a purchase price." : "What can you spend on rent per month? (Total, not per square foot.)",
+  budget: (spec) => spec.mode === "home" ? "What's your budget? Tell me if that's monthly rent or a purchase price." : "What can you spend on rent each month, in total rather than per square foot?",
   beds: () => "How many bedrooms and bathrooms?",
   power: () => "Will you run heavy equipment that needs three-phase or high-amp power?",
   bays: () => "How many drive-in or dock doors do you need?",
@@ -82,14 +82,22 @@ const TEXT: Record<Field, (spec: Draft, asked: string[]) => string> = {
   other: () => "Is there anything else about the space you want me to know?",
 };
 const ask = (field: Field, spec: Draft, asked: string[] = []): Pick<Question, "field" | "text" | "quick"> => ({ field, text: TEXT[field](spec, asked), quick: [] });
+// The same question again, after an answer that didn't fit it.
+export const askAgain = (field: Field, spec: Draft, asked: string[]): Question =>
+  ({ ...ask(field, spec, asked), why: BASIC_WHY[field === "baths" ? "rooms" : field] ?? WHY[field] ?? AGAIN_WHY[field] ?? "Optional, but it sharpens the matches." });
+const AGAIN_WHY: Partial<Record<Field, string>> = {
+  price: "It's half of the break-even math.",
+  days: "The other half: it spreads the rent across your open days.",
+  moveIn: "It sets how much construction time is acceptable when I rank spaces.",
+};
 
 const PACK_FIELD: Record<string, Field> = { size: "size", rooms: "rooms", accessibility: "accessibility", parking: "parking", moveIn: "moveIn", budget: "budget", beds: "beds", power: "power", bays: "bays", sprinklers: "sprinklers" };
 
 const WHY: Partial<Record<Field, string>> = {
-  parking: "Parking rules change by use, so the Code crab needs it.",
-  accessibility: "If yes, my Access crab measures every hallway and checks for stairs.",
-  rooms: "The Inspector maps these onto the real rooms in each scan.",
-  budget: "My Advocate uses it to flag spaces that won't pencil out.",
+  parking: "Parking rules change by use, so I need it to check them.",
+  accessibility: "If yes, I will measure every hallway and check for stairs.",
+  rooms: "I match these to the real rooms in each scan.",
+  budget: "I use it to flag spaces that cost more than you can spend.",
   power: "Power upgrades are one of the slowest things to fix.",
 };
 
@@ -97,7 +105,7 @@ const BASICS: Field[] = ["city", "use", "rooms", "size", "moveIn"];
 const BASIC_WHY: Partial<Record<Field, string>> = {
   city: "Every scan I have is in Houston or Los Angeles.",
   use: "It decides which expert checklist I bring: plumbing for a salon, exam-room sinks for a clinic.",
-  rooms: "Rooms and bathrooms decide plumbing, size and what the crew looks for in each scan.",
+  rooms: "Rooms and bathrooms decide plumbing, size and what I look for in each scan.",
   size: "A guess is fine. I'll measure the real spaces myself.",
 };
 
@@ -126,14 +134,14 @@ export function nextQuestion(spec: Draft, pool: Shell[], asked: string[]): Quest
     if (spec.mode === "business") for (const f of ["price", "days"] as Field[]) if (!answered(spec, f, asked))
       return { ...ask(f, spec), why: f === "price" ? "It's half of the break-even math." : "The other half: it spreads the rent across your open days." };
     if (asked.includes("musts")) return null;
-    return { ...ask("musts", spec), why: "So nothing important slips through before the crew goes in." };
+    return { ...ask("musts", spec), why: "So nothing important slips through before I go looking." };
   }
   options.sort((a, b) => b.score - a.score);
   const best = options[0];
   const t = ask(best.field, spec);
   const why = best.sp && best.sp[0] !== best.sp[1]
     ? `I'm asking because your answer narrows ${best.sp[1].toLocaleString()} spaces to as few as ${Math.min(best.sp[0], best.sp[1] - best.sp[0]).toLocaleString()}.`
-    : WHY[best.field] ?? "It changes what the crew checks for.";
+    : WHY[best.field] ?? "It changes what I check for.";
   return { ...t, why, split: best.sp };
 }
 

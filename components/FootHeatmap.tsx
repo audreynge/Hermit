@@ -8,6 +8,8 @@ import type { ShellReport } from "@/lib/types";
 const CHIPS = [["Morning", 8], ["Midday", 12], ["Evening", 18], ["Night", 22]] as const;
 const Z = 16, SPAN = 5 * 256;
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+// Server and browser Math.log/tan differ in the last bits, so map positions are rounded or hydration mismatches.
+const px = (v: number) => Math.round(v * 10) / 10;
 const world = (lat: number, lon: number) => { const t = tileFor(lat, lon, Z); return { x: (t.x + t.fx) * 256, y: (t.y + t.fy) * 256 }; };
 
 // `heat` false: the plain address map (homes, warehouses, offices don't depend on walk-ins).
@@ -31,7 +33,7 @@ export function FootHeatmap({ report, site, heat = true }: { report: ShellReport
   const dead = pt === null || lost;
   const t = pt ? tileFor(pt.lat, pt.lon, Z) : null;
   const c = pt ? world(pt.lat, pt.lon) : null;
-  const ox = t ? 2 * 256 + t.fx * 256 : 0, oy = t ? 2 * 256 + t.fy * 256 : 0;
+  const ox = t ? px(2 * 256 + t.fx * 256) : 0, oy = t ? px(2 * 256 + t.fy * 256) : 0;
   // Heat sources come from the server (places + job blocks); older payloads only have places.
   const spots = heat ? (site?.heat ?? (site?.pois ?? []).map((p) => ({ lat: p.lat, lon: p.lon, w: 0.8 }))) : [];
   const fed = site?.heatSources?.length ? site.heatSources : site?.pois?.length ? ["nearby places (OpenStreetMap)"] : [];
@@ -76,7 +78,7 @@ export function FootHeatmap({ report, site, heat = true }: { report: ShellReport
                 <g opacity={0.15 + 0.85 * busy}>
                   {spots.map((p, i) => {
                     const w = world(p.lat, p.lon);
-                    return <circle key={i} cx={ox + w.x - c.x} cy={oy + w.y - c.y} r={(30 + 40 * busy) * (0.6 + 0.4 * p.w)} opacity={Math.min(1, p.w)} fill={`url(#${id}-g)`} />;
+                    return <circle key={i} cx={px(ox + w.x - c.x)} cy={px(oy + w.y - c.y)} r={px((30 + 40 * busy) * (0.6 + 0.4 * p.w))} opacity={Math.min(1, p.w)} fill={`url(#${id}-g)`} />;
                   })}
                 </g>
                 <g transform={`translate(${ox - 16} ${oy - 40}) scale(1.35)`}>

@@ -46,7 +46,7 @@ export function Hero({ shells, total }: { shells: HeroShell[]; total: number }) 
 
       <section className="hero-steps" aria-label="How it works">
         <div><strong>1. Tell me what you need</strong><p>A few friendly questions. I sketch your space as we talk.</p></div>
-        <div><strong>2. My crew walks inside</strong><p>Real 3D scans, measured room by room, checked against local rules.</p></div>
+        <div><strong>2. Hermit walks inside</strong><p>Real 3D scans, measured room by room, checked against local rules.</p></div>
         <div><strong>3. You get the answer</strong><p>Will customers come? Can I afford it? What&apos;s left to do? In plain words.</p></div>
       </section>
     </div>

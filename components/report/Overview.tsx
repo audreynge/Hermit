@@ -2,6 +2,7 @@
 import { AlertTriangle, CheckCircle2, ExternalLink, HelpCircle, XCircle } from "lucide-react";
 import { competitors, customers, errands, gettingAround, neighbors } from "@/lib/neighborhood/summarize";
 import type { RuleHit, RuleStatus } from "@/lib/types";
+import { fitLead, fitRows } from "@/lib/uses/rooms";
 import { FootHeatmap } from "../FootHeatmap";
 import { showsFootTraffic } from "@/lib/neighborhood/relevance";
 import type { ReportCtx } from "./ShellReportPage";
@@ -55,7 +56,7 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
 
 export function Overview({ report, spec, site, use, challenge, plan, go }: ReportCtx) {
   const home = spec.mode === "home";
-  const built = report.fit.assignment.filter((a) => a.roomId), toBuild = report.fit.assignment.filter((a) => !a.roomId);
+  const rows = fitRows(report);
   const total = report.fit.assignment.length;
   const known = new Set(GROUPS.flatMap((g) => g.rules));
   const other = report.rules.filter((r) => !known.has(r.rule));
@@ -83,15 +84,16 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
         {home && (price
           ? <p className="ov-lead">{budget ? (price <= budget ? `At $${price.toLocaleString()}, it's within your budget.` : `At $${price.toLocaleString()}, it's over your $${budget.toLocaleString()} budget.`) : `Listed at $${price.toLocaleString()}.`}</p>
           : <p className="muted">The price isn&apos;t in the listing data. Ask the landlord.</p>)}
-        {challenge && <p className="muted">We argued against this pick: {challenge.outcome === "survived" ? "it held up." : "the crew changed its top pick."} {challenge.detail}</p>}
+        {challenge && <p className="muted">Hermit double-checked this pick: {challenge.outcome === "survived" ? "it held up." : "it changed its top pick."} {challenge.detail}</p>}
       </section>
 
       <Section id="ov-fit" title={home ? "Will my stuff fit?" : "Will it fit?"}
-        lead={total ? `${built.length} of the ${total} rooms you want are already built.` : "This space has no scan to measure."}>
+        lead={fitLead(rows)}>
         {total > 0 && (
           <div className="ov-two">
-            <div><h3>Already here</h3>{built.length ? <ul className="ov-list">{built.map((x, i) => <li key={i}>{x.req}</li>)}</ul> : <p className="muted">None yet.</p>}</div>
-            <div><h3>To build</h3>{toBuild.length ? <ul className="ov-list">{toBuild.map((x, i) => <li key={i}>{x.req}</li>)}</ul> : <p className="muted">Nothing. Every room is here.</p>}</div>
+            <div><h3>Already here</h3>{rows.built.length ? <ul className="ov-list">{rows.built.map((x, i) => <li key={i}>{x}</li>)}</ul> : <p className="muted">None of them yet.</p>}</div>
+            {rows.convert.length > 0 && <div><h3>Could be made from a room here</h3><ul className="ov-list">{rows.convert.map((x, i) => <li key={i}>{x.req}, from {x.from}</li>)}</ul></div>}
+            <div><h3>To build new</h3>{rows.toBuild.length ? <ul className="ov-list">{rows.toBuild.map((x, i) => <li key={i}>{x}</li>)}</ul> : <p className="muted">Nothing. Every room has a place here.</p>}</div>
           </div>
         )}
         {report.work.length > 0 && <>
@@ -159,7 +161,7 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
       <Section id="ov-unknown" title="What's still unknown" lead={report.unknowns.length || challenge?.concerns.length ? undefined : "Nothing big. You can still ask anything."}>
         {report.unknowns.length > 0 && <ol className="ov-list">{report.unknowns.slice(0, 3).map((u) => <li key={u.question}>{u.question}</li>)}</ol>}
         {challenge?.concerns.length ? <>
-          <h3>What our double-check worried about</h3>
+          <h3>What the double-check flagged</h3>
           <ul className="ov-list">{challenge.concerns.slice(0, 3).map((c) => <li key={c}>{c}</li>)}</ul>
         </> : null}
         <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>{home ? "Talk to the landlord" : "Talk to your broker"}</button>
