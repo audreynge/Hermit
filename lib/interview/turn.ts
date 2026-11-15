@@ -13,8 +13,9 @@ export type Msg = { role: "hermit" | "user"; text: string };
 export type IState = { spec: Draft; asked: string[]; history: Msg[]; field?: Field | null; quick?: string[]; ready?: boolean };
 export type ITurn = { reply: string; why?: string; quick: string[]; multi?: boolean; state: IState; ready: boolean; basicsDone: boolean; stages: FunnelStage[]; llm: boolean; progress?: number };
 
-const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|find (it|them|spaces)|show me|let'?s see|walk inside)\b/i;
-const SKIP_ROOMS = /typical|usual|standard|default|works|sounds good|not sure|don'?t know|skip|you pick|whatever/i;
+const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
+const SEARCH_ONLY = /\b(just search|search now|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
+const SKIP_ROOMS = /typical|usual|standard|default|works|sounds good|not sure|don'?t know|skip|you pick|whatever|^\s*(yes|yeah|yep|ok|okay|sure|fine)\b/i;
 const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 const NO = /^\s*(no|nope|none|not really|no special|street parking|standard power|not sure)/i;
 
@@ -42,9 +43,6 @@ function answerField(spec: Draft, field: Field | null | undefined, text: string)
     }
     case "size":
       if (!/sf|sq|square|feet|people|staff|person|bed|\d,\d{3}/.test(t) && n >= 300) next.sizeSqft = [Math.round(n * 0.8), Math.round(n * 1.25)];
-      break;
-    case "rooms":
-      if (SKIP_ROOMS.test(t) && !next.rooms.length) next.rooms = seedRooms(next);
       break;
     case "baths": {
       const w = WORDS[t.match(/\b(one|two|three|four|five|six)\b/)?.[1] ?? ""];
@@ -75,6 +73,17 @@ function answerField(spec: Draft, field: Field | null | undefined, text: string)
   return next;
 }
 
+// Parsed counts win per room type; the pack fills the rest only once the user confirms or skips.
+function answerRooms(spec: Draft, text: string, asked: string[]): Draft {
+  if (spec.rooms.some((r) => r.label !== "bathroom")) { asked.push("roomsOk"); return spec; }
+  if (SKIP_ROOMS.test(text) || asked.includes("roomsOffer")) {
+    asked.push("roomsOk");
+    return { ...spec, rooms: seedRooms({ ...spec, input: "text" }) };
+  }
+  asked.push(asked.includes("roomsRetry") ? "roomsOffer" : "roomsRetry");
+  return spec;
+}
+
 const nn = z.number().nullable();
 const Update = z.object({
   acknowledgement: z.string(),
@@ -93,7 +102,7 @@ Return JSON. "update": only facts the user's LAST message states or clearly impl
 "question": rephrase NEXT QUESTION naturally in one sentence, keeping its meaning, like a friendly interviewer. Ask it open-ended: never list example answers or options ("e.g.", "such as A, B or C"). If NEXT QUESTION is "none", write "" (empty).
 The screen has only two things: this chat on the left and a sketch of their space on the right (rooms they can drag, resize or delete). YOU edit that sketch through "update": each entry in "rooms" sets that room's total count and size (absolute, not added), and the sketch redraws from it. CURRENT SKETCH lists what is drawn now.
 When they ask you to change, fit or plan the layout (e.g. "map it out for 50 engineers"), return the whole set of rooms that layout needs, with counts and minSqft, plus headcount and sizeMinSqft/sizeMaxSqft. Office rule of thumb: open desks ~50 sq ft per person (one "open" room sized for all desks), a private office per ~10 people, a conference room per ~12, a bathroom per ~15, a kitchen, and 150–200 sq ft per person overall.
-Only say you changed the sketch if "update" actually changes it. There are no property cards until the crew searches. If they ask where to click or what to do, say so plainly; once the essentials are done, a "Walk inside the matches" button sits at the bottom of the chat and the user can tap it any time.
+Only say you changed the sketch if "update" actually changes it. There are no property cards until the crew searches. If they ask where to click or what to do, say so plainly; once the essentials are done, a "See your matches" button sits at the bottom of the chat and the user can tap it any time.
 Never claim compliance, availability or guarantees. Never use the words "compliant", "certified" or "guaranteed".`;
 
 export async function interviewTurn(state: IState, text: string | null, shells: Shell[]): Promise<ITurn> {
@@ -103,13 +112,14 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   const asked = [...state.asked];
   if (state.field && !asked.includes(state.field)) asked.push(state.field);
   const tapped = !!text && !!state.quick?.includes(text);
+  const wantsSearch = !!text && (state.field === "rooms" || state.field === "baths" ? SEARCH_ONLY : SKIP).test(text);
   if (text) {
     spec = answerField(spec, state.field, text);
-    const merged = mergeText(spec, text, state.field === "rooms" ? "rooms" : null).spec;
+    const merged = mergeText(spec, text, state.field === "rooms" && /^\s*\d+\s*$/.test(text) ? "rooms" : null).spec;
     // Once the use is set, a stray noun ("a small lab") must not turn a clinic into a factory.
     spec = state.spec.useType ? { ...merged, useType: state.spec.useType, mode: state.spec.mode } : merged;
+    if (state.field === "rooms" && !wantsSearch && spec.mode !== "home") spec = answerRooms(spec, text, asked);
   }
-  const wantsSearch = !!text && SKIP.test(text);
   let { stages, pool } = funnel(asSpec(spec), shells);
   // Essentials first; once they're done (or the user says search), one optional deeper question per turn.
   const plan = () => {
@@ -124,7 +134,7 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   if (hasGemini() && text && !tapped) {
     try {
       const history: Content[] = state.history.slice(-8).map((m) => ({ role: m.role === "hermit" ? "model" : "user", parts: [{ text: m.text }] }));
-      const out = await generateJSON(SYSTEM, [...history, { role: "user", parts: [{ text: `What I know: ${spec.useType ? describe(spec) : "nothing yet"}.\nCURRENT SKETCH: ${sketchText(spec)}\nUser's last message: ${text}\nNEXT QUESTION: ${q ? q.text : "none"}${ready ? "\n(The essentials are done; this is an optional extra question and the Walk inside button is showing.)" : ""}` }] }], Update, 9000);
+      const out = await generateJSON(SYSTEM, [...history, { role: "user", parts: [{ text: `What I know: ${spec.useType ? describe(spec) : "nothing yet"}.\nCURRENT SKETCH: ${sketchText(spec)}\nUser's last message: ${text}\nNEXT QUESTION: ${q ? q.text : "none"}${ready ? "\n(The essentials are done; this is an optional extra question and the See your matches button is showing.)" : ""}` }] }], Update, 9000);
       if (out) {
         llm = true;
         spec = applyUpdate(spec, out.update, !!state.spec.useType);
@@ -139,7 +149,7 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
     }
   }
   if (!llm) spec = fitHeadcount(spec, state.spec.headcount);
-  if (!ack && text && !tapped) ack = "Got it.";
+  if (!ack && text && !tapped) ack = ["Got it.", "Thanks.", "Okay.", "Noted."][state.history.length % 4];
   const changed = sketchText(spec) !== sketchText(state.spec);
 
   const history: Msg[] = [...state.history, ...(text ? [{ role: "user" as const, text }] : [])];
@@ -150,7 +160,7 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   });
   if (ready) {
     const lead = state.ready ? `${ack || "Updated."}${changed ? ` Sketch on the right: ${sketchText(spec)}.` : ""}` : `${ack} That's everything I need for ${describe(spec)}.`.trim();
-    const go = wantsSearch ? "Tap “Walk inside the matches” below and I'll send the crew in." : "You can tap “Walk inside the matches” below whenever you're ready.";
+    const go = wantsSearch ? "Tap “See your matches” below and I'll send the crew in." : "You can tap “See your matches” below whenever you're ready.";
     return out([lead, go, wantsSearch ? "" : q?.text ?? "Is there anything else you'd like me to factor in?"].filter(Boolean).join(" "), q?.why);
   }
   const sketchNote = basics && !basicsDone(state.spec, state.asked) ? " I've sketched a typical layout on the right; change anything you like." : "";

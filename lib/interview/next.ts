@@ -7,10 +7,10 @@ export type Field = "city" | "use" | "musts" | "price" | "days" | "rooms" | "acc
 export type Question = { field: Field; text: string; why: string; quick: string[]; split?: [number, number]; multi?: boolean };
 
 const answered = (spec: Draft, f: Field, asked: string[]) => {
+  if (f === "city" || f === "use") return !!(f === "city" ? spec.city : spec.useType);
+  if (f === "rooms" && spec.mode !== "home") return asked.includes("roomsOk") || (spec.rooms.some((r) => r.label !== "bathroom") && spec.input !== "survey");
   if (asked.includes(f)) return true;
   switch (f) {
-    case "city": return !!spec.city;
-    case "use": return !!spec.useType;
     case "musts": return false;
     case "price": return spec.avgPrice != null;
     case "days": return spec.daysOpen != null;
@@ -50,15 +50,19 @@ function split(f: Field, pool: Shell[], spec: Draft): [number, number] | undefin
   }
 }
 
-const TEXT: Record<Field, (spec: Draft) => string> = {
+const TEXT: Record<Field, (spec: Draft, asked: string[]) => string> = {
   city: () => "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. I cover Houston and Los Angeles right now. Which city should I search?",
   use: () => "What are you opening, or looking for?",
   price: (spec) => `What does a typical customer spend per visit${packFor(spec).key === "medical" ? " (what you collect per patient visit)" : ""}? I'll turn the rent into “customers a day”.`,
   days: () => "How many days a week will you be open?",
   musts: () => "Last one: is there anything that's a must-have for you that I haven't asked about? Tell me in your own words.",
-  rooms: (spec) => spec.mode === "home"
-    ? "How many bedrooms and bathrooms do you need?"
-    : `What rooms does your ${packFor(spec).label.toLowerCase()} need, and how many of each? Please include bathrooms.`,
+  rooms: (spec, asked) => {
+    const pack = packFor(spec);
+    if (spec.mode === "home") return "How many bedrooms and bathrooms do you need?";
+    if (asked.includes("roomsOffer")) return `No problem. I'll plan on a typical ${pack.label.toLowerCase()}: ${pack.rooms.map((r) => `${r.count} ${r.label}`).join(", ")}. Does that work, or what would you change?`;
+    if (asked.includes("roomsRetry")) return "I didn't catch the numbers. Could you tell me a count for each room, like how many offices or treatment rooms, and how many bathrooms?";
+    return `What rooms does your ${pack.label.toLowerCase()} need, and how many of each? Please include bathrooms.`;
+  },
   baths: () => "And how many bathrooms do you need?",
   accessibility: () => "Will anyone on your team or among your visitors need step-free or wheelchair access?",
   parking: () => "How many parking spaces do you need for staff and visitors at the busiest time?",
@@ -71,9 +75,9 @@ const TEXT: Record<Field, (spec: Draft) => string> = {
   power: () => "Will you run heavy equipment that needs three-phase or high-amp power?",
   bays: () => "How many drive-in or dock doors do you need?",
   sprinklers: () => "Will you store goods above 12 feet? That decides whether you need ESFR sprinklers.",
-  other: () => "Anything else about the space I should know, like signage, opening hours or who's next door?",
+  other: () => "Is there anything else about the space you want me to know?",
 };
-const ask = (field: Field, spec: Draft): Pick<Question, "field" | "text" | "quick"> => ({ field, text: TEXT[field](spec), quick: [] });
+const ask = (field: Field, spec: Draft, asked: string[] = []): Pick<Question, "field" | "text" | "quick"> => ({ field, text: TEXT[field](spec, asked), quick: [] });
 
 const PACK_FIELD: Record<string, Field> = { size: "size", rooms: "rooms", accessibility: "accessibility", parking: "parking", moveIn: "moveIn", budget: "budget", beds: "beds", power: "power", bays: "bays", sprinklers: "sprinklers" };
 
@@ -101,7 +105,7 @@ export const basicsDone = (spec: Draft, asked: string[]) => BASICS.every((f) => 
 export function nextQuestion(spec: Draft, pool: Shell[], asked: string[]): Question | null {
   const basic = BASICS.find((f) => !answered(spec, f, asked));
   if (basic) {
-    const t = ask(basic, spec);
+    const t = ask(basic, spec, asked);
     const sp = basic === "size" && spec.city ? split("size", pool, spec) : undefined;
     return { ...t, why: BASIC_WHY[basic] ?? "It sets how much construction time is acceptable when I rank spaces.", split: sp };
   }

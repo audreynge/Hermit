@@ -46,7 +46,47 @@ describe("interview flow", () => {
     expect(seen.slice(0, -1).every((p) => p < 100)).toBe(true);
     expect(seen).toEqual([...seen].sort((a, b) => a - b));
     expect(t.state.field).toBeTruthy();
-    expect(t.reply).toContain("Walk inside the matches");
+    expect(t.reply).toContain("See your matches");
     expect(t.reply.trim().endsWith("?")).toBe(true);
+  });
+});
+
+describe("rooms enforcement", () => {
+  const blank = { mode: "business" as const, useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" as const };
+  const run = (s: Parameters<typeof interviewTurn>[0], x: string | null) => interviewTurn(s, x, []);
+  const toRooms = async () => {
+    let t = await run({ spec: blank, asked: [], history: [] }, "dental clinic");
+    expect(t.state.field).toBe("city");
+    t = await run(t.state, "Houston");
+    expect(t.state.field).toBe("rooms");
+    return t;
+  };
+
+  it("asks the city before rooms when the first answer only gives the use", async () => {
+    await toRooms();
+  });
+  it("skip at rooms seeds the typical rooms and keeps interviewing", async () => {
+    const t = await run((await toRooms()).state, "skip");
+    expect(t.ready).toBe(false);
+    expect(t.state.spec.rooms.some((r) => r.label === "exam room")).toBe(true);
+    expect(t.state.field).toBe("size");
+  });
+  it("a vague reply re-asks, then offers the typical layout, then proceeds", async () => {
+    let t = await run((await toRooms()).state, "hmm");
+    expect(t.state.field).toBe("rooms");
+    t = await run(t.state, "hmm");
+    expect(t.state.field).toBe("rooms");
+    expect(t.reply).toMatch(/typical/);
+    t = await run(t.state, "yes");
+    expect(t.state.field).toBe("size");
+    expect(t.state.spec.rooms.length).toBeGreaterThan(1);
+  });
+  it("a bathroom-only count merges with the pack once defaults are confirmed", async () => {
+    let t = await run((await toRooms()).state, "3 bathrooms");
+    expect(t.state.field).toBe("rooms");
+    t = await run(t.state, "sounds good");
+    const rooms = t.state.spec.rooms;
+    expect(rooms.find((r) => r.label === "bathroom")?.count).toBe(3);
+    expect(rooms.some((r) => r.label === "exam room")).toBe(true);
   });
 });
