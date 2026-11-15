@@ -1,4 +1,5 @@
 import table from "../../rules/uses.json";
+import { normalizeRoomLabel } from "../reason/labels";
 import { useCategory } from "../reason/rules";
 import type { RequirementSpec, RoomReq } from "../types";
 
@@ -28,8 +29,10 @@ export function seedRooms(spec: Pick<RequirementSpec, "useType" | "mode" | "room
     return p?.fixtures && !r.fixtures?.length ? { ...r, fixtures: p.fixtures } : r;
   });
   if (spec.input !== "text" && spec.input !== "voice") return merged;
-  const have = new Set(spec.rooms.map((r) => r.label));
-  return [...merged, ...pack.rooms.filter((r) => !have.has(r.label)).map(fromPack)];
+  // Bathroom synonyms (restroom, WC, powder room) are one room type, so the pack's bathroom never stacks on the user's.
+  const kind = (l: string) => (normalizeRoomLabel([l]) === "bathroom" ? "bathroom" : l);
+  const have = new Set(spec.rooms.map((r) => kind(r.label)));
+  return [...merged, ...pack.rooms.filter((r) => !have.has(kind(r.label))).map(fromPack)];
 }
 
 export const roomSize = (label: string, pack: Pack) => pack.rooms.find((r) => r.label === label) ?? { w: 10, h: 10 };

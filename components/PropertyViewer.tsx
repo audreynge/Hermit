@@ -35,7 +35,7 @@ export function PropertyViewer({ report, onClose, initial = "fit", design, furni
       </div>
       <div id="pv-panel" className="viewer-body pv-body" role="tabpanel" aria-labelledby={`pv-tab-${view}`}>
         {view === "fit" && (
-          <FitView report={report} onShowInTour={sid ? (i) => { setJump(i); setView("inside"); } : undefined} {...{ design }} />
+          <FitView report={report} onShowInTour={sid ? (i) => { setJump(i); setView("inside"); } : undefined} design={design} />
         )}
         {view === "inside" && sid && (
           <div className="pv-tour">

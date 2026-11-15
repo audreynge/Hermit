@@ -399,7 +399,7 @@ export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial, i
       </div>
 
       {view === "3d" && <Plan3D solids={solids} label={`Your layout: ${rooms.length} rooms, about ${area.toLocaleString()} square feet`} height={inline ? 420 : 520} wallScale={0.45} />}
-      <p className="sr-only" id={helpId}>Each room and piece of furniture is a button. Arrow keys move the selected one (Shift for 5 feet), plus and minus resize, Delete removes, Escape deselects. Drag with a mouse or finger to move; drag the corner square to resize. Scroll or drag empty space to look around; pinch or Ctrl+scroll to zoom.</p>
+      <p className="sr-only" id={helpId}>Each room and piece of furniture is a button. Arrow keys move the selected one (Shift for 5 feet), plus and minus resize, Delete removes, Escape deselects. Drag with a mouse or finger to move; drag the corner square to resize.{inline ? " Drag empty space to look around; pinch or Ctrl/Cmd + scroll to zoom." : " Scroll or drag empty space to look around; pinch or Ctrl+scroll to zoom."}</p>
       <div className="canvas ls-canvas" ref={canvas} hidden={view === "3d"} style={{ backgroundSize: `${cam.z * 2}px ${cam.z * 2}px`, backgroundPosition: `${-cam.x * cam.z}px ${-cam.y * cam.z}px` }}>
         <svg ref={svg} className="plan" width="100%" height="100%" viewBox={`${cam.x} ${cam.y} ${Math.max(1, vp.w) / cam.z} ${Math.max(1, vp.h) / cam.z}`} preserveAspectRatio="xMinYMin meet"
           role="application" aria-describedby={helpId} tabIndex={0}

@@ -82,6 +82,7 @@ describe("rooms enforcement", () => {
     expect(t.state.field).toBe("rooms");
     expect(t.reply).toMatch(/^No problem\. I'll plan on a typical/);
     t = await run(t.state, "yes");
+    expect(t.reply).toMatch(/^Great, I'll plan on a typical/);
     expect(t.state.field).toBe("size");
     expect(t.state.spec.rooms.length).toBeGreaterThan(1);
   });

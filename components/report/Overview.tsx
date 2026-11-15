@@ -54,7 +54,6 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
 
 export function Overview({ report, spec, site, use, challenge, plan, go }: ReportCtx) {
   const home = spec.mode === "home";
-  const who = home ? "landlord" : "broker";
   const built = report.fit.assignment.filter((a) => a.roomId), toBuild = report.fit.assignment.filter((a) => !a.roomId);
   const total = report.fit.assignment.length;
   const known = new Set(GROUPS.flatMap((g) => g.rules));
@@ -67,7 +66,7 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
     : "The scan didn't measure the front door");
   const reach = a ? a.asScanned.filter((r) => r.status === "reachable").length : 0;
   // Route verdicts from the scan, so the heading can't say "All clear" above a blocked door or room.
-  const accessExtra: RuleStatus[] = a ? [a.entry.status === "blocked" ? "fail" : a.entry.status === "unknown" ? "unknown" : "pass", ...(reach < a.asScanned.length ? ["fail" as const] : [])] : [];
+  const accessExtra: RuleStatus[] = a ? [a.entry.status === "blocked" ? "fail" : a.entry.status === "unknown" ? "unknown" : "pass", ...(a.asScanned.some((r) => r.status === "blocked") ? ["fail" as const] : []), ...(a.asScanned.some((r) => r.status === "unknown") ? ["unknown" as const] : [])] : [];
   const price = report.listing?.price;
   const budget = report.listing?.kind === "sale" ? spec.budgetTotal : report.listing?.kind === "lease" ? spec.budgetMonthly : undefined;
   const nb = home
@@ -162,7 +161,7 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
           <h3>What our double-check worried about</h3>
           <ul className="ov-list">{challenge.concerns.slice(0, 3).map((c) => <li key={c}>{c}</li>)}</ul>
         </> : null}
-        <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>Ask the {who}</button>
+        <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>{home ? "Talk to the landlord" : "Talk to your broker"}</button>
       </Section>
 
       <p className="muted small">Screening only: Hermit doesn&apos;t inspect, certify code status or promise availability. Neighborhood numbers are public data and proxies.</p>

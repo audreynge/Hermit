@@ -192,9 +192,10 @@ export function designMatch(design: Block[], assignment: ShellReport["fit"]["ass
   const rooms = design.filter((b) => b.kind !== "object");
   const seen = new Map<string, number>();
   const named = rooms.filter((b) => !HALL.test(b.label)).map((b) => {
-    const n = seen.get(b.label) ?? 0;
-    seen.set(b.label, n + 1);
-    const hits = assignment.filter((a) => a.req.replace(/ #\d+$/, "").toLowerCase() === reqLabel(b.label));
+    const key = reqLabel(b.label); // aliases ("waiting area", "reception") share one requirement's slots
+    const n = seen.get(key) ?? 0;
+    seen.set(key, n + 1);
+    const hits = assignment.filter((a) => a.req.replace(/ #\d+$/, "").toLowerCase() === key);
     return { name: blockName(design, b), matched: !!hits[n]?.roomId };
   });
   return { matched: named.filter((r) => r.matched).map((r) => r.name), build: named.filter((r) => !r.matched).map((r) => r.name), sqft: Math.round(rooms.reduce((s, b) => s + b.w * b.h, 0)) };

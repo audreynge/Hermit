@@ -79,7 +79,7 @@ function answerRooms(spec: Draft, text: string, asked: string[], notes: string[]
   if (SKIP_ROOMS.test(text) || asked.includes("roomsOffer")) {
     asked.push("roomsOk");
     const rooms = seedRooms({ ...spec, input: "text" });
-    notes.push(`No problem. I'll plan on a typical ${packFor(spec).label.toLowerCase()}: ${roomList(rooms)}. You can change it on the right.`);
+    notes.push(`${/^\s*(yes|yeah|yep|ok|okay|sure|fine|sounds good|that works)\b/i.test(text) ? "Great," : "No problem."} I'll plan on a typical ${packFor(spec).label.toLowerCase()}: ${roomList(rooms)}. You can change it on the right.`);
     return { ...spec, rooms };
   }
   asked.push(asked.includes("roomsRetry") ? "roomsOffer" : "roomsRetry");
@@ -156,7 +156,7 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   if (!llm) spec = fitHeadcount(spec, state.spec.headcount);
   if (text && q?.field === "city") q = { ...q, text: CITY_AGAIN };
   if (notes.length) ack = "";
-  else if (!ack && text && !tapped) ack = ["Got it.", "Thanks.", "Okay.", "Noted."][state.history.length % 4];
+  else if (!ack && text && !tapped && q?.field !== "city") ack = ["Got it.", "Thanks.", "Okay.", "Noted."][state.history.length % 4];
   const changed = sketchText(spec) !== sketchText(state.spec);
 
   const history: Msg[] = [...state.history, ...(text ? [{ role: "user" as const, text }] : [])];

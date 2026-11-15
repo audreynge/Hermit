@@ -67,7 +67,7 @@ export function PacketDoc({ report, spec, runId, profile }: { report: ShellRepor
 export function Packet({ report, spec, runId, go }: ReportCtx) {
   return (
     <div className="packet-tab">
-      <p><button type="button" className="btn primary" onClick={() => (go as (t: string) => void)("broker")}><MessageCircle aria-hidden="true" /> Fill it in with Hermit</button></p>
+      <p><button type="button" className="btn primary" onClick={() => go("broker")}><MessageCircle aria-hidden="true" /> Fill it in with Hermit</button></p>
       <PacketDoc report={report} spec={spec} runId={runId} />
     </div>
   );

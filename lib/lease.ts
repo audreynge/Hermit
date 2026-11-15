@@ -39,7 +39,7 @@ export function extractPdfText(buf: Buffer): string {
       budget -= out.length;
       body = out.toString("latin1");
     } catch (e) {
-      if ((e as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") break;
+      if ((e as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") continue;
       body = m[1];
     }
     if (/\bBT\b/.test(body)) parts.push(pdfStrings(body));

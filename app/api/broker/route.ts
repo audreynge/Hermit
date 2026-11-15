@@ -50,7 +50,6 @@ export async function POST(req: Request) {
     // Contact details never go to the model; the parser handles them exactly.
     const ai = hasGemini() && field !== "email" && field !== "phone" ? await extract(answer, `${where} They were just asked: "${meta.q}"`) : null;
     const got = ai?.[field] ? { [field]: ai[field] } : parseAnswer(field, answer);
-    if (ai) p = { ...p, ...ai };
     if (!got) return NextResponse.json({ question: ask(meta), done: false, profile: p, note: `Sorry, I didn't catch that. Try something like "${meta.hint}", or skip it.` });
     p = { ...p, ...got };
   } else if (seed && spec.rawText && hasGemini()) {

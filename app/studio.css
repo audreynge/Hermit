@@ -144,16 +144,6 @@ main { padding: 18px 28px 80px; max-width: 1480px; }
 .headline-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .headline { border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px; display: grid; }
 .headline .num { font-size: 26px; font-weight: 800; color: var(--sea-ink); }
-.tri, .score { width: 100%; border-collapse: collapse; font-size: 14px; }
-.tri caption, .score caption { text-align: left; font-weight: 800; font-size: 19px; padding-bottom: 8px; }
-.tri th, .tri td, .score th, .score td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
-.tri td svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 4px; }
-.tri td[data-state="agree"] { color: var(--ok); } .tri td[data-state="disagree"] { color: var(--veto); } .tri td[data-state="absent"] { color: var(--ink-soft); }
-.tri-detail { font-weight: 400; color: var(--ink-soft); font-size: 13px; }
-.tri-verdict { display: inline-block; padding: 2px 8px; border-radius: 999px; font-weight: 800; font-size: 12px; text-transform: capitalize; background: var(--sand-2); }
-.tri-verdict[data-v="confirmed"] { background: var(--ok-wash); color: var(--ok); } .tri-verdict[data-v="conflict"] { background: var(--veto-wash); color: var(--veto); }
-.score tr[data-loss="true"] .loss { color: var(--veto); font-weight: 700; }
-.score tfoot th, .score tfoot td { font-weight: 800; font-size: 16px; }
 .source-chip { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--sea-ink); color: var(--sea-ink); margin-left: 4px; cursor: help; white-space: nowrap; }
 .work { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .work li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: baseline; border-bottom: 1px solid var(--line); padding: 6px 0; }

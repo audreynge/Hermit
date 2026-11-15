@@ -169,10 +169,10 @@ export function Hermit() {
     return { ...s, city: s.city ?? "houston", useType: s.useType || "office", rooms, ...drawnLayout };
   };
 
-  const search = () => {
+  const search = (s: Draft = spec) => {
     setReady(false);
     say("Looking for spaces that fit. I'll walk inside the best ones and tell you what's left to do.");
-    void runSearch(finalSpec(spec));
+    void runSearch(finalSpec(s));
   };
 
   const editLayout = () => {
@@ -249,14 +249,15 @@ export function Hermit() {
       return say(turn.reply, { findings: r.findings });
     }
     if (turn.action === "reset") return reset();
-    if (turn.action === "search") return search();
+    // A "search now" turn can also be ready:true; run one search, on the turn's spec.
+    if (turn.action === "search") { if (turn.ready) setIv((x) => ({ ...x, spec: turn.state.spec })); return search(turn.ready ? turn.state.spec : spec); }
     const idx = turn.target ? turn.target - 1 : selected;
     const target = reports[idx];
     if ((turn.action === "save" || turn.action === "report" || turn.action === "broker") && (!target || !runId)) return say("That works once your matches are loaded.");
     if (turn.action === "save" && target && isSaved(target.shellId)) return say("Already saved.");
     say(turn.reply, turn.action === "compare" ? { compare: reports } : {});
     if (turn.action === "email" && target) setEmailFor(target);
-    if (turn.action === "save" && target && runId) toggleSaved(target, runId);
+    if (turn.action === "save" && target && runId) { toggleSaved(target, runId); window.dispatchEvent(new Event("hermit:saved")); }
     if (turn.action === "view" && target) { setSelected(idx); setViewIndex(idx); }
     if (turn.action === "report" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}`);
     if (turn.action === "broker" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}&tab=broker`);
@@ -359,7 +360,7 @@ export function Hermit() {
   const links = runId && sel ? [undefined, `/shell/${sel.shellId}?run=${runId}&tab=inside`, `/shell/${sel.shellId}?run=${runId}&tab=broker`] : [];
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
 
-  const studio = <LayoutStudio inline initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
+  const studio = <LayoutStudio inline useType={spec.useType} initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
 
   return (
     <div className="studio">
@@ -383,7 +384,7 @@ export function Hermit() {
           </>}>
           {cta && (
             <div className="cta-row">
-              <button type="button" className="cta" onClick={search}><Sparkles aria-hidden="true" /> See your matches</button>
+              <button type="button" className="cta" onClick={() => search()}><Sparkles aria-hidden="true" /> See your matches</button>
               <span className="muted small">You can still change the layout or tell me more first.</span>
             </div>
           )}

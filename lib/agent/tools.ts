@@ -526,11 +526,9 @@ export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string
 }
 
 // Bedrooms and baths typed as numbers override the pack's counts (0 = none required, e.g. a studio); a half bath is
-// still a room. Pack bathroom lines step aside when the user named their own, so "restroom" never stacks on "bathroom".
+// still a room.
 function withRecordCounts(spec: RequirementSpec, rooms: RoomReq[]): RoomReq[] {
-  const mine = spec.rooms.length;
-  const userBath = rooms.slice(0, mine).some((r) => isBathroom(r.label));
-  let out = rooms.filter((r, i) => i < mine || !userBath || !isBathroom(r.label));
+  let out = rooms;
   const set = (match: (label: string) => boolean, label: string, n: number | undefined) => {
     if (n == null) return;
     const first = out.find((r) => match(r.label));

@@ -20,7 +20,12 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [ownView, setOwnView] = useState<number | null>(null);
   const [parcelFor, setParcelFor] = useState<ShellReport | null>(null);
-  useEffect(() => { setSaved(Object.fromEntries(savedShells().map((s) => [s.shellId, true]))); }, [reports]);
+  useEffect(() => {
+    const load = () => setSaved(Object.fromEntries(savedShells().map((s) => [s.shellId, true])));
+    load();
+    window.addEventListener("hermit:saved", load);
+    return () => window.removeEventListener("hermit:saved", load);
+  }, [reports]);
   useEffect(() => { if (selected >= reports.length) onSelect(0); }, [reports.length, selected, onSelect]);
 
   const viewAt = onViewIndex ? viewIndex ?? null : ownView;
