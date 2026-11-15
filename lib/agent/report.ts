@@ -134,7 +134,7 @@ export function regulationHits(regs: Finding[]): RuleHit[] {
     return {
       rule: n > 1 ? `reg_${f.topic}_${n}` : `reg_${f.topic}`,
       status: f.certainty === "applies" ? "warn" : "unknown",
-      detail: `${f.requirement} (${f.jurisdiction} rule, checked ${f.retrievedAt}; screening only, verify with the jurisdiction)`,
+      detail: `${f.requirement} (${f.jurisdiction} rule; ask the city to confirm for this space)`,
       citation: f.url,
       evidence: [{ source: f.jurisdiction, ref: f.citedText.slice(0, 160), confidence: 0.6 }],
       reg: { topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty, retrievedAt: f.retrievedAt },
