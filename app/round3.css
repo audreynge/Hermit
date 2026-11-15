@@ -33,6 +33,7 @@ nav.primary svg { width: 21px; height: 21px; }
 .hero-demo a:hover { color: var(--coral-ink); }
 .hero-demo svg { width: 18px; height: 18px; }
 @media (max-width: 560px) { .hero-form { flex-wrap: wrap; padding: 6px; } .hero-form input { flex-basis: 100%; padding-left: 12px; } .hero-form button { flex: 1; justify-content: center; } }
+@media (max-width: 760px) { .hero-top { grid-template-columns: 1fr; } .hero-crab { width: 120px; } .hero-form { border-radius: 20px; flex-wrap: wrap; } }
 
 /* Studio palette (the original layout studio look) */
 .tiles.objects { grid-template-columns: repeat(3, 1fr); }

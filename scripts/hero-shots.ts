@@ -22,7 +22,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 });
 await page.addInitScript(() => localStorage.setItem("hermit:settings", JSON.stringify({ theme: "light" })));
 await shot(page, `${base}/studio?replay=demo`, ".results-card .space", "match-card", 300); // stop above the card's scroll cut-off
-await shot(page, `${report}&tab=furnish`, ".furnish-plan .floorplan-svg", "floor-plan");
+await shot(page, `${report}&tab=inside`, ".inside-side .floorplan-svg", "floor-plan");
 await page.setViewportSize({ width: 760, height: 900 }); // narrow card so its text stays legible when shown small
 await shot(page, `${report}&tab=overview`, ".ov-verdict", "verdict-card");
 await browser.close();

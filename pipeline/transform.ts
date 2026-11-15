@@ -50,12 +50,12 @@ export function roomGraphFromModel(m: Any): RoomGraph {
   }
   const keep = new Set(rooms.map((r) => r.id));
   const links: RoomGraph["edges"] = [];
-  const entries = new Map<string, NonNullable<RoomGraph["entries"]>[number]>();
+  const outside = new Map<string, NonNullable<RoomGraph["entries"]>>();
   const measure = ({ widthIn, open, at }: DoorMeasure): DoorMeasure => ({ ...(widthIn ? { widthIn } : {}), ...(open ? { open } : {}), ...(at ? { at } : {}) });
   for (const { rooms: owners, door, ...m } of edgeOwners.values()) {
     const [a, b] = owners;
-    // An outside door: keep the widest one per room (a unit can have a front door and a patio door).
-    if (!b && door && keep.has(a) && (m.widthIn ?? 0) >= (entries.get(a)?.widthIn ?? 0)) entries.set(a, { roomId: a, ...measure(m) });
+    // An outside door (a unit can have a front door and a patio door).
+    if (!b && door && keep.has(a)) outside.set(a, [...(outside.get(a) ?? []), { roomId: a, ...measure(m) }]);
     if (!b || a === b || !keep.has(a) || !keep.has(b)) continue;
     const key = [a, b].sort().join("|");
     const existing = links.find((l) => [l.a, l.b].sort().join("|") === key);
@@ -66,6 +66,9 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     }
     links.push({ a, b, kind: door ? "door" : "possible", ...measure(m) });
   }
+  // `entries` keeps the widest outside door per room (access screening's entry); the rest go to `extraEntries`.
+  const entries = [...outside.values()].map((ds) => ds.reduce((x, y) => ((y.widthIn ?? 0) >= (x.widthIn ?? 0) ? y : x)));
+  const extraEntries = [...outside.values()].flat().filter((d) => !entries.includes(d));
   const panos: NonNullable<RoomGraph["panos"]> = (m.panoLocations ?? []).filter((p: Any) => p.position).map((p: Any) => ({ id: p.id, label: p.label ?? "", x: p.position.x, y: p.position.y }));
   // Nearest sweep to each room's centroid, so the tour can open on the evidence.
   for (const r of rooms) {
@@ -82,7 +85,8 @@ export function roomGraphFromModel(m: Any): RoomGraph {
     totalAreaSqft: rooms.reduce((s, r) => s + r.areaSqft, 0),
     rooms,
     edges: links,
-    entries: [...entries.values()],
+    entries,
+    ...(extraEntries.length ? { extraEntries } : {}),
     objects: (m.objectAnnotations ?? []).map((o: Any) => ({ label: String(o.label).toLowerCase(), roomId: o.room?.id ?? null, confidence: o.confidence ?? 0 })),
     panoCount: m.panoLocations?.length ?? 0,
     floorCount: m.floors?.length ?? 1,

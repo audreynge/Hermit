@@ -3,12 +3,16 @@
 // Drag items to move them; drag cards from the tray into the room to place them. Falls back (onFail) to the plain
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
-import { ChevronLeft, ChevronRight, Info, Layers, Loader, LocateFixed, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Sofa, Trash2, X } from "lucide-react";
+import { Box, ChevronLeft, ChevronRight, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
-import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { planRooms } from "@/lib/furnish/layout";
+import { dropBlocked } from "@/lib/furnish/probe";
+import { pointInPolygon } from "@/lib/geometry/polygon";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
 import type { ShellReport } from "@/lib/types";
@@ -21,8 +25,13 @@ export type FurnishApi = { ready: boolean; send: (text: string) => Promise<strin
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
+// ponytail: fixed settle after the start pano is current (8/8 clean in tests at 600 ms); the SDK exposes no "pano textures ready" event.
+const SETTLE_MS = 600;
 const MAX_TRIES = 3;
 const NUDGE_M = 0.1;
+const NUDGE_MERGE_MS = 1000;
+const MAX_UNDO = 20;
+const PROBE_MS = 2_500; // budget for checking planned pieces against built-in counters
 const STATUS_TEXT: Record<Status, string> = { searching: "Finding a model…", loading: "Loading…", ready: "", none: "Box: no 3D model found", failed: "Box: model didn't load" };
 const json = async <T,>(url: string, body?: unknown): Promise<T> => {
   const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -31,19 +40,33 @@ const json = async <T,>(url: string, body?: unknown): Promise<T> => {
 };
 type Found = { models: Model[]; size?: Size; sizeSource?: "table" | "gemini" | "default" };
 // Models ranked by how well they fit the item's real size (the server measures their files); with a name, its size too.
-const lookup = (terms: string[], name?: string): Promise<Found> =>
-  json<Found>(`/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`).catch(() => ({ models: [] }));
+// One request per distinct query in flight: a furnish can add 20 identical chairs at once.
+const lookups = new Map<string, Promise<Found>>();
+const lookup = (terms: string[], name?: string): Promise<Found> => {
+  const url = `/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
+  let p = lookups.get(url);
+  if (!p) lookups.set(url, p = json<Found>(url).catch(() => ({ models: [] })).finally(() => lookups.delete(url)));
+  return p;
+};
+type ViewMode = "inside" | "dollhouse" | "floorplan";
+const MODES: [ViewMode, string, typeof Box][] = [["inside", "Walk", Footprints], ["dollhouse", "Dollhouse", Box], ["floorplan", "Floor plan", MapIcon]];
+const ALL = "all";
+const OPEN_SQFT = 430; // ~40 m²
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
+type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellReport; use: string; stop?: number; onFail: () => void; api?: React.MutableRefObject<FurnishApi | null> }) {
+export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { report: ShellReport; use: string; chairIn?: number; stop?: number; onFail: () => void; api?: React.MutableRefObject<FurnishApi | null> }) {
   const sid = report.inside!.sid;
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
   const sdk = useRef<MpSdk | null>(null);
   const moved = useRef(false);
+  // Every camera move (tour stop, room pick, view switch) runs through this queue: a move that starts while a pano is
+  // still activating blacks out the tour ("Texture for sweep not activated"), so moves wait for the start pano and each other.
+  const nav = useRef<Promise<unknown>>(Promise.resolve());
   const scene = useRef<FurnishScene | null>(null);
   const strip = useRef<HTMLUListElement>(null);
   const floorY = useRef(0), pointer = useRef<Vec | undefined>(undefined); // last floor spot under the cursor ("here")
@@ -63,12 +86,30 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
   const [busy, setBusy] = useState(false);
   const [replacing, setReplacing] = useState<string | undefined>(); // Search tab is choosing a new model for this item
   const [measuring, setMeasuring] = useState<string | undefined>(); // waiting for the user to draw a measurement for this item
+  const [mode, setModeState] = useState<ViewMode>("inside");
+  const [picked, setPicked] = useState<string | undefined>(); // a room id or ALL chosen with the select tool / picker
+  const [undoText, setUndoText] = useState<string | null>(null); // the furnish message that offers an Undo button
   const sized = useRef(new Set<string>());
-  // Every room outline on the plan (with its ceiling), so items stay inside whichever room they're in.
-  const rooms = useMemo(() => (report.floorplan?.rooms ?? []).filter((r) => r.polygon.length >= 3)
-    .map((r) => ({ id: r.id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined })), [report.floorplan]);
-  const state = useRef({ items, selected, room, candidates, rooms, measuring });
-  state.current = { items, selected, room, candidates, rooms, measuring };
+  // Every room outline on the plan (with its ceiling), so items stay inside whichever room they're in. Each gets a
+  // readable name: the scan labels many rooms "other", so those become "Room 1", "Room 2"…
+  const rooms = useMemo(() => {
+    const list = (report.floorplan?.rooms ?? []).filter((r) => r.polygon.length >= 3).sort((a, b) => b.areaSqft - a.areaSqft);
+    // Scans often label an open-plan area (with its corridors) "hallway"; a big one is an open area, not a corridor.
+    const kind = (r: { label: string; areaSqft: number }) => (r.label === "hallway" && r.areaSqft > OPEN_SQFT ? "open area" : r.label);
+    const base = (l: string) => (["other", "open"].includes(l) ? "Room" : l.charAt(0).toUpperCase() + l.slice(1));
+    const total: Record<string, number> = {}, seen: Record<string, number> = {};
+    for (const r of list) total[base(kind(r))] = (total[base(kind(r))] ?? 0) + 1;
+    return list.map((r) => {
+      const b = base(kind(r)), n = (seen[b] = (seen[b] ?? 0) + 1);
+      return { id: r.id, label: kind(r), polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined, floorId: r.floorId, areaSqft: r.areaSqft, name: total[b] > 1 || b === "Room" ? `${b} ${n}` : b };
+    });
+  }, [report.floorplan]);
+  const here = rooms.find((r) => r.id === room?.id);
+  const floorRooms = rooms.filter((r) => r.floorId === (here ?? rooms[0])?.floorId);
+  const furnishable = floorRooms.filter((r) => !["hallway", "bathroom"].includes(r.label)); // "everything" skips corridors and restrooms
+  const targetRoom = picked === ALL ? undefined : rooms.find((r) => r.id === picked) ?? here;
+  const state = useRef({ items, selected, room, candidates, rooms, measuring, mode, outline: targetRoom?.polygon });
+  state.current = { items, selected, room, candidates, rooms, measuring, mode, outline: picked === ALL ? undefined : targetRoom?.polygon };
   const sel = items.find((p) => p.id === selected);
   const statusOf = (p: Placed): Status => status[p.id] ?? (p.model === undefined ? "searching" : p.model === null ? "none" : "loading");
 
@@ -79,7 +120,7 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
   // Gives an item a model (and optionally a real size): the rendered size comes from the model's measured proportions,
   // and the item is re-seated so its new footprint stays inside its room.
   const withModel = useCallback((p: Placed, model: Model | null, size: Size = p.size, approxSize = p.approxSize): Placed => {
-    const fitted = model?.bounds ? fitModel(model.bounds, size)?.fitted : undefined;
+    const fitted = model?.bounds ? fitModel(model.bounds, size, p.planned)?.fitted : undefined;
     return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, fitted ?? size, p.rotY, makeView()) };
   }, [makeView]);
 
@@ -118,13 +159,22 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
       const s = await el.playingPromise;
       if (dead) return;
       sdk.current = s;
+      let settle!: () => void;
+      nav.current = new Promise<void>((r) => (settle = r)).then(() => new Promise((r) => setTimeout(r, SETTLE_MS)));
+      setTimeout(() => settle(), 5000); // never block navigation if no start pano is reported (e.g. a dollhouse start)
       scene.current = await createScene(s, onLoad);
       if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = scene.current; // for e2e tests
       s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; });
       s.Sweep.current.subscribe((sw) => {
+        if (sw.sid) settle();
         if (sw.puckPosition) floorY.current = sw.puckPosition.y;
         const r = report.floorplan?.rooms.find((x) => x.id === sw.roomInfo?.id);
         setRoom(r ? { id: r.id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined } : undefined);
+      });
+      // Matterport's own controls can change the view too; mirror them (transitions are skipped).
+      s.Mode.current.subscribe((m) => {
+        const next = m === s.Mode.Mode.DOLLHOUSE ? "dollhouse" : m === s.Mode.Mode.FLOORPLAN ? "floorplan" : m === s.Mode.Mode.INSIDE ? "inside" : null;
+        if (next) setModeState(next);
       });
       setReady(true);
     })().catch((e) => { if (!dead) fail(e instanceof Error ? e.message : String(e)); });
@@ -133,17 +183,45 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
 
   useEffect(() => { scene.current?.sync(items, selected); save(`hermit:furnish:${sid}`, items, "local"); }, [items, selected, sid, ready]);
   useEffect(() => { setPopover(null); }, [selected]);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => {
+    if (!toast || (undoText && toast !== undoText)) setUndoText(null);
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), undoText ? 12000 : 6000);
+    return () => clearTimeout(t);
+  }, [toast, undoText]);
+  const navigate = useCallback((move: (s: MpSdk) => Promise<unknown>) => {
+    const s = sdk.current;
+    if (!s) return Promise.resolve();
+    return (nav.current = nav.current.then(() => move(s)).catch(() => null));
+  }, []);
   const goTo = useCallback((index: number) => {
     const id = report.floorplan?.rooms.flatMap((r) => r.sweeps ?? []).find((s) => s.index === index)?.id;
-    const s = sdk.current;
-    if (!id || !s) return;
-    // Flying away from the start pano while it's still activating blacks out the tour ("Texture for sweep not activated"); jump the first move.
-    const first = !moved.current;
-    moved.current = true;
-    s.Sweep.moveTo(id, first ? { transition: s.Sweep.Transition.INSTANT } : {}).catch(() => null);
-  }, [report.floorplan]);
+    if (!id) return;
+    void navigate((s) => {
+      const first = !moved.current; // the first move jumps, so there's no fly-through over a half-loaded start pano
+      moved.current = true;
+      return s.Sweep.moveTo(id, first ? { transition: s.Sweep.Transition.INSTANT } : {});
+    });
+  }, [report.floorplan, navigate]);
   useEffect(() => { if (ready && stop != null) goTo(stop); }, [stop, ready, goTo]);
+
+  // Matterport refuses a switch while the camera is still moving, so retry briefly; the Mode subscription updates the buttons.
+  const setMode = useCallback((m: ViewMode) => navigate(async (s) => {
+    const to = { inside: s.Mode.Mode.INSIDE, dollhouse: s.Mode.Mode.DOLLHOUSE, floorplan: s.Mode.Mode.FLOORPLAN }[m];
+    for (let i = 0; i < 5; i++) {
+      if (await s.Mode.moveTo(to).then(() => true, () => false)) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }), [navigate]);
+  // Picking a room: walking, go stand in it; from above, just outline it.
+  const pickRoom = useCallback((id: string | undefined) => {
+    setPicked(id);
+    const r = rooms.find((x) => x.id === id);
+    const sweep = r && report.floorplan?.rooms.find((x) => x.id === r.id)?.sweeps?.[0];
+    if (sweep && state.current.mode === "inside") void navigate((s) => s.Sweep.moveTo(sweep.id));
+  }, [rooms, report.floorplan, navigate]);
+  // Walking into another room makes it the target again.
+  useEffect(() => { if (state.current.mode === "inside") setPicked((p) => (p === room?.id ? p : undefined)); }, [room?.id]);
 
   // Suggestions for the room the user is standing in (one cached Gemini call per use + room); "space" when unknown.
   const roomLabel = room?.label ?? "space", roomId = room?.id;
@@ -166,7 +244,7 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
         lookingUp.current.delete(p.id);
         const known = !!size && sizeSource !== "default";
         setCandidates((c) => ({ ...c, [p.id]: models }));
-        setItems((cur) => cur.map((x) => (x.id === p.id && x.model === undefined
+        setItems((cur) => cur.map((x) => (x.id === p.id && x.terms === p.terms && x.model === undefined
           ? withModel(x, models[0] ?? null, known ? underCeiling(size!, roomAt(x.pos, makeView())?.ceiling) : x.size, known ? false : x.approxSize) : x)));
         setStatus((m) => ({ ...m, [p.id]: models.length ? "loading" : "none" }));
       });
@@ -196,12 +274,36 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     return undefined;
   }, []);
 
-  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec) => {
-    const r = applyFurnishOps(state.current.items, ops, makeView(point, ahead));
+  // The item list before each change made through apply or furnish, newest last; undo restores the last one.
+  const history = useRef<Placed[][]>([]);
+  // A run of key nudges to one item (each within NUDGE_MERGE_MS of the last) is one undo step.
+  const lastNudge = useRef<{ id: string; at: number } | null>(null);
+  const commit = useCallback((before: Placed[], r: FurnishResult, nudge?: string) => {
+    if (r.value !== before) {
+      const now = Date.now(), merge = !!nudge && lastNudge.current?.id === nudge && now - lastNudge.current.at < NUDGE_MERGE_MS;
+      if (!merge) history.current = [...history.current.slice(-(MAX_UNDO - 1)), before];
+      lastNudge.current = nudge ? { id: nudge, at: now } : null;
+    }
     setItems(r.value);
+    setUndoText(null); // a later edit makes the furnish Undo button stale
     setSelected(r.selected);
     return r;
-  }, [makeView]);
+  }, []);
+  const undo = useCallback(() => {
+    const prev = history.current.pop();
+    if (!prev) return "Nothing to undo.";
+    lastNudge.current = null;
+    // Ids are max+1, so an undone item's id comes back on the next add; forget its model lookups so that item gets its own.
+    const ids = new Set(prev.map((p) => p.id));
+    for (const refs of [sized.current, lookingUp.current]) for (const id of refs) if (!ids.has(id)) refs.delete(id);
+    setItems(prev);
+    setSelected((s) => (prev.some((p) => p.id === s) ? s : undefined));
+    return "Undid the last change.";
+  }, []);
+  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec, max?: number, nudge?: string) => {
+    const before = state.current.items;
+    return commit(before, applyFurnishOps(before, ops, makeView(point, ahead), max), nudge);
+  }, [makeView, commit]);
 
   const placeCard = useCallback(async (c: Card, point?: Vec) => {
     const r = apply([{ op: "add", name: c.name, terms: c.terms, ...(c.size && { size: c.size }), at: point ? "point" : "front" }], point, point ? undefined : await visibleAhead());
@@ -214,20 +316,22 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     const el = viewer.current;
     if (!ready || !el) return;
     let drag: { id: string; x: number; y: number; moved: boolean; rotY: number; startRot: number; pos?: Vec } | null = null;
+    let press: { x: number; y: number } | null = null; // a click on the floor from above selects that room
     const block = (e: Event) => { if (drag) { e.stopPropagation(); e.preventDefault(); } };
-    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint).
+    // The floor under the cursor; with an item, kept fully inside whichever room it's in (rotated footprint) and at its
+    // own height, so a TV dragged off its stand stays TV-high (it follows the floor point, not the furniture under it).
     const floorPoint = (e: { clientX: number; clientY: number }, item?: { id: string; rotY: number }) => {
       const p = scene.current!.floorAt(e.clientX, e.clientY, el.getBoundingClientRect(), floorY.current);
       const it = item && state.current.items.find((x) => x.id === item.id);
-      return p && it ? settle(p, dims(it), item!.rotY, makeView()) : p;
+      return p && it ? settle({ ...p, y: it.pos.y }, dims(it), item!.rotY, makeView()) : p;
     };
     const onDown = (e: PointerEvent) => {
       if (state.current.measuring) return; // clicks belong to Matterport's measure tool
       const r = scene.current?.ray(e.clientX, e.clientY, el.getBoundingClientRect());
       const id = r && hitItem(r.origin, r.dir, state.current.items);
       const p = id && state.current.items.find((x) => x.id === id);
-      if (!p) return;
-      drag = { id: p.id, x: e.clientX, y: e.clientY, moved: false, rotY: p.rotY, startRot: p.rotY };
+      if (!p) { press = state.current.mode === "inside" ? null : { x: e.clientX, y: e.clientY }; return; }
+      drag ={ id: p.id, x: e.clientX, y: e.clientY, moved: false, rotY: p.rotY, startRot: p.rotY };
       setSelected(p.id);
       block(e);
     };
@@ -240,6 +344,12 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
       if (pos) { drag.pos = pos; scene.current!.drag(drag.id, pos, drag.rotY); }
     };
     const onUp = (e: PointerEvent) => {
+      if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5) {
+        const at = scene.current?.floorAt(e.clientX, e.clientY, el.getBoundingClientRect(), floorY.current);
+        const hit = at && state.current.rooms.find((r) => pointInPolygon(toPlan(at), r.polygon));
+        if (hit) { setPicked(hit.id); setSelected(undefined); }
+      }
+      press = null;
       if (!drag) return;
       block(e);
       const d = drag;
@@ -286,25 +396,26 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     };
   }, [ready, apply, placeCard, makeView]);
 
-  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray.
+  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray; Ctrl/Cmd+Z undoes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); setToast(undo()); return; }
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
-      if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }]); }
+      if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }], undefined, undefined, undefined, p.id); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); apply([{ op: "remove", id: p.id }]); }
       const a = ({ ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] } as Record<string, [number, number]>)[e.key];
       if (a) {
         e.preventDefault();
         const f = scene.current!.camera().forward; // nudge relative to where the user is looking
-        apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M });
+        apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M }, undefined, undefined, p.id);
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [popover, ready, apply]);
+  }, [popover, ready, apply, undo]);
 
   // Dimension overlay: the selected item's width/depth/height and gap to the wall, plus the measurement being drawn,
   // projected every frame so the lines follow the camera. Labels in feet and inches.
@@ -318,6 +429,12 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
       const svg = overlay.current, el = viewer.current, s = scene.current;
       if (!svg || !el || !s) return;
       const rect = el.getBoundingClientRect(), stage = host.current!.getBoundingClientRect();
+      const outline = svg.querySelector("polygon")!, ring = state.current.outline;
+      const pts = ring?.map((q) => s.screenOf({ x: q.x, y: floorY.current + 0.02, z: -q.y }, rect));
+      if (pts?.length && pts.every((q) => q && !q.behind)) {
+        outline.setAttribute("points", pts.map((q) => `${q!.x - stage.left},${q!.y - stage.top}`).join(" "));
+        outline.style.display = "";
+      } else outline.style.display = "none";
       const p = state.current.items.find((x) => x.id === state.current.selected);
       const m = measure.current;
       const lines = [
@@ -387,6 +504,71 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     };
   }, [ready, measuring, apply, makeView]);
 
+  /** The current floor's rooms with an outline, and a matcher for a room the user named ("bedroom" matches "bedroom 2"). */
+  function roomsNamed(name?: string) {
+    const g = report.floorplan, here = g?.rooms.find((r) => r.id === room?.id);
+    const floor = g && here ? g.rooms.filter((r) => r.floorId === here.floorId && r.polygon.length >= 3) : [];
+    const want = name?.toLowerCase().replace(/\s+room$/, "");
+    const named = (r: { label: string }) => !!want && (r.label === want || r.label.startsWith(want));
+    return { g, here, floor, want, named };
+  }
+
+  /** "Furnish this place": the layout planner picks items for the user's use and places them in the target rooms. Only
+   *  rooms on the current floor: the floor height is only known where the user stands. With `clear` (refurnish) the
+   *  target rooms, or everything, are emptied first so pieces don't stack; one undo restores the old layout. Returns the reply to show. */
+  async function furnish(req: FurnishRequest, message: string, clear?: "room" | "all"): Promise<string> {
+    const { g, here, floor, want, named } = roomsNamed(req.room);
+    if (!g || !here) return "Walk into a room that's on the floor plan first, then ask again.";
+    // Without a named room, "this room" is the one picked in the room select (or the one the user stands in).
+    const pick = floor.find((r) => r.id === targetRoom?.id) ?? here;
+    const targets = req.scope === "all" || (!want && picked === ALL) ? floor : want ? floor.filter(named) : [pick];
+    if (!targets.length) return g.rooms.some(named) ? `The ${want} is on another floor. Go there and ask again.` : `I couldn't find a ${want} on the floor plan.`;
+    setToast(`Planning ${targets.length === 1 ? `the ${targets[0].label}` : `${targets.length} rooms`}…`);
+    const ordered = [...targets].sort((a, b) => Number(b.id === here.id) - Number(a.id === here.id)); // this room gets first pick of the item budget
+    // Clears the furnish targets (a named room isn't necessarily the one the camera is in).
+    const keep = (list: Placed[]) => clear === "all" ? [] : clear === "room"
+      ? targets.reduce((cur, t) => applyFurnishOps(cur, [{ op: "clear", scope: "room" }], { ...makeView(), room: t }).value, list) : list;
+    const ctx = hermitContext();
+    const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
+      text: [message, ctx && `What the client told Hermit: ${ctx}`].filter(Boolean).join(". ").slice(0, 500),
+      use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
+      placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z, y: p.pos.y - floorY.current }, size: dims(p), rotY: p.rotY })),
+      ...(chairIn && { access: { chairWidthIn: chairIn } }), ...(clear && { fresh: true }),
+    });
+    if (clear && !out.ops.length) return "I couldn't fit a new layout, so I left the room as it was.";
+    // The outlines carry no fixtures: probe each new piece against the tour's surfaces (only what's in view, within
+    // PROBE_MS) and drop the ones that would sit on a built-in counter, with what depends on them. Unchecked pieces stay.
+    const base = keep(state.current.items), blocked = new Set<number>();
+    const rect = viewer.current?.getBoundingClientRect(), end = Date.now() + PROBE_MS;
+    for (const [i, op] of out.ops.entries()) {
+      if (!scene.current || !rect || Date.now() > end) break;
+      const p = applyFurnishOps(base, [op], makeView()).value[base.length]; // the piece this op adds, if valid
+      if (p && (await scene.current.probe({ pos: p.pos, size: dims(p), rotY: p.rotY }, floorY.current, rect)).blocked) blocked.add(i);
+    }
+    const { keep: ops, skipped } = dropBlocked(out.ops, blocked);
+    if (clear && !ops.length) return "I couldn't fit a new layout, so I left the room as it was.";
+    // Re-read the items: models may have loaded while the planner and the probe ran.
+    const before = state.current.items, r = commit(before, applyFurnishOps(keep(before), ops, makeView(), ops.length));
+    const note = skipped ? ` Skipped ${skipped} piece${skipped > 1 ? "s" : ""} that would sit on built-in counters or fixtures (checked what's in view).` : "";
+    const msg = (r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply) + note;
+    if (r.applied.length) {
+      setUndoText(msg); setTab("placed");
+      if (targets.length > 1 && state.current.mode === "inside") void setMode("dollhouse"); // see the whole result at once
+      noteToHermit({ role: "hermit", agent: "furnish", text: `In the 3D tour of ${report.name.split(" · ")[0]}: ${msg}` });
+    }
+    return msg;
+  }
+  // The "Furnish this room / everything" button.
+  async function furnishPicked() {
+    if (busy || !ready) return;
+    const all = picked === ALL, message = all ? "furnish everything" : "furnish this room";
+    setBusy(true);
+    try { setToast(await furnish({ op: "furnish", scope: all ? "all" : "room" }, message)); }
+    catch { setToast("I couldn't plan that just now. Try again in a moment."); }
+    finally { setBusy(false); }
+  }
+
+  // A request from the floating Hermit chat; returns the reply for the chat to show.
   async function send(t: string): Promise<string> {
     const message = t.trim();
     if (!message) return "";
@@ -394,9 +576,23 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     setBusy(true);
     try {
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
-        text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: room?.label, suggestions,
+        text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: picked === ALL ? "whole space" : targetRoom?.name ?? room?.label, suggestions,
       });
-      const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
+      const kind = (o: object) => (o as { op?: string }).op;
+      if (out.ops.some((o) => kind(o) === "undo")) return undo();
+      const i = out.ops.findIndex((o) => kind(o) === "furnish");
+      if (i >= 0) {
+        noteToHermit({ role: "user", text: message });
+        const clear = out.ops.slice(0, i).find((o) => kind(o) === "clear") as { scope: "room" | "all" } | undefined; // refurnish
+        return await furnish(out.ops[i] as FurnishRequest, message, clear?.scope);
+      }
+      // "Empty the bedroom" clears the named room on this floor, not the one the camera is in.
+      const clearIn = (out.ops.find((o) => kind(o) === "clear") as { room?: string } | undefined)?.room;
+      const f = roomsNamed(clearIn), named = clearIn ? f.floor.find(f.named) : undefined;
+      if (clearIn && !named) return `I couldn't find a ${f.want} on this floor.`;
+      const before = state.current.items;
+      const r = !out.ops.length ? null : named ? commit(before, applyFurnishOps(before, out.ops, { ...makeView(), room: named }))
+        : apply(out.ops, pointer.current, await visibleAhead());
       return !r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`;
     } catch {
       return "Something went wrong reaching the assistant. Try again, or use the furniture bar.";
@@ -429,10 +625,32 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
     <div className="furnish-tour">
       <div className="furnish-stage" ref={host} role="application" aria-label={`Matterport 3D tour of ${report.name}. Drag furniture to move it.`}>
         <svg className="furnish-overlay" ref={overlay} aria-hidden="true">
+          <polygon className="room-outline" style={{ display: "none" }} />
           {Array.from({ length: 6 }, (_, i) => <g key={i} style={{ display: "none" }}><line /><text textAnchor="middle" /></g>)}
         </svg>
-        {toast && <p className="furnish-toast" role="status">{toast}</p>}
-        {busy && <p className="furnish-loading" role="status"><Loader aria-hidden="true" /> Hermit is arranging…</p>}
+        {ready && (
+          <div className="furnish-bar" role="toolbar" aria-label="Views and rooms">
+            <div className="seg" role="group" aria-label="View">
+              {MODES.map(([m, l, Icon]) => (
+                <button key={m} type="button" aria-pressed={mode === m} onClick={() => void setMode(m)} title={l}><Icon aria-hidden="true" /><span>{l}</span></button>
+              ))}
+            </div>
+            {rooms.length > 0 && <>
+              <label className="furnish-room">
+                <span className="sr-only">Room to work on</span>
+                <select value={picked === ALL ? ALL : targetRoom?.id ?? ""} onChange={(e) => pickRoom(e.target.value || undefined)}>
+                  {!targetRoom && picked !== ALL && <option value="">Pick a room</option>}
+                  <option value={ALL}>Whole space ({furnishable.length} rooms)</option>
+                  {floorRooms.map((r) => <option key={r.id} value={r.id}>{r.name}{r.id === here?.id ? " (you're here)" : ""}</option>)}
+                </select>
+              </label>
+              <button type="button" className="btn small primary" disabled={busy} onClick={() => void furnishPicked()}>
+                {busy ? <Loader aria-hidden="true" /> : <Sparkles aria-hidden="true" />} {picked === ALL ? "Furnish everything" : "Furnish this room"}
+              </button>
+            </>}
+          </div>
+        )}
+        {ready && mode !== "inside" && rooms.length > 0 && !measuring && !sel && <p className="furnish-tip">Click a room to work on it</p>}
         {measuring && <p className="furnish-banner" role="status">Click where the measurement starts, then where it ends. Esc to cancel.</p>}
         {!ready && <p className="furnish-loading"><Loader aria-hidden="true" /> Loading the 3D tour… <button type="button" className="btn small" onClick={onFail}>Open the basic tour instead</button></p>}
 
@@ -470,6 +688,12 @@ export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellR
           </div>
         )}
 
+        {toast && (
+          <p className="furnish-toast" role="status">{toast}
+            {undoText === toast && <button type="button" className="btn small" onClick={() => { setUndoText(null); setToast(undo()); }}><Undo2 aria-hidden="true" /> Undo</button>}
+          </p>
+        )}
+        {busy && <p className="furnish-busy" role="status"><Loader aria-hidden="true" /> Hermit is arranging…</p>}
       </div>
 
       <div className="furnish-tray" aria-label="Furniture">

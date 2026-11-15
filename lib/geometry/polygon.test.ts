@@ -35,6 +35,31 @@ describe("ringFromEdges", () => {
     ];
     expect(shoelaceArea(ringFromEdges(edges))).toBeCloseTo(4, 2);
   });
+
+  // Real scans (Matterport boundaries) carry partial walls that branch off the room's loop; the old walk followed the
+  // spur into a dead end and dropped every wall after it (a room came out at 4% of its area).
+  const square = [[{ x: 0, y: 0 }, { x: 4, y: 0 }], [{ x: 4, y: 0 }, { x: 4, y: 3 }], [{ x: 4, y: 3 }, { x: 0, y: 3 }], [{ x: 0, y: 3 }, { x: 0, y: 0 }]];
+  it("ignores a stray wall stub branching off the loop, wherever the walk starts", () => {
+    const spur = [{ x: 4, y: 0 }, { x: 4.6, y: -0.3 }];
+    for (let k = 0; k <= square.length; k++) {
+      const edges = [...square.slice(0, k), spur, ...square.slice(k)];
+      expect(shoelaceArea(ringFromEdges(edges))).toBeCloseTo(12);
+      expect(shoelaceArea(ringFromEdges([spur, ...edges.filter((e) => e !== spur)]))).toBeCloseTo(12);
+    }
+  });
+
+  it("ignores a chain of stubs and an inside partition, keeping the outer outline", () => {
+    const stubs = [[{ x: 0, y: 3 }, { x: 1, y: 2 }], [{ x: 1, y: 2 }, { x: 1.5, y: 2 }]];
+    const partition = [[{ x: 2, y: 0 }, { x: 2, y: 3 }]];
+    const split = [[{ x: 0, y: 0 }, { x: 2, y: 0 }], [{ x: 2, y: 0 }, { x: 4, y: 0 }], square[1], [{ x: 4, y: 3 }, { x: 2, y: 3 }], [{ x: 2, y: 3 }, { x: 0, y: 3 }], square[3]];
+    expect(shoelaceArea(ringFromEdges([...stubs, ...split, ...partition]))).toBeCloseTo(12);
+    expect(shoelaceArea(ringFromEdges([...partition, ...split]))).toBeCloseTo(12);
+  });
+
+  it("an open chain (a wall missing from the scan) is kept whole whichever segment comes first", () => {
+    const open = square.slice(0, 3); // three walls of the square
+    for (const first of open) expect(ringFromEdges([first, ...open.filter((e) => e !== first)])).toHaveLength(4);
+  });
 });
 
 describe("centroid", () => {
@@ -58,5 +83,18 @@ describe("pointInPolygon / nearestOnBoundary", () => {
     const n = nearestOnBoundary({ x: 1, y: -1 }, L);
     expect(n.pt).toEqual({ x: 1, y: 0 });
     expect(n.dist).toBe(1);
+  });
+});
+
+describe("ringFromEdges on open-plan rooms", () => {
+  it("traces the full outline past T-junctions and interior wall stubs", () => {
+    // An L-shaped 10x10 room missing its 5x5 top-right corner, with a wall stub poking in from the bottom and the
+    // segments listed out of order: a chain walk dead-ends at the stub's T-junction.
+    const P = (x: number, y: number) => ({ x, y });
+    const segs = [
+      [P(0, 0), P(4, 0)], [P(4, 0), P(4, 3)], [P(4, 0), P(10, 0)], [P(10, 0), P(10, 5)],
+      [P(5, 10), P(0, 10)], [P(10, 5), P(5, 5)], [P(5, 5), P(5, 10)], [P(0, 10), P(0, 0)],
+    ];
+    expect(shoelaceArea(ringFromEdges(segs))).toBeCloseTo(75, 5);
   });
 });

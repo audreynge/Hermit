@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KEYS, load } from "@/lib/client/store";
+import { chairFor } from "@/lib/reason/access";
 import type { Furn } from "@/lib/spec/furnish";
 import { sketchToBlocks } from "@/lib/spec/blocks";
 import type { Block } from "@/lib/spec/parse";
@@ -13,7 +14,7 @@ import { usePersisted } from "./shared";
 import type { ReportCtx } from "./ShellReportPage";
 
 // The 3D tour with the furniture bar under it, then the fit views; rooms on the side move the tour.
-export function Inside({ report, use, furnish, fit, setFit }: ReportCtx) {
+export function Inside({ report, spec, use, furnish, fit, setFit }: ReportCtx) {
   const sid = report.inside?.sid;
   const g = report.floorplan;
   const [room, setRoom] = usePersisted<string | null>(`hermit:tour:${report.shellId}`, report.fit.assignment.find((a) => a.roomId)?.roomId ?? null);
@@ -39,7 +40,7 @@ export function Inside({ report, use, furnish, fit, setFit }: ReportCtx) {
         <div className="inside-tour" id="inside-tour">
           {!sid ? <p className="pad">No 3D scan for this space.</p>
             : plain ? <div className="inside-frame"><iframe key={stop ?? "start"} title={`Matterport 3D tour of ${report.name}`} src={tourUrl(sid, stop)} allow="xr-spatial-tracking; fullscreen" allowFullScreen /></div>
-            : <FurnishTour report={report} use={use} stop={stop} onFail={fail} api={furnish} />}
+            : <FurnishTour report={report} use={use} chairIn={spec.needs.wheelchair ? chairFor(spec.needs)[0] : undefined} stop={stop} onFail={fail} api={furnish} />}
         </div>
         <section className="card inside-fit" aria-labelledby="fit-title">
           <h2 id="fit-title">Check the fit</h2>
