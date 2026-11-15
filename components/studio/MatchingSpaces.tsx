@@ -3,6 +3,7 @@ import { DoorOpen, Layers } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { savedShells, toggleSaved } from "@/lib/client/persist";
+import type { Block } from "@/lib/spec/parse";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { isBuying, ParcelInfo } from "../ParcelInfo";
 import { PropertyViewer } from "../PropertyViewer";
@@ -13,6 +14,7 @@ import { ScoreRing } from "./Postcard";
 // Main's Matching Spaces look (map + cards) carrying the studio's evidence: score, verdict, Skeptic and build-out flags.
 export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected, onSelect }: {
   reports: ShellReport[]; spec: RequirementSpec; runId: string | null; running: boolean; onOpen: (r: ShellReport) => void;
+  design?: Block[]; viewIndex?: number | null; onViewIndex?: (i: number | null) => void;
   selected: number; onSelect: (i: number) => void;
 }) {
   const router = useRouter();

@@ -76,7 +76,7 @@ const TEMPLATES: Record<string, { label: string; items: Item[] }> = {
   blank: { label: "Blank canvas", items: [] },
 };
 // initial: start from this layout (the studio's current sketch) instead of the last stored draft.
-export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial }: { onDone: (items: Block[]) => void; doneLabel?: string; initial?: Block[] }) {
+export function LayoutStudio({ onDone, doneLabel = "Use this layout", initial }: { onDone: (items: Block[]) => void; doneLabel?: string; initial?: Block[]; inline?: boolean; onChange?: (items: Block[]) => void }) {
   const seeded = !!initial?.length;
   const [items, setItems] = useState<Item[]>(seeded ? initial!.map((b) => ({ ...b, kind: b.kind ?? "room" })) : TEMPLATE);
   const [past, setPast] = useState<Item[][]>([]);

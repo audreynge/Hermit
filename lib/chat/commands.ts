@@ -11,3 +11,6 @@ const RULES: [LocalCommand, RegExp][] = [
 ];
 
 export const localCommand = (text: string): LocalCommand | null => RULES.find(([, re]) => re.test(text.trim()))?.[0] ?? null;
+
+// True when the text asks to change the drawn layout (add/remove/resize/move a room).
+export const isLayoutEdit = (_text: string): boolean => false;

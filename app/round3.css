@@ -199,3 +199,14 @@ nav.primary svg { width: 21px; height: 21px; }
 .packet-print { max-width: 900px; margin: 0 auto; display: grid; gap: 10px; }
 @media (max-width: 980px) { .packet-row { grid-template-columns: 1fr; } .grade { position: static; } }
 @media print { .decor, header.top, .no-print { display: none !important; } .packet-doc { box-shadow: none; border: 0; } }
+
+/* == C0: shared contracts == */
+.journey { display: flex; gap: 8px; list-style: none; margin: 0 0 16px; padding: 0; flex-wrap: wrap; }
+.journey li { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--surface, #fff); border: 1.5px solid var(--line, #eadfd8); font-weight: 700; font-size: 15px; color: var(--muted, #7a6a62); }
+.journey li a { display: inherit; align-items: inherit; gap: inherit; color: inherit; text-decoration: none; }
+.journey li[data-state="current"] { border-color: var(--accent, #f26a4b); color: var(--ink, #2b1d17); }
+.journey li[data-state="done"] { color: var(--ok, #2f8a57); }
+.journey li + li::before { content: "→"; margin-right: 8px; color: var(--muted, #7a6a62); }
+.journey-dot { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: currentColor; color: #fff; font-size: 13px; }
+.journey-dot { color: inherit; }
+/* == end C0 == */

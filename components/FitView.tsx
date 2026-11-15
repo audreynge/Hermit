@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { FitoutDiff } from "@/lib/design/fitout";
+import type { Block } from "@/lib/spec/parse";
 import { doorClearIn } from "@/lib/reason/access";
 import type { Access, AccessRoom, RoomGraph, ShellReport } from "@/lib/types";
 import { M_TO_FT, PAIR_COLORS, Plan3D, rectPoly, roomHeight, type Solid } from "./Plan3D";
@@ -92,7 +93,7 @@ function blockedStops(g: RoomGraph, rooms: AccessRoom[]) {
   }).filter((s, i, all) => all.findIndex((x) => x.label === s.label && x.index === s.index) === i);
 }
 
-function AccessPlan({ report, g, measuredRooms, a, onShowInTour }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; a: Access; onShowInTour?: (sweepIndex: number) => void }) {
+function AccessPlan({ report, g, measuredRooms, a, onShowInTour }: { report: ShellReport; g: RoomGraph; measuredRooms?: number; a: Access; onShowInTour?: (sweepIndex: number) => void; design?: Block[] }) {
   const [hinges, setHinges] = useState(false);
   const fixable = a.asScanned.some((r) => r.status === "blocked" && a.hinges.find((x) => x.roomId === r.roomId)?.status === "reachable");
   const stops = onShowInTour ? blockedStops(g, hinges ? a.hinges : a.asScanned) : [];
