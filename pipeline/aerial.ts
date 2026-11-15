@@ -103,6 +103,7 @@ async function main() {
   const sameImage = new Map<string, Promise<AerialCount | null>>();
   const t0 = Date.now();
   let next = 0, done = 0, stopped = false;
+  let fatal = "";
 
   async function one(c: Cand) {
     const key = `${c.lat.toFixed(5)}_${c.lon.toFixed(5)}`;
@@ -126,6 +127,8 @@ async function main() {
       console.log(`[${++done}/${todo.length}] ${c.sid} p${c.prio} ${c.city ?? "?"} stalls=${res.stalls.n ?? "unclear"} units=${res.rooftopUnits.n ?? "unclear"}${res.garageLikely ? " garage" : ""} ${((Date.now() - t0) / 1000).toFixed(0)}s`);
     } catch (e) {
       stats.failed++;
+      // Billing or auth errors (e.g. 402 "prepayment credits are depleted") won't fix themselves: stop the run.
+      if (/ 40[123]:/.test((e as Error).message)) fatal = (e as Error).message.slice(0, 160);
       failures.push(`${c.sid}: ${(e as Error).message.slice(0, 120)}`);
       console.log(`[${++done}/${todo.length}] ${c.sid} p${c.prio} FAILED ${(e as Error).message.slice(0, 120)}`);
     }
@@ -134,12 +137,12 @@ async function main() {
   const CONCURRENCY = 6;
   await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
     while (next < todo.length) {
-      if (Date.now() > deadline) { stopped = true; return; }
+      if (Date.now() > deadline || fatal) { stopped = true; return; }
       await one(todo[next++]);
     }
   }));
   const left = all.filter((c) => !fs.existsSync(path.join(outDir, `${c.sid}.json`)));
-  console.log(`\ncounted ${stats.counted}, unclear ${stats.unclear}, failed ${stats.failed} (reused a same-image count for ${stats.reused}) in ${((Date.now() - t0) / 60000).toFixed(1)} min${stopped ? "; stopped at the time limit" : ""}`);
+  console.log(`\ncounted ${stats.counted}, unclear ${stats.unclear}, failed ${stats.failed} (reused a same-image count for ${stats.reused}) in ${((Date.now() - t0) / 60000).toFixed(1)} min${fatal ? `; stopped early: ${fatal}` : stopped ? "; stopped at the time limit" : ""}`);
   console.log(`left unprocessed: ${left.length} (a/b/c/d-commercial/d-amenity ${byPrio(left)})`);
   if (failures.length) console.log(`failures:\n  ${failures.slice(0, 30).join("\n  ")}`);
 }
