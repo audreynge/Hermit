@@ -318,3 +318,8 @@ html[data-motion="reduced"] :is(.ev-chev, .think-jump) { transition: none; }
 @media (max-width: 560px) { .above .heat-head, .above .heat-controls { padding-inline: 16px; } }
 @media (prefers-reduced-motion: reduce) { .ev-chev { transition: none; } }
 /* == end U1 == */
+
+/* U3: the selected-item toolbar gained the flip and tip buttons; it wraps to a second row on narrow tours instead of clipping. */
+.furnish-stage .furnish-toolbar { flex-wrap: wrap; justify-content: center; row-gap: 4px; white-space: normal; width: max-content; }
+.furnish-stage .furnish-toolbar > * { white-space: nowrap; }
+/* /U3 */

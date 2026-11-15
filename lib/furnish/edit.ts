@@ -4,10 +4,10 @@ import { z } from "zod";
 import { unflatten } from "../design/edit";
 import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
 import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
-import { parseFurnish, wholeScope } from "./offline";
+import { flipWording, parseFurnish, wholeScope } from "./offline";
 
 const FlatOp = z.object({
-  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish", "clear", "undo"]),
+  op: z.enum(["add", "move", "rotate", "tip", "remove", "recolor", "swap", "resize", "furnish", "clear", "undo"]), axis: z.enum(["x", "z"]).nullish(),
   scope: z.enum(["room", "all"]).nullish(), room: z.string().nullish(),
   id: z.string().nullish(), name: z.string().nullish(), terms: z.array(z.string()).nullish(), count: z.number().nullish(),
   at: z.enum(["point", "front", "center", "wall"]).nullish(), color: z.string().nullish(), material: z.string().nullish(), degrees: z.number().nullish(),
@@ -21,7 +21,8 @@ const PROMPT = `You place and edit 3D furniture inside a virtual tour of a real 
 Ops:
 - add {name, terms, count?, at, color?, material?, w?, d?, h?}: name = 1-3 plain words; terms = 2-3 search words from specific to generic that would match a low-poly 3D model title; w/d/h = typical size in meters when it is unusual.
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
-- move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
+- move {id, at}, rotate {id, degrees} (a spin about the vertical axis: positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
+- tip {id, axis, degrees}: for a model that is upside down or lying the wrong way. "flip it upright", "it's upside down", "flip it over", "stand it up", "turn it right side up" = tip {axis "x", degrees 180}, never a rotate. "tip it forward" = {axis "x", degrees 90} (back = -90); "lay it on its side" or "it's on its side" = {axis "z", degrees 90}. degrees are multiples of 90.
 - furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"; "place" always means all rooms). Code plans and places the items; don't also add them.
 - clear {scope, room?}: remove placed furniture in bulk. scope "room" = one room (room = the room's name if they named one, "empty the bedroom"; else null for the room they're in: "clear this room", "delete all the furniture"); "all" = every placed item ("remove everything", "clear the whole place"). "Clear the kitchen table" is about a table, not a room. If they want to keep some pieces ("everything except the sofa"), return no ops and ask which pieces should go.
 - undo {}: put things back as they were before the last change ("undo", "undo that", "take that back"). Return it alone.
@@ -67,6 +68,13 @@ const wholePlace = (ops: object[], text: string) => {
   return ops.map((o) => { const op = (o as { op: string }).op; return op === "furnish" || (op === "clear" && furnishing) ? { op, scope: "all" } : o; });
 };
 
+/** "Flip it upright" / "it's upside down" / "stand it up" is a flip about the item's width axis: a spin (or a quarter
+ *  tip) the model picked for that wording becomes the flip. */
+const flipNotSpin = (ops: object[], text: string) => !flipWording(text) ? ops : ops.map((o) => {
+  const op = o as { op: string; id?: string };
+  return (op.op === "rotate" || op.op === "tip") && op.id ? { op: "tip", id: op.id, axis: "x", degrees: 180 } : o;
+});
+
 export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): Promise<EditOut> {
   const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);
   if (!g) return offline(input);
@@ -79,7 +87,7 @@ export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): 
   try {
     const out = Out.safeParse(await geminiJson(g, PROMPT, [{ text: lines.join("\n") }], SCHEMA));
     if (!out.success) return offline(input, "bad output");
-    return { ops: wholePlace(enrich(toOps(out.data.ops), input.suggestions), input.text), reply: out.data.reply.slice(0, 300), source: "gemini" };
+    return { ops: flipNotSpin(wholePlace(enrich(toOps(out.data.ops), input.suggestions), input.text), input.text), reply: out.data.reply.slice(0, 300), source: "gemini" };
   } catch (e) {
     console.warn(`[hermit] furnish edit fell back (${e instanceof Error ? e.message : e})`);
     return offline(input, "error");
