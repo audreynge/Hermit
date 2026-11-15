@@ -1,0 +1,35 @@
+import { describe, expect, it } from "vitest";
+import { parseFurnish } from "./offline";
+import type { Placed } from "./ops";
+import { PHRASES } from "./phrases.fixture";
+
+const p = (id: string, name: string): Placed => ({ id, name, terms: [name], size: { w: 1, d: 1, h: 1 }, approxSize: false, pos: { x: 0, y: 0, z: 0 }, rotY: 0 });
+const room = [p("f1", "stove"), p("f2", "sofa"), p("f3", "bar stool")];
+
+describe("parseFurnish", () => {
+  it.each(PHRASES)("%s", (text, selected, ops) => {
+    expect(parseFurnish(text, room, selected)).toEqual({ ops });
+  });
+
+  it("asks instead of guessing when the target is unclear or nothing is placed", () => {
+    expect(parseFurnish("delete it", room)).toHaveProperty("ask");
+    expect(parseFurnish("rotate it", [])).toHaveProperty("ask");
+    expect(parseFurnish("what's the weather", room)).toHaveProperty("ask");
+  });
+
+  it("puts a new item when the article is indefinite, even if one exists", () => {
+    expect(parseFurnish("put a stove here", room)).toEqual({ ops: [{ op: "add", name: "stove", at: "point" }] });
+    expect(parseFurnish("put the stove here", room)).toEqual({ ops: [{ op: "move", id: "f1", at: "point" }] });
+  });
+});
+
+describe("toMeters", () => {
+  it("converts inches, feet, feet-and-inches, cm and m", async () => {
+    const { toMeters } = await import("./offline");
+    expect(toMeters("30", "inches")).toBe(0.762);
+    expect(toMeters("3", "ft", "6")).toBe(1.0668);
+    expect(toMeters("3", "′", "6")).toBe(1.0668);
+    expect(toMeters("75", "cm")).toBe(0.75);
+    expect(toMeters("2", "m")).toBe(2);
+  });
+});

@@ -44,3 +44,27 @@ export const perimeter = (pts: Pt[]) => pts.reduce((s, a, i) => s + Math.hypot(p
 
 // For a long, thin room 2·area/perimeter approximates its clear width (exact for an infinitely long rectangle).
 export const corridorWidth = (pts: Pt[]) => (pts.length >= 3 ? (2 * shoelaceArea(pts)) / perimeter(pts) : null);
+
+// Even-odd ray cast.
+export function pointInPolygon(p: Pt, pts: Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Closest point to p on the polygon's boundary, with the edge it lies on. */
+export function nearestOnBoundary(p: Pt, pts: Pt[]): { pt: Pt; a: Pt; b: Pt; dist: number } {
+  let best = { pt: pts[0], a: pts[0], b: pts[0], dist: Infinity };
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+    const pt = { x: a.x + t * dx, y: a.y + t * dy };
+    const dist = Math.hypot(p.x - pt.x, p.y - pt.y);
+    if (dist < best.dist) best = { pt, a, b, dist };
+  }
+  return best;
+}

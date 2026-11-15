@@ -16,7 +16,7 @@ export const EditOut = z.object({ target: z.enum(["none", "layout", "fitout", "a
 export type EditOut = z.infer<typeof EditOut>;
 
 /** Drops nulls/empty arrays so the strict LayoutOp/FitoutOp schemas see only what the model actually set. */
-export const unflatten = (ops: z.infer<typeof FlatOp>[]) =>
+export const unflatten = <T extends object>(ops: T[]) =>
   ops.map((o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v != null && !(Array.isArray(v) && !v.length))));
 
 export type EditContext = {

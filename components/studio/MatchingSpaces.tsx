@@ -66,7 +66,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
           );
         })}
       </div>
-      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} design={design} onClose={() => setView(null)} />}
+      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} use={spec.useType} design={design} onClose={() => setView(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </section>
   );

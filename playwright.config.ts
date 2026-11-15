@@ -9,7 +9,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: { baseURL: "http://localhost:3000", trace: "retain-on-failure" },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    // SwiftShader gives headless Chromium WebGL, which the Matterport 3D tour needs.
+    { name: "desktop", use: { ...devices["Desktop Chrome"], launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } } },
     { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile/ },
   ],
   webServer: { command: "npm run dev", url: "http://localhost:3000", reuseExistingServer: true, timeout: 120_000 },
