@@ -166,7 +166,7 @@ export function InsideFurnish({ report, runId, use }: ReportCtx) {
         <div className="inside2-canvas">
           {view === "2d" && has2d && (
             <div className="inside2-plan">
-              <FloorPlan graph={g!} names={names} highlight={sel} items={footprints} selected={selItem} onRoom={pickRoom} onItem={(id) => setSelItem(id)} height={560}
+              <FloorPlan graph={g!} report={report} names={names} highlight={sel} items={footprints} selected={selItem} onRoom={pickRoom} onItem={(id) => setSelItem(id)} height={560}
                 label={`Measured floor plan of ${report.name} with ${items.length} pieces of furniture`} />
               <div className="sel-bar">
                 {selFoot ? (
