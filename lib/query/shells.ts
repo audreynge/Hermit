@@ -121,6 +121,10 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = Inf
     }
     if (spec.needs.heavyPower && s.heavyPower) { score += 10; reasons.push("Heavy power on record"); }
     if (spec.needs.driveInBays && (s.driveInBays ?? 0) >= spec.needs.driveInBays) { score += 10; reasons.push(`${s.driveInBays} drive-in bays`); }
+    // Cheap record checks before any room graph is read: parking on record, and a scan with at least as many rooms as you need.
+    if (spec.needs.parkingStalls && (s.parkingSpaces ?? 0) >= spec.needs.parkingStalls) { score += 5; reasons.push(`${s.parkingSpaces!.toLocaleString()} parking spaces on record`); }
+    const roomsNeeded = spec.rooms.reduce((n, r) => n + (r.label === "open" ? 0 : r.count), 0);
+    if (roomsNeeded >= 4 && (s.roomCount ?? 0) >= roomsNeeded) { score += 5; reasons.push(`${s.roomCount} rooms in the scan (you need ${roomsNeeded})`); }
     results.push({ shell: s, score: Math.round(score), reasons });
   }
 
