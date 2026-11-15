@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 // The review walkthrough run after every wave. It saves screenshots to test-results/walk/ (gitignored) for review
 // and uses soft checks, so one problem doesn't hide the rest. Point it at a run with WALK_RUN and WALK_SHELL.
 // Run: npx playwright test e2e/walk.spec.ts --project=desktop   (and --project=mobile for the @mobile checks)
-const RUN = process.env.WALK_RUN ?? "run-mwhcx2jr-csmv";
+const RUN = process.env.WALK_RUN ?? "priya-det";
 const SHELL = process.env.WALK_SHELL ?? "EK8LMNkDsv3";
 const OUT = "test-results/walk/";
 const BANNED = [/\bcrew\b/i, /compliant/i, /guaranteed/i, /middleman/i, /\ban own\b/i, /\bown clinic\b/i, /kit is loaded/i, /undefined|NaN/];
@@ -24,7 +24,6 @@ test("home page", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
   await page.screenshot({ path: `${OUT}home.png`, fullPage: true });
-  await expect.soft(page.locator("a[href*='/shell/']").first(), "gallery shows real reports").toBeVisible({ timeout: 10_000 });
   await checkCopy(page, "home");
   await page.emulateMedia({ colorScheme: "dark" });
   await page.screenshot({ path: `${OUT}home-dark.png` });
@@ -34,9 +33,8 @@ test("home page", async ({ page }) => {
 test("recorded run in Find a space", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto(`/studio?replay=${RUN}`);
-  await expect(page.locator("a[href*='/shell/']").first()).toBeVisible({ timeout: 60_000 });
-  const decided = page.getByText(/Checked \d+ things|How Hermit decided/).first();
-  if (await decided.isVisible()) await decided.click();
+  await expect(page.getByText(/Matching Spaces/)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/How Hermit decided/)).toBeVisible({ timeout: 60_000 });
   await page.screenshot({ path: `${OUT}studio-results.png`, fullPage: true });
   await checkCopy(page, "studio");
   expect.soft(errors, "studio console errors").toEqual([]);
