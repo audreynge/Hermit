@@ -317,3 +317,15 @@ nav.primary svg { width: 21px; height: 21px; }
 .lease-ask { display: flex; gap: 8px; }
 .lease-ask input { flex: 1; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px 12px; font: inherit; background: var(--card); color: var(--ink); }
 /* == end W5b == */
+/* == W5d: Report chat == */
+.rchat-pill { position: fixed; right: 20px; bottom: 20px; z-index: 40; padding: 14px 22px; border-radius: 999px; border: 1px solid var(--coral-ink); background: var(--coral-ink); color: #fff; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-cta); }
+.rchat { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: 380px; height: 520px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; }
+.rchat-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.rchat-head .icon-btn { margin-left: auto; }
+.rchat-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; font-size: 17px; }
+.rchat-msg { margin: 0; padding: 10px 14px; border-radius: var(--r-md); max-width: 88%; background: var(--coral-wash); color: var(--ink); }
+.rchat-msg[data-role="user"] { align-self: flex-end; background: var(--coral-ink); color: #fff; }
+.rchat-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
+.rchat-form .input { flex: 1; min-width: 0; }
+@media (max-width: 640px) { .rchat { left: 0; right: 0; bottom: 0; width: auto; height: 80vh; border-radius: var(--r-lg) var(--r-lg) 0 0; } }
+/* == end W5d == */
