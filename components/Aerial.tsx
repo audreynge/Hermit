@@ -11,16 +11,16 @@ const FACES: Record<string, string> = { ortho: "Straight down", "oblique-north":
 function siteFacts(r: ShellReport) {
   const hit = r.rules.find((h) => h.rule === "parking" || h.rule === "onsite_parking");
   const stalls = hit?.detail.match(/^(\d+) (?:recorded|on-site) stalls/)?.[1];
-  return { parking: stalls ? Number(stalls).toLocaleString() : "Not on record", size: r.sqft ? `${r.sqft.toLocaleString()} sf` : "Not on record" };
+  const lot = (r as ShellReport & { parcel?: { lotSqft?: number } }).parcel?.lotSqft;
+  return { parking: stalls ? Number(stalls).toLocaleString() : "Not on record", space: r.sqft ? `${r.sqft.toLocaleString()} sf` : "Not on record", lot: lot ? `${lot.toLocaleString()} sf` : null };
 }
 
 const HEADING: Record<string, number | undefined> = { "oblique-north": 0, "oblique-east": 90, "oblique-south": 180, "oblique-west": 270 };
 
 // Street-map locator so first-time viewers know where the photo is; the arrow shows which way an angled photo faces.
 function MiniMap({ address, lat, lon, facing }: { address: string; lat: number; lon: number; facing?: number }) {
-  const [failed, setFailed] = useState(false);
-  const { pt, byAddress, retry } = useCoords(address, lat, lon);
-  if (failed || !pt) return null;
+  const { pt, byAddress, fail, dead } = useCoords(address, lat, lon);
+  if (dead || !pt) return null;
   const z = 15, S = 150;
   const t = tileFor(pt.lat, pt.lon, z);
   const offX = (1 + t.fx) * 256, offY = (1 + t.fy) * 256;
@@ -29,7 +29,7 @@ function MiniMap({ address, lat, lon, facing }: { address: string; lat: number; 
       <div style={{ position: "absolute", left: `calc(50% - ${offX}px)`, top: `calc(50% - ${offY}px)`, width: 768, height: 768 }}>
         {[-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => (
           // eslint-disable-next-line @next/next/no-img-element
-          <img key={`${dx}${dy}`} alt="" src={esriStreetTile(z, t.x + dx, t.y + dy)} width={256} height={256} onError={() => (byAddress ? setFailed(true) : retry())} style={{ position: "absolute", left: (dx + 1) * 256, top: (dy + 1) * 256 }} />
+          <img key={`${dx}${dy}`} alt="" src={esriStreetTile(z, t.x + dx, t.y + dy)} width={256} height={256} onError={fail} style={{ position: "absolute", left: (dx + 1) * 256, top: (dy + 1) * 256 }} />
         )))}
       </div>
       <svg width="100%" height="100%" viewBox={`0 0 ${S} ${S}`} aria-hidden="true" style={{ position: "absolute", inset: 0 }}>
@@ -63,7 +63,8 @@ export function Aerial({ report }: { report: ShellReport }) {
       </div>
       <dl className="aerial-facts" aria-label="Site facts">
         <div><dt>Parking spaces</dt><dd>{f.parking}</dd></div>
-        <div><dt>Building size</dt><dd>{f.size}</dd></div>
+        <div><dt>Space size</dt><dd>{f.space}</dd></div>
+        {f.lot && <div><dt>Lot size</dt><dd>{f.lot}</dd></div>}
         <div><dt>Photo faces</dt><dd>{FACES[view]}</dd></div>
       </dl>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -77,19 +78,19 @@ export function Aerial({ report }: { report: ShellReport }) {
 function EsriAerial({ report }: { report: ShellReport }) {
   const [failed, setFailed] = useState(false);
   const a = report.above;
-  const { pt, byAddress, retry } = useCoords(report.address, a?.lat, a?.lon);
+  const { pt, byAddress, fail, dead } = useCoords(report.address, a?.lat, a?.lon, 9);
   if (pt === undefined) return <p className="muted" style={{ padding: 16 }}>Finding the location...</p>;
   if (!pt) return <p className="muted" style={{ padding: 16 }}>No coordinates on record for this property.</p>;
   const z = 19;
   const t = tileFor(pt.lat, pt.lon, z);
   const offX = (1 + t.fx) * 256, offY = (1 + t.fy) * 256;
-  if (failed) return <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 16, textAlign: "center" }}><p>Aerial imagery couldn&apos;t load (offline?). Location: <span className="num">{pt.lat.toFixed(5)}, {pt.lon.toFixed(5)}</span>.</p></div>;
+  if (dead) return <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 16, textAlign: "center" }}><p>Aerial imagery couldn&apos;t load (offline?). Location: <span className="num">{pt.lat.toFixed(5)}, {pt.lon.toFixed(5)}</span>.</p></div>;
   return (
     <div role="img" aria-label={`Aerial image centered on ${report.address}`} style={{ position: "absolute", inset: 0 }}>
       <div style={{ position: "absolute", left: "50%", top: "50%", width: 768, height: 768, transform: `translate(${-offX}px, ${-offY}px)` }}>
         {[-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => (
           // eslint-disable-next-line @next/next/no-img-element
-          <img key={`${dx}${dy}`} alt="" src={esriTile(z, t.x + dx, t.y + dy)} width={256} height={256} onError={() => (byAddress ? setFailed(true) : retry())} style={{ position: "absolute", left: (dx + 1) * 256, top: (dy + 1) * 256 }} />
+          <img key={`${dx}${dy}`} alt="" src={esriTile(z, t.x + dx, t.y + dy)} width={256} height={256} onError={fail} style={{ position: "absolute", left: (dx + 1) * 256, top: (dy + 1) * 256 }} />
         )))}
         <svg width={40} height={40} viewBox="0 0 24 24" aria-hidden="true" style={{ position: "absolute", left: offX - 20, top: offY - 38 }}>
           <path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" fill="#f26a4b" stroke="#fff" strokeWidth={1.5} />

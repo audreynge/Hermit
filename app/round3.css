@@ -236,3 +236,6 @@ nav.primary svg { width: 21px; height: 21px; }
 .heat-slider { display: flex; flex-direction: column; gap: 4px; flex: 1 1 220px; font-size: 16px; color: var(--ink); }
 .heat-slider input { width: 100%; accent-color: var(--coral); }
 /* == end W4c == */
+/* == W4c: heat backdrop == */
+.heat-backdrop { position: fixed; inset: 0; z-index: 59; background: rgb(0 0 0 / 0.5); }
+/* == end W4c backdrop == */

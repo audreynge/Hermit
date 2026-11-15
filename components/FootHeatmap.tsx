@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { esriStreetTile, tileFor } from "@/lib/geometry/tiles";
 import { DEFAULT_HOURS, useCoords } from "@/lib/neighborhood/heat";
 import type { SiteFile } from "@/lib/neighborhood/types";
@@ -14,23 +14,35 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
   const id = useId();
   const [open, setOpen] = useState(false);
   const [hour, setHour] = useState(12);
-  const [tilesFailed, setTilesFailed] = useState(false);
-  const { pt, byAddress, retry } = useCoords(report.address, report.above?.lat ?? site?.lat, report.above?.lon ?? site?.lon);
+  const expandBtn = useRef<HTMLButtonElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  const { pt, byAddress, fail, dead: lost } = useCoords(report.address, report.above?.lat ?? site?.lat, report.above?.lon ?? site?.lon, 25);
+  useEffect(() => {
+    if (!open) return;
+    const prev = expandBtn.current;
+    closeBtn.current?.focus();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", k);
+    return () => { window.removeEventListener("keydown", k); prev?.focus(); };
+  }, [open]);
   const hours = site?.busyness?.hours?.length === 24 ? site.busyness.hours : DEFAULT_HOURS;
   const busy = hours[hour] / 100;
-  const dead = pt === null || (tilesFailed && byAddress);
+  const dead = pt === null || lost;
   const t = pt ? tileFor(pt.lat, pt.lon, Z) : null;
   const c = pt ? world(pt.lat, pt.lon) : null;
   const ox = t ? 2 * 256 + t.fx * 256 : 0, oy = t ? 2 * 256 + t.fy * 256 : 0;
 
   return (
-    <section className={`heat-card${open ? " open" : ""}`} aria-label="Estimated foot traffic map">
+    <>
+    {open && <div className="heat-backdrop" onClick={() => setOpen(false)} />}
+    <section className={`heat-card${open ? " open" : ""}`} aria-label="Estimated foot traffic map" role={open ? "dialog" : undefined} aria-modal={open || undefined}>
       <header className="heat-head">
         <div>
           <h3>Foot traffic by time of day</h3>
           <p className="muted">Estimated foot traffic, based on nearby places and typical busyness.</p>
         </div>
-        <button type="button" className="btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Collapse" : "Expand"}</button>
+        {open && <button ref={closeBtn} type="button" className="btn small" onClick={() => setOpen(false)}>Close</button>}
+        <button ref={expandBtn} type="button" className="btn small" hidden={open} aria-expanded={open} onClick={() => setOpen(true)}>Expand</button>
       </header>
       <div className="heat-map">
         {dead ? (
@@ -45,7 +57,7 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
                 return (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img key={i} alt="" width={256} height={256} src={esriStreetTile(Z, t.x + dx, t.y + dy)} style={{ left: (dx + 2) * 256, top: (dy + 2) * 256 }}
-                    onError={() => (byAddress ? setTilesFailed(true) : retry())} />
+                    onError={fail} />
                 );
               })}
               <svg width={SPAN} height={SPAN} aria-hidden="true">
@@ -83,5 +95,6 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
         </label>
       </div>
     </section>
+    </>
   );
 }
