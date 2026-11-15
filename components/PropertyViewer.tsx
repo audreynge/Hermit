@@ -55,7 +55,7 @@ export function PropertyViewer({ report, use = "", onClose, initial = "fit", des
               <div className="pv-frame">
                 <iframe key={`${at?.index ?? "start"}-${at?.yaw ?? ""}`} title={`3D tour of ${report.name.split(" · ")[0]}`} src={tourUrl(sid, at?.index, at?.yaw)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
               </div>
-            ) : <FurnishTour report={report} use={use} stop={target} stops={[]} onFail={fail} items={items} setItems={setItems} />}
+            ) : <FurnishTour report={report} use={use} stop={target} onFail={fail} items={items} setItems={setItems} />}
             <GuideCard text={steps[step].text}>
               <button type="button" className="btn" onClick={() => go(step - 1)} disabled={step === 0}>Back</button>
               <span className="muted num" aria-label={`Stop ${step + 1} of ${steps.length}`}>{step + 1} / {steps.length}</span>

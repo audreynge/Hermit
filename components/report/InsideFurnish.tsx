@@ -5,7 +5,7 @@
 import { Box, Map as MapIcon, Plus, Send, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load } from "@/lib/client/store";
-import { glyphFor, fromPlacement, roomOf, toFootprint } from "@/lib/furnish/plan";
+import { glyphFor, fromPlacement, roomOf, toFootprint } from "@/lib/furnish/footprint";
 import { FURNITURE, roomOf as sketchRoomOf, type Furn, type FurnType } from "@/lib/spec/furnish";
 import { place, type Wall } from "@/lib/spec/place";
 import type { SketchRoom } from "@/lib/spec/sketch";
@@ -193,7 +193,7 @@ export function InsideFurnish({ report, runId, use }: ReportCtx) {
                 <div className="pv-frame">
                   <iframe key={`${target?.index ?? "start"}-${target?.yaw ?? ""}`} title={`Matterport 3D tour of ${report.name}`} src={tourUrl(sid, target?.index, target?.yaw)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
                 </div>
-              ) : <FurnishTour report={report} use={use} stop={target} stops={[]} onFail={() => setPlain(true)} items={items} setItems={setItems} chat={false} handle={handle} />}
+              ) : <FurnishTour report={report} use={use} stop={target} onFail={() => setPlain(true)} items={items} setItems={setItems} chat={false} handle={handle} />}
               <GuideCard text={steps[step].text}>
                 <button type="button" className="btn" onClick={() => goStep(step - 1)} disabled={step === 0}>Back</button>
                 <span className="muted num" aria-label={`Stop ${step + 1} of ${steps.length}`}>{step + 1} / {steps.length}</span>

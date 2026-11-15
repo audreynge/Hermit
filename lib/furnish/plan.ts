@@ -1,48 +1,64 @@
-// One furniture list for both views. The 3D tour's Placed items are canonical (world meters, y up); the 2D floor
-// plan draws their footprints. Plan (x, y) == world (x, -z), the same mapping lib/furnish/ops.ts uses.
-import { pointInPolygon, type Pt } from "../geometry/polygon";
-import { FURNITURE } from "../spec/furnish";
-import type { Placed as Placement } from "../spec/place";
-import { normName, typicalSize } from "./catalog";
-import { dims, type Placed } from "./ops";
+// "Furnish it for me": Gemini plans every requested room at once from the use and the user's own words; code lays it
+// out (layout.ts). Without Gemini, each room gets its cached or starter suggestions.
+import { z } from "zod";
+import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
+import { clampSize, normName } from "./catalog";
+import type { PlanItem } from "./layout";
+import { suggestItems } from "./suggest";
 
-/** What the 2D plan draws: the item's axis-aligned footprint, min corner + size in plan meters. */
-export type Footprint = { id: string; roomId: string; type: string; x: number; y: number; w: number; h: number };
+const Name = z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9 '&/-]*$/);
+const Out = z.object({
+  reply: z.string(),
+  rooms: z.array(z.object({
+    id: z.string(),
+    items: z.array(z.object({ name: Name, terms: z.array(Name).min(1).max(3), count: z.number(), at: z.enum(["wall", "center"]), w: z.number(), d: z.number(), h: z.number() })).max(14),
+  })),
+});
+const SCHEMA = z.toJSONSchema(Out);
 
-const TYPES = FURNITURE.map((f) => f.type).sort((a, b) => b.length - a.length);
-/** The 2D glyph for an item name ("walnut dining table" → "table"); unknown names are drawn as labeled boxes. */
-export const glyphFor = (name: string) => { const n = normName(name); return TYPES.find((t) => n.includes(t)) ?? n; };
+const PROMPT = `You furnish a real scanned space for someone deciding whether to rent or buy it. For each listed room, choose the movable furniture and equipment their intended use needs there, following their brief.
+- Scale quantities to the room's floor area and the brief (e.g. desks for a stated headcount, spread over the rooms that suit them). Leave walking space: furniture should cover at most about 40% of a room's floor.
+- Rooms like hallways, bathrooms and closets get little or nothing.
+- name: 1-3 plain generic words. terms: 2-3 search keywords, specific to generic, that would match a simple low-poly 3D model title. Never vague words like "furniture" or "equipment".
+- at: "wall" for pieces that stand against a wall (desks in rows, shelves, counters, beds, sofas, cabinets); "center" for tables, islands, chairs around a table, exam tables.
+- w, d, h: typical width, depth and height in meters. count: how many.
+- Use each room's id exactly as given; skip a room by leaving it out.
+reply: one short friendly sentence describing the setup, without promising it fits or meets code.`;
 
-export function roomOf(p: Placed, rooms: { id: string; polygon: Pt[] }[]): string {
-  const at = { x: p.pos.x, y: -p.pos.z };
-  return rooms.find((r) => r.polygon.length >= 3 && pointInPolygon(at, r.polygon))?.id ?? "";
+export type PlanRoom = { id: string; label: string; areaSqm?: number };
+export type PlanIn = { use: string; brief?: string; rooms: PlanRoom[] };
+export type PlanOut = { rooms: { id: string; items: PlanItem[] }[]; reply: string; source: "gemini" | "starter" };
+
+const TABLEISH = /table|desk|island|chair|stool|bench/;
+
+async function starter(input: PlanIn): Promise<PlanOut> {
+  const rooms = await Promise.all(input.rooms.map(async (r) => {
+    const { items } = await suggestItems({ use: input.use, room: r.label, areaSqm: r.areaSqm }, null);
+    return { id: r.id, items: items.slice(0, 6).map((i) => ({ ...i, count: 1, at: (TABLEISH.test(i.name) ? "center" : "wall") as PlanItem["at"] })) };
+  }));
+  return { rooms, reply: "I set out the basics for each room (simple mode: the AI planner isn't available right now).", source: "starter" };
 }
 
-export function toFootprint(p: Placed, rooms: { id: string; polygon: Pt[] }[] = []): Footprint {
-  const s = dims(p);
-  const quarter = Math.round((((p.rotY % 180) + 180) % 180) / 90) === 1; // turned ~90°: width runs along plan y
-  const w = quarter ? s.d : s.w, h = quarter ? s.w : s.d;
-  return { id: p.id, roomId: roomOf(p, rooms), type: glyphFor(p.name), x: p.pos.x - w / 2, y: -p.pos.z - h / 2, w, h };
-}
-
-const nextNum = (items: { id: string }[]) => items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1;
-
-/** A piece the 2D placer fit inside a room, as a 3D item. The tour finds its model and sets it on the floor. */
-export function fromPlacement(f: Placement, existing: { id: string }[], floorY = 0): Placed {
-  const { size, known } = typicalSize(f.type);
-  return {
-    id: `f${nextNum(existing)}`, name: f.type, terms: [f.type], size: { w: f.w, d: f.h, h: size.h }, approxSize: !known,
-    pos: { x: f.x + f.w / 2, y: floorY, z: -(f.y + f.h / 2) }, rotY: 0,
-  };
-}
-
-/** Saved furniture from before the views were merged was 2D placements; anything without `pos` is converted. */
-export function migrate(raw: unknown): Placed[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Placed[] = [];
-  for (const x of raw) {
-    if (x && typeof x === "object" && "pos" in x) out.push(x as Placed);
-    else if (x && typeof x === "object" && "type" in x && "x" in x) out.push(fromPlacement(x as Placement, out));
+export async function planFurnishing(input: PlanIn, gemini?: GeminiClient | null): Promise<PlanOut> {
+  const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);
+  if (!g) return starter(input);
+  const ids = new Set(input.rooms.map((r) => r.id));
+  const lines = [
+    `Intended use: ${input.use || "home"}`,
+    `Brief: ${input.brief?.slice(0, 500) || "a typical, practical setup for this use"}`,
+    "Rooms:",
+    ...input.rooms.map((r) => `- id ${r.id}: ${r.label}${r.areaSqm ? `, about ${Math.round(r.areaSqm)} m²` : ""}`),
+  ];
+  try {
+    const out = Out.safeParse(await geminiJson(g, PROMPT, [{ text: lines.join("\n") }], SCHEMA));
+    if (!out.success) return starter(input);
+    const rooms = out.data.rooms.filter((r) => ids.has(r.id)).map((r) => ({
+      id: r.id,
+      items: r.items.map((i) => ({ name: normName(i.name), terms: i.terms, count: Math.max(1, Math.min(40, Math.round(i.count))), at: i.at, size: clampSize({ w: i.w, d: i.d, h: i.h }) })),
+    }));
+    return { rooms, reply: out.data.reply.slice(0, 300), source: "gemini" };
+  } catch (e) {
+    console.warn(`[hermit] furnishing plan fell back (${e instanceof Error ? e.message : e})`);
+    return starter(input);
   }
-  return out;
 }

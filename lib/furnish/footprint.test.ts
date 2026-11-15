@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromPlacement, glyphFor, migrate, toFootprint } from "./plan";
+import { fromPlacement, glyphFor, migrate, toFootprint } from "./footprint";
 
 const room = { id: "r1", polygon: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }] };
 

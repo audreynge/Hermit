@@ -60,3 +60,16 @@ describe("pointInPolygon / nearestOnBoundary", () => {
     expect(n.dist).toBe(1);
   });
 });
+
+describe("ringFromEdges on open-plan rooms", () => {
+  it("traces the full outline past T-junctions and interior wall stubs", () => {
+    // An L-shaped 10x10 room missing its 5x5 top-right corner, with a wall stub poking in from the bottom and the
+    // segments listed out of order: a chain walk dead-ends at the stub's T-junction.
+    const P = (x: number, y: number) => ({ x, y });
+    const segs = [
+      [P(0, 0), P(4, 0)], [P(4, 0), P(4, 3)], [P(4, 0), P(10, 0)], [P(10, 0), P(10, 5)],
+      [P(5, 10), P(0, 10)], [P(10, 5), P(5, 5)], [P(5, 5), P(5, 10)], [P(0, 10), P(0, 0)],
+    ];
+    expect(shoelaceArea(ringFromEdges(segs))).toBeCloseTo(75, 5);
+  });
+});

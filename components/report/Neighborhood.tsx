@@ -1,5 +1,6 @@
 "use client";
 import { Aerial } from "../Aerial";
+import { FootHeatmap } from "../FootHeatmap";
 import { Bus, Car, Store, Users } from "lucide-react";
 import { useState } from "react";
 import { esriTile, tileFor } from "@/lib/geometry/tiles";
@@ -76,6 +77,7 @@ export function Neighborhood({ site, use, report, spec }: ReportCtx) {
           <AnswerCard title="Who am I competing with?" a={competitors(site, use)} Icon={Store} />
         </>}
       </div>
+      <FootHeatmap report={report} site={site} />
       <div className="nb-row">
         <MiniMap site={site} use={home ? "none" : use} label={`Map around ${report.name} showing ${home ? "" : "competitors and "}transit stops within a 10-minute walk`} />
         <article className="q-card">

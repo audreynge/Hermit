@@ -2,7 +2,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { getJSON, setJSON } from "@/lib/client/persist";
 import type { Placed } from "@/lib/furnish/ops";
-import { migrate, type Footprint } from "@/lib/furnish/plan";
+import { migrate, type Footprint } from "@/lib/furnish/footprint";
 import type { MoneyInputs } from "@/lib/money";
 import type { Evidence, RequirementSpec, ShellReport } from "@/lib/types";
 

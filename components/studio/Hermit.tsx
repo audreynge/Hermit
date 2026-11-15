@@ -2,6 +2,7 @@
 import { ImageUp, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HermitNote } from "@/lib/client/session";
 import { KEYS, load, save } from "@/lib/client/store";
 import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { IState, ITurn } from "@/lib/interview/turn";
@@ -19,7 +20,7 @@ import type { Draft } from "@/lib/spec/survey";
 import { packFor, seedRooms } from "@/lib/uses/packs";
 import type { RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/types";
 import { Interview, type ChatMsg } from "./Interview";
-import { Journey } from "./Journey";
+import { CrewTrace } from "./CrewTrace";
 import { MatchingSpaces } from "./MatchingSpaces";
 import { LayoutPreview } from "../LayoutPreview";
 import { LayoutStudio } from "../LayoutStudio";
@@ -170,6 +171,17 @@ export function Hermit() {
     if (!started.current || replay || !messages.length) return;
     save(KEYS.chat, { iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, conv: conv.current } satisfies Persist);
   }, [iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, replay]);
+
+  // Notes from the 3D tour (what the user asked there and what Hermit did) join this conversation.
+  useEffect(() => {
+    const onNote = (e: Event) => {
+      const n = (e as CustomEvent<HermitNote>).detail;
+      n.handled = true;
+      setMessages((m) => [...m, { id: uid(), role: n.role, text: n.text, ...(n.agent && { agent: n.agent }) }]);
+    };
+    window.addEventListener("hermit:note", onNote);
+    return () => window.removeEventListener("hermit:note", onNote);
+  }, []);
 
   const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
   useEffect(() => { if (!touched.current || pushEditor.current) { pushEditor.current = false; setEditorInit(blocks); } }, [blocks]);
@@ -375,8 +387,6 @@ export function Hermit() {
 
   const searched = running || events.length > 0;
   const cta = ready && !searched;
-  const sel = reports[selected];
-  const links = runId && sel ? [undefined, `/shell/${sel.shellId}?run=${runId}&tab=inside`, `/shell/${sel.shellId}?run=${runId}&tab=broker`] : [];
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
 
   const studio = <LayoutStudio inline useType={spec.useType} initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
@@ -384,7 +394,7 @@ export function Hermit() {
   return (
     <div className="studio">
       <div className="studio-top">
-        {searched ? <Journey step={0} links={links} /> : <span />}
+        <span />
         <button type="button" className="btn small" onClick={reset}><RotateCcw aria-hidden="true" /> Start over</button>
       </div>
       <div className="studio-grid">
@@ -414,6 +424,7 @@ export function Hermit() {
             <>
               <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
                 onOpen={(r) => setViewIndex(reports.indexOf(r))} design={blocks} viewIndex={viewIndex} onViewIndex={setViewIndex} />
+              <CrewTrace events={events} running={running} useLabel={(spec.useType || "space").toLowerCase()} />
               <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
                 <summary>Edit your layout</summary>
                 {studio}
