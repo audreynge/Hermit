@@ -1,32 +1,29 @@
 "use client";
-import { Box, ImageUp, PencilRuler, RotateCcw, Sparkles, SquareDashed } from "lucide-react";
+import { ImageUp, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
+import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { IState, ITurn } from "@/lib/interview/turn";
-import { roomOf, type Furn } from "@/lib/spec/furnish";
+import type { Furn } from "@/lib/spec/furnish";
 import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
 import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/blocks";
 import type { Block } from "@/lib/spec/parse";
 import { searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
-import { localCommand, type LocalCommand } from "@/lib/chat/commands";
+import { isLayoutEdit, localCommand, type LocalCommand } from "@/lib/chat/commands";
 import type { ChatState, Turn } from "@/lib/chat/converse";
 import { validateUpload } from "@/lib/design/extract";
 import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
 import type { Finding } from "@/lib/regs/research";
-import { ROOM_TYPES } from "@/lib/design/rooms";
 import type { Draft } from "@/lib/spec/survey";
 import { packFor, seedRooms } from "@/lib/uses/packs";
-import type { FunnelStage, RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/types";
-import { Counter, type Extra } from "./Counter";
-import { CrewTrace } from "./CrewTrace";
+import type { RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/types";
 import { Interview, type ChatMsg } from "./Interview";
-import { ShellReportView } from "./ShellReportView";
-import { DesignSheet } from "../DesignSheet";
-import { LayoutPreview } from "../LayoutPreview";
-import { Plan3D, rectPoly } from "../Plan3D";
-import { Thinking } from "../Thinking";
+import { Journey } from "./Journey";
 import { MatchingSpaces } from "./MatchingSpaces";
+import { LayoutPreview } from "../LayoutPreview";
+import { LayoutStudio } from "../LayoutStudio";
+import { Thinking } from "../Thinking";
 import { Compare } from "../Compare";
 import { EmailDraft } from "../EmailDraft";
 import { FitView, type Proposal } from "../FitView";
@@ -35,13 +32,12 @@ import { RegulationList } from "../Regulations";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EMPTY: Draft = { mode: "business", useType: "", rooms: [], needs: {}, priorities: {}, input: "chat" };
-type Persist = { iv: IState; messages: ChatMsg[]; layout: SketchRoom[]; furniture: Furn[]; extras?: Block[]; ready: boolean; basics: boolean; reports: ShellReport[]; events: TraceEvent[]; runId: string | null; conv?: string | null };
+type Persist = { iv: IState; messages: ChatMsg[]; layout: SketchRoom[]; furniture: Furn[]; extras?: Block[]; ready: boolean; progress?: number; reports: ShellReport[]; events: TraceEvent[]; runId: string | null; conv?: string | null };
 type Fitout = Proposal & { ops: FitoutOp[] };
 // What /api/chat returns when a follow-up edits the drawn layout or proposes changes to a scanned space.
 type Design =
   | { kind: "layout"; blocks: Block[]; applied: number; rejected: unknown[] }
   | { kind: "fitout"; shellId: string; ops: FitoutOp[]; report: ShellReport; diff: FitoutDiff; rejected: unknown[] };
-const FILL = Object.fromEntries(ROOM_TYPES.map((r) => [r.type, r.fill]));
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 async function post<T>(url: string, body: unknown): Promise<T> {
@@ -57,27 +53,27 @@ export function Hermit() {
   const router = useRouter();
   const [iv, setIv] = useState<IState>({ spec: EMPTY, asked: [], history: [] });
   const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [stages, setStages] = useState<FunnelStage[]>([]);
   const [layout, setLayout] = useState<SketchRoom[]>([]);
   const [furniture, setFurniture] = useState<Furn[]>([]);
   const [extras, setExtras] = useState<Block[]>([]); // doors, windows: Layout Studio objects that aren't furniture
-  const [drawing, setDrawing] = useState(params.get("design") === "draw");
-  const [view, setView] = useState<"2d" | "3d">("2d");
-  const [shown, setShown] = useState(0);
+  // What the inline editor is seeded with. It follows the sketch only until the user edits, then changes only on outside edits.
+  const [editorInit, setEditorInit] = useState<Block[]>([]);
+  const touched = useRef(false);
   const [ready, setReady] = useState(false);
-  const [basics, setBasics] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [reports, setReports] = useState<ShellReport[]>([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
-  const [open, setOpen] = useState<ShellReport | null>(null);
+  const [viewIndex, setViewIndex] = useState<number | null>(null);
   const started = useRef(false);
-  // Follow-ups after results run through the chat brain (/api/chat), which needs a server-side conversation.
+  // Follow-ups run through the chat brain (/api/chat), which needs a server-side conversation.
   const conv = useRef<string | null>(null);
   const announced = useRef<string | null>(null);
   const past = useRef<Block[][]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+  const editor = useRef<HTMLElement | null>(null);
   const [selected, setSelected] = useState(0);
   const [fitouts, setFitouts] = useState<Record<string, Fitout[]>>({});
   const [lastEdit, setLastEdit] = useState<"layout" | "fitout" | null>(null);
@@ -90,24 +86,22 @@ export function Hermit() {
   const sketchRooms: RoomReq[] = useMemo(() => (spec.useType ? seedRooms(spec) : []), [spec]);
   useEffect(() => { setLayout((prev) => toLayout(sketchRooms, pack, prev)); }, [sketchRooms, pack]);
 
-  const recount = useCallback(async (s: Draft) => {
-    if (!s.city) return;
-    try { setStages((await post<{ stages: FunnelStage[] }>("/api/count", s)).stages); } catch { /* the counter is advisory */ }
-  }, []);
-
   const ask = useCallback(async (state: IState, text: string | null) => {
     setBusy(true);
     try {
       const t = await post<ITurn>("/api/interview", { state, text });
-      setIv(t.state); setStages(t.state.spec.city ? t.stages : []); setReady(t.ready); setBasics(t.basicsDone);
-      setMessages((m) => [...m, { id: uid(), role: "hermit", text: t.reply, why: t.why, quick: t.quick, multi: t.multi, cta: t.ready }]);
+      setIv(t.state); setReady(t.ready);
+      if (typeof t.progress === "number") setProgress(t.progress);
+      setMessages((m) => [...m, { id: uid(), role: "hermit", text: t.reply, why: t.why }]);
     } catch {
       setMessages((m) => [...m, { id: uid(), role: "hermit", text: "I couldn't reach the Hermit server. Check that it's running and try again." }]);
     } finally { setBusy(false); }
   }, []);
 
   const runSearch = useCallback(async (s: RequirementSpec, replayId?: string) => {
-    setEvents([]); setReports([]); setRunning(true); setOpen(null); setShown(0); setSelected(0);
+    setEvents([]); setReports([]); setRunning(true); setViewIndex(null); setSelected(0);
+    // The crew's checks render under the Hermit message that announced this search.
+    setMessages((m) => { const i = m.map((x) => x.role).lastIndexOf("hermit"); return i < 0 ? m : m.map((x, j) => (j === i ? { ...x, thinking: true } : x)); });
     try {
       const res = replayId ? await fetch(`/api/agent?replay=${encodeURIComponent(replayId)}`) : await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
       if (!res.ok || !res.body) throw new Error(res.status === 404 ? "No recorded demo run is available yet." : `Search failed (${res.status})`);
@@ -124,9 +118,8 @@ export function Hermit() {
           const line = p.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
           const e = JSON.parse(line.slice(6)) as TraceEvent;
-          if (e.type === "run") { setRunId(e.runId); if (e.spec) { setIv((x) => ({ ...x, spec: e.spec as Draft })); setBasics(true); } continue; }
+          if (e.type === "run") { setRunId(e.runId); if (e.spec) setIv((x) => ({ ...x, spec: e.spec as Draft })); continue; }
           setEvents((x) => [...x, e]);
-          if (e.type === "funnel") setStages(e.stages);
           if (e.type === "report") setReports(e.reports);
         }
       }
@@ -153,39 +146,50 @@ export function Hermit() {
     }
     const p = load<Persist>(KEYS.chat);
     if (p?.iv?.spec && p.messages?.length) {
-      setIv(p.iv); setMessages(p.messages); setLayout(p.layout ?? []); setFurniture(p.furniture ?? []); setExtras(p.extras ?? []); setReady(p.ready); setBasics(p.basics); setReports(p.reports); setEvents(p.events); setRunId(p.runId);
+      setIv(p.iv); setMessages(p.messages); setLayout(p.layout ?? []); setFurniture(p.furniture ?? []); setExtras(p.extras ?? []); setReady(p.ready); setProgress(p.progress ?? 0); setReports(p.reports); setEvents(p.events); setRunId(p.runId);
       conv.current = p.conv ?? null; announced.current = p.runId;
-      void recount(p.iv.spec);
       return;
     }
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
-  }, [replay, runSearch, recount, ask, firstQ, router]);
+  }, [replay, runSearch, ask, firstQ, router]);
 
   useEffect(() => {
     if (!started.current || replay || !messages.length) return;
-    save(KEYS.chat, { iv, messages, layout, furniture, extras, ready, basics, reports, events, runId, conv: conv.current } satisfies Persist);
-  }, [iv, messages, layout, furniture, extras, ready, basics, reports, events, runId, replay]);
+    save(KEYS.chat, { iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, conv: conv.current } satisfies Persist);
+  }, [iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, replay]);
+
+  const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
+  useEffect(() => { if (!touched.current) setEditorInit(blocks); }, [blocks]);
 
   const finalSpec = (s: Draft): RequirementSpec => {
     const adj = adjacency(layout);
     const rooms = seedRooms(s).map((r) => (adj[r.label] ? { ...r, adjacentTo: adj[r.label] } : r));
-    // A layout drawn in Layout Studio also goes to match_layout, which ranks scans by floor-plan similarity.
-    const drawn = s.input === "layout" && layout.length ? { layout: layout.map(({ label, x, y, w, h }) => ({ label, x, y, w, h })) } : {};
-    return { ...s, city: s.city ?? "houston", useType: s.useType || "office", rooms, ...drawn };
+    // A drawn layout also goes to match_layout, which ranks scans by floor-plan similarity.
+    const drawnLayout = s.input === "layout" && layout.length ? { layout: layout.map(({ label, x, y, w, h }) => ({ label, x, y, w, h })) } : {};
+    return { ...s, city: s.city ?? "houston", useType: s.useType || "office", rooms, ...drawnLayout };
   };
 
   const search = () => {
     setReady(false);
-    setMessages((m) => [...m.map((x) => ({ ...x, cta: false })), { id: uid(), role: "hermit", text: "Sending in the crew! They'll scuttle through every shell, crawl inside the best ones, and tell you exactly what's left to do." }]);
+    say("Looking for spaces that fit. I'll walk inside the best ones and tell you what's left to do.");
     void runSearch(finalSpec(spec));
+  };
+
+  const editLayout = () => {
+    const el = editor.current;
+    if (!el) return;
+    if (el instanceof HTMLDetailsElement) el.open = true;
+    el.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
+    el.focus({ preventScroll: true });
   };
 
   const send = (text: string) => {
     const cmd = localCommand(text);
-    if (cmd === "studio") { setDrawing(true); return; }
-    setMessages((m) => [...m.map((x) => ({ ...x, quick: undefined, cta: false })), { id: uid(), role: "user", text }]);
+    if (cmd === "studio") { editLayout(); return; }
+    setMessages((m) => [...m, { id: uid(), role: "user", text }]);
     if (cmd === "search") { search(); return; }
-    if (reports.length && !running) { void followUp(text, cmd); return; }
+    if (running) { void ask(iv, text); return; }
+    if (reports.length || (blocks.some((b) => b.kind !== "object") && isLayoutEdit(text))) { void followUp(text, cmd); return; }
     void ask(iv, text);
   };
 
@@ -211,7 +215,7 @@ export function Hermit() {
     }
     setBusy(true);
     try {
-      const id = await syncConv(runSpec as Draft, "results");
+      const id = await syncConv((reports.length ? runSpec : spec) as Draft, reports.length ? "results" : "gathering");
       const r = await post<{ turn: Turn; design?: Design }>("/api/chat", {
         // The API takes [A-Za-z0-9_-] ids; sketch keys ("exam room#0") are rebuilt from labels on the way back.
         conversationId: id, text, layout: blocks.length ? blocks.map((b) => ({ ...b, id: b.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) })) : null,
@@ -225,9 +229,10 @@ export function Hermit() {
 
   const respond = async (turn: Turn, d?: Design) => {
     if (d?.kind === "layout") {
-      if (d.applied) { past.current = [...past.current.slice(-49), blocks]; setLastEdit("layout"); applyBlocks(d.blocks, false); }
-      const stale = d.applied ? " These results are from before this change. Tap “Search with this” to update them." : "";
-      return say(turn.reply + stale, { quick: turn.quickReplies, ...(d.applied ? { blocks: d.blocks } : {}) });
+      if (d.applied) { past.current = [...past.current.slice(-49), blocks]; setLastEdit("layout"); applyBlocks(d.blocks); }
+      const stale = d.applied && reports.length ? " These matches are from before this change. Say “search with this” to update them." : "";
+      // Before results the editor is open beside the chat, so the chat needn't redraw the layout.
+      return say(turn.reply + stale, d.applied && reports.length ? { blocks: d.blocks } : {});
     }
     if (d?.kind === "fitout") {
       setFitouts((all) => {
@@ -236,17 +241,26 @@ export function Hermit() {
         return { ...all, [d.shellId]: [...stack, { ops: d.ops, report: d.report, diff: d.diff, kept: false }] };
       });
       setLastEdit("fitout");
-      return say(turn.reply, { quick: turn.quickReplies, fitout: d.shellId });
+      return say(turn.reply, { fitout: d.shellId });
     }
-    const quick = turn.quickReplies.length ? turn.quickReplies : undefined;
     if (turn.action === "regulations" && turn.state.spec.city && turn.state.spec.useType) {
       const qs = new URLSearchParams({ city: turn.state.spec.city, useType: turn.state.spec.useType });
       const r: { findings: Finding[] } = await fetch(`/api/regulations?${qs}`).then((x) => (x.ok ? x.json() : { findings: [] })).catch(() => ({ findings: [] }));
-      return say(turn.reply, { quick, findings: r.findings });
+      return say(turn.reply, { findings: r.findings });
     }
-    say(turn.reply, { quick, ...(turn.action === "compare" ? { compare: reports } : {}) });
-    const sel = reports[selected];
-    if (turn.action === "email" && sel) setEmailFor(sel);
+    if (turn.action === "reset") return reset();
+    if (turn.action === "search") return search();
+    const idx = turn.target ? turn.target - 1 : selected;
+    const target = reports[idx];
+    if ((turn.action === "save" || turn.action === "report" || turn.action === "broker") && (!target || !runId)) return say("That works once your matches are loaded.");
+    if (turn.action === "save" && target && isSaved(target.shellId)) return say("Already saved.");
+    say(turn.reply, turn.action === "compare" ? { compare: reports } : {});
+    if (turn.action === "email" && target) setEmailFor(target);
+    if (turn.action === "save" && target && runId) toggleSaved(target, runId);
+    if (turn.action === "view" && target) { setSelected(idx); setViewIndex(idx); }
+    if (turn.action === "report" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}`);
+    if (turn.action === "broker" && target && runId) router.push(`/shell/${target.shellId}?run=${runId}&tab=broker`);
+    if (turn.action === "edit_layout") editLayout();
     if (turn.ready) { setIv((x) => ({ ...x, spec: turn.state.spec })); void runSearch(finalSpec(turn.state.spec)); }
   };
 
@@ -259,8 +273,8 @@ export function Hermit() {
     const prev = past.current.at(-1);
     if (!prev) return say("There's nothing to undo.");
     past.current = past.current.slice(0, -1);
-    applyBlocks(prev, false);
-    say("Undone. Here's your layout again.", { blocks: prev });
+    applyBlocks(prev);
+    say("Undone. Here's your layout again.", reports.length ? { blocks: prev } : {});
   };
 
   const keep = () => {
@@ -274,7 +288,7 @@ export function Hermit() {
 
   const upload = async (file: File) => {
     const bad = validateUpload(file.size, file.type);
-    if (bad) return say(bad.error, { quick: ["Draw a layout"] });
+    if (bad) return say(bad.error);
     setMessages((m) => [...m, { id: uid(), role: "user", text: `Uploaded ${file.name}` }]);
     setBusy(true);
     try {
@@ -284,84 +298,51 @@ export function Hermit() {
       const res = await fetch("/api/design", { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
       const { turn } = (await res.json()) as { turn: Turn };
+      touched.current = false;
       setIv((x) => ({ ...x, spec: turn.state.spec }));
-      if (turn.state.spec.useType) setBasics(true);
       if (turn.ready && !reports.length) setReady(true);
-      say(turn.reply, { quick: turn.quickReplies });
+      say(turn.reply);
     } catch (e) {
-      say(e instanceof Error ? e.message : String(e), { quick: ["Draw a layout"] });
+      say(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   };
 
-  const onRooms = (rooms: RoomReq[], note: string) => {
-    const next = { ...iv, spec: { ...spec, rooms, input: "layout" as const } };
-    setIv(next);
-    void recount(next.spec);
-    setMessages((m) => (m.at(-1)?.agent === "sketch" ? [...m.slice(0, -1), { ...m.at(-1)!, text: `Sketch updated: ${note}.` }] : [...m, { id: uid(), role: "hermit", agent: "sketch", text: `Sketch updated: ${note}.` }]));
+  // A drawing (from the editor or a chat edit) becomes the sketch (rooms pinned where drawn) and the room requirements.
+  const applyBlocks = (next: Block[], fromEditor = false) => {
+    touched.current = fromEditor;
+    const sk = blocksToSketch(next);
+    const roomBlocks = next.filter((b) => b.kind !== "object");
+    // Only guess the use when the rooms make it obvious; otherwise the interview still asks.
+    const guess = roomBlocks.some((b) => ["bedroom", "living room", "laundry", "garage"].includes(b.label)) ? "home" : roomBlocks.some((b) => b.label === "exam room") ? "medical clinic" : "";
+    const base = spec.useType || !guess ? spec : { ...spec, mode: guess === "home" ? "home" as const : spec.mode, useType: guess };
+    setLayout(sk.layout); setFurniture(sk.furniture); setExtras(sk.extras);
+    const rooms = roomsFromBlocks(next, base.useType ? seedRooms(base) : []);
+    setIv((x) => ({ ...x, spec: { ...base, rooms, input: "layout" as const } }));
   };
 
-  // "Use this layout" from Layout Studio: the drawing becomes the sketch (rooms pinned where drawn) and the room requirements.
-  const applyBlocks = (blocks: Block[], note = true) => {
-    setDrawing(false);
-    const next = blocksToSketch(blocks);
-    const roomBlocks = blocks.filter((b) => b.kind !== "object");
-    const home = roomBlocks.some((b) => ["bedroom", "living room", "laundry", "garage"].includes(b.label));
-    const base = spec.useType ? spec : { ...spec, mode: home ? "home" as const : spec.mode, useType: home ? "home" : roomBlocks.some((b) => b.label === "exam room") ? "medical clinic" : "office" };
-    setLayout(next.layout); setFurniture(next.furniture); setExtras(next.extras);
-    const area = Math.round(roomBlocks.reduce((t, b) => t + b.w * b.h, 0));
-    const rooms = roomsFromBlocks(blocks, base.useType ? seedRooms(base) : []);
-    const ivNext = { ...iv, spec: { ...base, rooms, input: "layout" as const } };
-    setIv(ivNext);
-    if (!basics && base.useType) setBasics(true);
-    void recount(ivNext.spec);
-    if (note) setMessages((m) => [...m, { id: uid(), role: "hermit", agent: "sketch", text: `Layout updated: ${roomBlocks.length} rooms, about ${area.toLocaleString()} sq ft. I'll match it against real floor plans.` }]);
+  const reset = () => {
+    conv.current = null; announced.current = null; past.current = []; started.current = true;
+    setFitouts({}); setSelected(0); setViewIndex(null); save(KEYS.chat, null);
+    setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setReports([]); setEvents([]); setRunId(null);
+    setReady(false); setProgress(0); setLayout([]); setFurniture([]); setExtras([]); touched.current = false;
+    void ask({ spec: EMPTY, asked: [], history: [] }, null);
   };
-
-  const reset = () => { conv.current = null; announced.current = null; past.current = []; setFitouts({}); setSelected(0); save(KEYS.chat, null); setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setStages([]); setReports([]); setEvents([]); setReady(false); setBasics(false); setLayout([]); setFurniture([]); setExtras([]); setShown(0); started.current = true; void ask({ spec: EMPTY, asked: [], history: [] }, null); };
-
-  // Furniture by room label, so the tour guide can say "your desk goes here".
-  const furnitureByRoom = useMemo(() => {
-    const out: Record<string, string[]> = {};
-    for (const f of furniture) { const r = roomOf(f, layout); if (r) (out[r.label] ??= []).push(f.type); }
-    return out;
-  }, [furniture, layout]);
-
-  const extra: Extra[] = useMemo(() => {
-    if (!events.length) return [];
-    const walked = events.filter((e) => e.type === "verdict" && e.verdict.agent === "inspector").length;
-    const vetoes = events.filter((e) => e.type === "veto") as Extract<TraceEvent, { type: "veto" }>[];
-    const drops = (events.filter((e) => e.type === "drop") as Extract<TraceEvent, { type: "drop" }>[]).filter((d) => !vetoes.some((v) => v.shellId === d.shellId));
-    const out: Extra[] = [];
-    if (walked) out.push({ key: "walked", label: "explored inside", count: walked });
-    // Only scans the Inspector walked count against "walked"; record-screen drops happen before anyone goes inside.
-    const walkedIds = new Set(events.flatMap((e) => (e.type === "verdict" && e.verdict.agent === "inspector" ? [e.verdict.shellId] : [])));
-    const failedInside = new Set([...vetoes, ...drops].map((x) => x.shellId).filter((id) => walkedIds.has(id))).size;
-    if (walked && (vetoes.length || drops.length)) out.push({ key: "veto", label: "passed every crab's check", count: Math.max(0, walked - failedInside), tone: "veto",
-      removed: [...vetoes.map((v) => ({ id: v.shellId, name: v.name, reason: v.reason })), ...drops.map((d) => ({ id: d.shellId, name: d.shellId, reason: d.reason }))] });
-    if (reports.length) out.push({ key: "reports", label: "shells picked for you", count: reports.length });
-    return out;
-  }, [events, reports]);
 
   const runSpec = useMemo(() => ({ ...spec, city: spec.city ?? "houston", useType: spec.useType || "office" }) as RequirementSpec, [spec]);
   const steps = useMemo(() => thinkingSteps(events, runSpec), [events, runSpec]);
-  // Reveal the crew's checks one at a time ("Here's what I checked" once done); instant with reduced motion or a restored run.
-  useEffect(() => {
-    if (shown >= steps.length) return;
-    const t = setTimeout(() => setShown((n) => Math.min(steps.length, n + 1)), running && !reduceMotion() ? 520 : 0);
-    return () => clearTimeout(t);
-  }, [shown, steps.length, running]);
-  const finished = !running && events.some((e) => e.type === "done") && shown >= steps.length;
-  const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
+  const finished = !running && events.some((e) => e.type === "done");
   useEffect(() => {
     if (!finished || !runId || announced.current === runId) return;
     announced.current = runId;
     const s = summarizeResults(reports, runSpec, { considered: searchCounts(events).considered, dropped: events.filter((e) => e.type === "drop").length });
-    setMessages((m) => [...m, { id: uid(), role: "hermit", text: [...s.paragraphs, s.followUp].join(" "), quick: reports.length ? ["Compare the layouts", "Draft an email", "Make it bigger"] : ["Make it bigger", "Raise the budget"] }]);
+    setMessages((m) => [...m, { id: uid(), role: "hermit", text: [...s.paragraphs, s.followUp].join(" ") }]);
   }, [finished, runId, reports, runSpec, events]);
 
-  // Only the newest proposal message for a space shows the plan, so the chat doesn't repeat it.
+  // Only the newest proposal message for a space shows the plan, and only the newest search shows the crew's checks.
   const lastFit = useMemo(() => new Map(messages.filter((m) => m.fitout).map((m) => [m.fitout!, m.id])), [messages]);
+  const lastThink = useMemo(() => [...messages].reverse().find((m) => m.thinking)?.id, [messages]);
   const extraFor = (m: ChatMsg) => {
+    if (m.id === lastThink && (running || events.length > 0)) return <Thinking steps={steps} running={running} />;
     if (m.compare?.length) return <Compare reports={m.compare} />;
     if (m.findings) return <div className="bubble"><RegulationList findings={m.findings} /></div>;
     if (m.blocks) return <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>;
@@ -373,35 +354,28 @@ export function Hermit() {
   const emailReport = emailFor && (fitouts[emailFor.shellId]?.at(-1)?.kept ? fitouts[emailFor.shellId].at(-1)!.report : emailFor);
 
   const searched = running || events.length > 0;
-  const showSketch = (basics && !!spec.useType) || layout.length > 0;
   const cta = ready && !searched;
+  const sel = reports[selected];
+  const links = runId && sel ? [undefined, `/shell/${sel.shellId}?run=${runId}&tab=inside`, `/shell/${sel.shellId}?run=${runId}&tab=broker`] : [];
+  const pct = Math.max(0, Math.min(100, Math.round(progress)));
 
-  const layoutCard = (
-    <div className="layout-card">
-      <div className="layout-card-head">
-        <h2><SquareDashed aria-hidden="true" /> Your layout</h2>
-        <div className="view-switch" role="group" aria-label="Layout view">
-          <button type="button" aria-pressed={view === "2d"} onClick={() => setView("2d")}>2D plan</button>
-          <button type="button" aria-pressed={view === "3d"} onClick={() => setView("3d")}><Box aria-hidden="true" /> 3D model</button>
-        </div>
-        <button type="button" className="btn primary small" onClick={() => setDrawing(true)}><PencilRuler aria-hidden="true" /> Build your layout</button>
-      </div>
-      {view === "3d" && blocks.some((b) => b.kind !== "object")
-        ? <Plan3D solids={blocks.filter((b) => b.kind !== "object").map((b) => ({ id: b.id, label: b.label, polygon: rectPoly(b), height: 9, fill: FILL[b.label] ?? "#f7efe9" }))} label={`Your layout in 3D: ${layout.length} rooms`} height={340} wallScale={0.45} />
-        : <LayoutPreview blocks={blocks} />}
-      <p className="muted small">Drag rooms, furniture, doors and windows in Layout Studio; Hermit matches the drawing against real scanned floor plans.</p>
-    </div>
-  );
+  const studio = <LayoutStudio inline initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
 
   return (
     <div className="studio">
       <div className="studio-top">
-        <Counter stages={stages} extra={extra} useLabel={pack.label.toLowerCase()} />
+        {searched ? <Journey step={0} links={links} /> : <span />}
         <button type="button" className="btn small" onClick={reset}><RotateCcw aria-hidden="true" /> Start over</button>
       </div>
       <div className="studio-grid">
         <Interview messages={messages} busy={busy} onSend={send} extra={extraFor}
-          placeholder={reports.length ? "Compare, draft an email, or “make it 3 exam rooms”" : undefined}
+          placeholder={reports.length ? "Ask about a match, or “make it 3 exam rooms”" : undefined}
+          top={!searched && (
+            <div className="studio-progress">
+              <span id="req-progress">Your requirements: {pct}%</span>
+              <div className="studio-progress-bar" role="progressbar" aria-labelledby="req-progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
+            </div>
+          )}
           attach={<>
             <button type="button" className="icon-btn" aria-label="Upload a floor plan" title="Upload a floor plan" disabled={busy || running} onClick={() => fileInput.current?.click()}><ImageUp aria-hidden="true" /></button>
             <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="sr-only" tabIndex={-1} aria-label="Floor plan file"
@@ -409,38 +383,32 @@ export function Hermit() {
           </>}>
           {cta && (
             <div className="cta-row">
-              <button type="button" className="cta" onClick={search}><Sparkles aria-hidden="true" /> Walk inside the matches</button>
-              <span className="muted small">You can still change the sketch or tell me more first.</span>
+              <button type="button" className="cta" onClick={search}><Sparkles aria-hidden="true" /> See your matches</button>
+              <span className="muted small">You can still change the layout or tell me more first.</span>
             </div>
           )}
         </Interview>
 
         <div className="studio-right">
-          {searched && (
+          {searched ? (
             <>
-              {steps.length > 0 && <div className="card pad"><Thinking steps={steps.slice(0, shown)} total={steps.length} done={finished} /></div>}
-              <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} onOpen={setOpen} selected={selected} onSelect={setSelected} />
-              <CrewTrace events={events} running={running} useLabel={pack.label.toLowerCase()} />
+              <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
+                onOpen={(r) => setViewIndex(reports.indexOf(r))} design={blocks} viewIndex={viewIndex} onViewIndex={setViewIndex} />
+              <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
+                <summary>Edit your layout</summary>
+                {studio}
+              </details>
             </>
-          )}
-          {showSketch ? (
-            searched
-              ? <details className="card pad"><summary>Your layout</summary>{layoutCard}</details>
-              : <div className="card pad">{layoutCard}</div>
-          ) : !searched && (
-            <div className="card sketch-placeholder">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/hermit-logo.svg" alt="" />
-              <p><strong>Your space will appear here.</strong> Answer a few questions and I&apos;ll sketch what you need, room by room, or <button type="button" className="linkish" onClick={() => setDrawing(true)}>build your layout</button> yourself.</p>
-            </div>
+          ) : (
+            <section className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1} aria-labelledby="editor-title">
+              <h2 id="editor-title">Edit your layout</h2>
+              {studio}
+            </section>
           )}
         </div>
       </div>
-      <p className="truth">Real data: {stages[0]?.count.toLocaleString() ?? "14,944"} Matterport scans from the CoStar hackathon index, measured with the Matterport API. Some CoStar record details aren&apos;t loaded yet and show as unknown. Aerials are Esri imagery while Vexcel access is pending. Hermit screens; it doesn&apos;t inspect, certify code status or promise availability.</p>
-      {drawing && <DesignSheet initial={blocks} onDone={applyBlocks} onClose={() => setDrawing(false)} />}
       {emailReport && <EmailDraft report={emailReport} onClose={() => setEmailFor(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
-      {open && <ShellReportView report={open} onClose={() => setOpen(null)} packetHref={runId ? `/packet/${runId}/${open.shellId}` : undefined} furniture={furnitureByRoom} />}
     </div>
   );
 }

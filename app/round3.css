@@ -329,3 +329,23 @@ nav.primary svg { width: 21px; height: 21px; }
 .rchat-form .input { flex: 1; min-width: 0; }
 @media (max-width: 640px) { .rchat { left: 0; right: 0; bottom: 0; width: auto; height: 80vh; border-radius: var(--r-lg) var(--r-lg) 0 0; } }
 /* == end W5d == */
+/* == W2c: Find a space page (chat + inline layout editor + results) == */
+.studio-top { align-items: center; }
+.studio-top .journey { margin: 0; }
+.studio-progress { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 16px; color: var(--ink); }
+.studio-progress-bar { height: 8px; border-radius: 999px; background: var(--sand-2); overflow: hidden; }
+.studio-progress-bar span { display: block; height: 100%; background: var(--sea-2); border-radius: inherit; transition: width 400ms var(--ease); }
+.studio-editor { display: grid; gap: 10px; min-width: 0; }
+.studio-editor:focus { outline: none; }
+.studio-editor:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.studio-editor h2 { font-size: 20px; margin: 0; }
+.studio-editor > summary { font-size: 18px; font-weight: 700; cursor: pointer; }
+.think-now { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; font-size: 14px; color: var(--ink-soft); }
+.think-done { font-size: 14px; color: var(--ink-soft); }
+.think-done > summary { cursor: pointer; width: fit-content; }
+.think-done ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.think-done li { display: flex; align-items: center; gap: 6px; }
+.think-done li svg { width: 14px; height: 14px; flex: none; color: var(--coral-ink); }
+.think-done li.warn svg { color: var(--fail); }
+@media (prefers-reduced-motion: reduce) { .studio-progress-bar span { transition: none; } }
+/* == end W2c == */
