@@ -5,9 +5,11 @@ import { cleanWording } from "../llm/wording";
 import { funnel } from "../query/shells";
 import { TIMING_OPTIONS, type Draft } from "../spec/survey";
 import { chipsIn, toggleChip } from "../uses/chips";
+import { cleanUse } from "../uses/label";
 import { packFor, seedRooms } from "../uses/packs";
 import type { FunnelStage, RequirementSpec, Shell } from "../types";
-import { basicsDone, CITY_AGAIN, deeperQuestion, interviewQuestion, plural, progress, roomList, type Field } from "./next";
+import { askAgain, basicsDone, CITY_AGAIN, deeperQuestion, interviewQuestion, plural, progress, roomList, type Field } from "./next";
+import { checkAnswer, type Check } from "./validate";
 
 export type Msg = { role: "hermit" | "user"; text: string };
 export type IState = { spec: Draft; asked: string[]; history: Msg[]; field?: Field | null; quick?: string[]; ready?: boolean };
@@ -113,18 +115,33 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   // Once the sketch is on screen, its rooms are the requirement the user edits.
   if (!spec.rooms.length && spec.useType && basicsDone(spec, state.asked)) spec = { ...spec, rooms: seedRooms(spec) };
   const asked = [...state.asked];
-  if (state.field && !asked.includes(state.field)) asked.push(state.field);
   const tapped = !!text && !!state.quick?.includes(text);
   const wantsSearch = !!text && (state.field === "rooms" || state.field === "baths" ? SEARCH_ONLY : SKIP).test(text);
+  // An answer that doesn't fit the question ("Lease" for a price) is re-asked; one that answers another question
+  // ("$6,000 a month" for days open) is stored there first. After two misses the question is skipped, never a dead end.
+  const retryKey = `again:${state.field}`;
+  let check: Check = text && state.field && !tapped && !wantsSearch ? checkAnswer(state.field, text, state.spec) : { kind: "ok" };
+  let gaveUp = false;
+  if ((check.kind === "bad" || check.kind === "other") && asked.filter((a) => a === retryKey).length >= 2) { check = { kind: "skip" }; gaveUp = true; }
+  const rejected = check.kind === "bad" || check.kind === "other";
+  if (rejected) asked.push(retryKey);
+  else {
+    for (let i = asked.indexOf(retryKey); i >= 0; i = asked.indexOf(retryKey)) asked.splice(i, 1);
+    if (state.field && !asked.includes(state.field)) asked.push(state.field);
+  }
   const notes: string[] = [];
   if (text) {
-    spec = answerField(spec, state.field, text);
+    if (check.kind === "ok") spec = answerField(spec, state.field, text);
     const merged = mergeText(spec, text, state.field === "rooms" && /^\s*\d+\s*$/.test(text) ? "rooms" : null).spec;
     // Once the use is set, a stray noun ("a small lab") must not turn a clinic into a factory.
-    spec = state.spec.useType ? { ...merged, useType: state.spec.useType, mode: state.spec.mode } : merged;
+    spec = state.spec.useType ? { ...merged, useType: state.spec.useType, mode: state.spec.mode } : { ...merged, useType: cleanUse(merged.useType, text) };
+    if (check.kind === "other") spec = { ...spec, ...check.patch };
     if (state.field === "rooms" && !wantsSearch && spec.mode !== "home") spec = answerRooms(spec, text, asked, notes);
     if (state.field === "baths" && SKIP_ROOMS.test(text) && !/\d/.test(text)) notes.push("No problem. I'll plan on 1 bathroom.");
   }
+  // "$40" answers the per-visit price; it must not also become a $40 rent budget.
+  const keepBudget = (s: Draft): Draft => (state.field === "price" && check.kind === "ok" ? { ...s, budgetMonthly: state.spec.budgetMonthly, budgetTotal: state.spec.budgetTotal } : s);
+  spec = keepBudget(spec);
   let { stages, pool } = funnel(asSpec(spec), shells);
   // Essentials first; once they're done (or the user says search), one optional deeper question per turn.
   const plan = () => {
@@ -132,17 +149,18 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
     return { ready: !e, q: e ?? (wantsSearch ? null : deeperQuestion(spec, asked)) };
   };
   let { ready, q } = plan();
+  if (rejected && state.field) q = askAgain(state.field, spec, asked);
 
   let ack = "";
   let llm = false;
   // Tapped answers are already structured; only free text goes to the model.
-  if (hasGemini() && text && !tapped) {
+  if (hasGemini() && text && !tapped && check.kind === "ok") {
     try {
       const history: Content[] = state.history.slice(-8).map((m) => ({ role: m.role === "hermit" ? "model" : "user", parts: [{ text: m.text }] }));
       const out = await generateJSON(SYSTEM, [...history, { role: "user", parts: [{ text: `What I know: ${spec.useType ? describe(spec) : "nothing yet"}.\nCURRENT SKETCH: ${sketchText(spec)}\nUser's last message: ${text}\nNEXT QUESTION: ${q ? q.text : "none"}${ready ? "\n(The essentials are done; this is an optional extra question and the See your matches button is showing.)" : ""}` }] }], Update, 9000);
       if (out) {
         llm = true;
-        spec = applyUpdate(spec, out.update, !!state.spec.useType);
+        spec = keepBudget(applyUpdate(spec, out.update, !!state.spec.useType, text));
         spec = fitHeadcount(spec, state.spec.headcount);
         ({ stages, pool } = funnel(asSpec(spec), shells));
         ({ ready, q } = plan());
@@ -165,6 +183,9 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
     reply, why, quick: [], state: { spec, asked, history: [...history, { role: "hermit" as const, text: reply }].slice(-40), field: q?.field ?? null, quick: [], ready },
     ready, basicsDone: ready || basics, stages, llm, progress: progress(spec, asked, ready), question: q?.text,
   });
+  if (check.kind === "bad") return out(`Sorry, I didn't quite get that. ${check.hint} ${q!.text}`, q!.why);
+  if (check.kind === "other") return out(`Thanks, ${check.note} ${q!.text}`, q!.why);
+  if (gaveUp) ack = "No problem, let's skip that one for now.";
   if (ready) {
     const lead = state.ready ? `${ack || "Updated."}${changed ? ` Sketch on the right: ${sketchText(spec)}.` : ""}` : `${ack} That's everything I need for ${describe(spec)}.`.trim();
     // A "search now" answer runs the search on the page (search: true), so there's nothing to tap.
@@ -196,10 +217,12 @@ export function fitHeadcount(spec: Draft, prevHeadcount?: number): Draft {
   return s;
 }
 
-function applyUpdate(spec: Draft, u: z.infer<typeof Update>["update"], useLocked: boolean): Draft {
+function applyUpdate(spec: Draft, u: z.infer<typeof Update>["update"], useLocked: boolean, text = ""): Draft {
   const s: Draft = { ...spec, needs: { ...spec.needs }, rooms: [...spec.rooms] };
-  if (u.useType && !useLocked && !spec.useType) s.useType = u.useType;
-  if (u.sizeMinSqft && u.sizeMaxSqft && u.sizeMaxSqft >= u.sizeMinSqft) s.sizeSqft = [u.sizeMinSqft, u.sizeMaxSqft];
+  if (u.useType && !useLocked && !spec.useType) s.useType = cleanUse(u.useType, text);
+  // One number ("2,000 sq ft") is a target, so it gets the same ±20% range the parser gives it, never "2,000–2,000".
+  if (u.sizeMinSqft && u.sizeMaxSqft && u.sizeMaxSqft >= u.sizeMinSqft)
+    s.sizeSqft = u.sizeMaxSqft === u.sizeMinSqft ? [Math.round(u.sizeMinSqft * 0.8), Math.round(u.sizeMinSqft * 1.2)] : [u.sizeMinSqft, u.sizeMaxSqft];
   for (const k of ["headcount", "beds", "baths", "budgetMonthly", "budgetTotal"] as const) if (u[k] != null && u[k]! > 0) s[k] = u[k]!;
   if (u.baths && spec.mode !== "home") {
     if (!s.rooms.length && s.useType) s.rooms = seedRooms(s);

@@ -160,7 +160,7 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
       await import("@matterport/webcomponent");
       if (dead || !host.current) return;
       const el = document.createElement("matterport-viewer") as MatterportViewer;
-      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
+      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
       el.addEventListener("mpViewerError", (e) => fail(e.detail.error.message));
       host.current.prepend(el);
       viewer.current = el;

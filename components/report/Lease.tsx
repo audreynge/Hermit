@@ -116,7 +116,7 @@ export function Lease({ report, spec }: ReportCtx) {
 
       <section className="card pad" aria-labelledby="loi-title">
         <h2 id="loi-title">Build your offer (LOI)</h2>
-        <p className="muted small">Change the terms and the letter updates. CoStar lease comps (what similar spaces nearby got for free rent) show here once the CoStar kit is loaded.</p>
+        <p className="muted small">Change the terms and the letter updates. Free-rent comps for nearby spaces aren&apos;t in this dataset yet.</p>
         <div className="loi-grid">
           <label>Term <select value={loi.years} onChange={(e) => setLoi({ ...loi, years: Number(e.target.value) })}>{[3, 5, 7, 10].map((y) => <option key={y} value={y}>{y} years</option>)}</select></label>
           <label>Rent ($/sf/yr) <input inputMode="decimal" value={loi.rentPsf || ""} onChange={(e) => setLoi({ ...loi, rentPsf: Number(e.target.value) || 0 })} /></label>

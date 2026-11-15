@@ -43,7 +43,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
       <div className="results-list">
         {!reports.length && (
           <div style={{ padding: "40px 20px", textAlign: "center", gridColumn: "1 / -1" }} className="muted">
-            {running ? "The crew is checking spaces. Matches will appear here." : "No shell passed every check. Try relaxing a requirement in the chat."}
+            {running ? "I'm checking spaces. Matches will appear here." : "No shell passed every check. Try relaxing a requirement in the chat."}
           </div>
         )}
         {reports.map((r, i) => {

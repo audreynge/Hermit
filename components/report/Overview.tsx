@@ -1,6 +1,7 @@
 "use client";
 import { AlertTriangle, CheckCircle2, ExternalLink, HelpCircle, XCircle } from "lucide-react";
 import type { RuleHit, RuleStatus } from "@/lib/types";
+import { fitLead, fitRows } from "@/lib/uses/rooms";
 import type { ReportCtx } from "./ShellReportPage";
 
 const ICON: Record<RuleStatus, { Icon: typeof CheckCircle2; word: string }> = {
@@ -52,8 +53,8 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
 
 export function Overview({ report, spec, plan, go }: ReportCtx) {
   const home = spec.mode === "home";
+  const rows = fitRows(report);
   const total = report.fit.assignment.length;
-  const toBuild = report.fit.assignment.filter((a) => !a.roomId);
   const licenses = home ? [] : plan.steps.filter((s) => s.who && !s.unknown);
   const a = report.access;
   // Route verdicts from the scan, so the heading can't say "All clear" above a blocked door or room.
@@ -75,7 +76,7 @@ export function Overview({ report, spec, plan, go }: ReportCtx) {
       </section>
 
       <Section id="ov-fit" title={home ? "Will my stuff fit?" : "Will it fit?"}
-        lead={!total ? "This space has no scan to measure." : toBuild.length ? `${total - toBuild.length} of ${total} rooms are already built. To build: ${toBuild.map((x) => x.req).join(", ")}.` : `All ${total} rooms you want are already built.`} />
+        lead={!total ? "This space has no scan to measure." : fitLead(rows)} />
 
       <Section id="ov-rules" title={home ? "Can I live here?" : "Compliance"} lead={headline(rules, accessExtra)}>
         {!home && spec.city === "houston" && <p>Houston has no zoning, so the main check is the lot&apos;s deed restrictions.</p>}
