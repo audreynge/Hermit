@@ -234,3 +234,87 @@ header.top { background: transparent; backdrop-filter: none; }
 .space-ask { color: var(--warn); font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .ev-chev, .think-jump { transition: none; } }
 html[data-motion="reduced"] :is(.ev-chev, .think-jump) { transition: none; }
+
+/* U1: evidence pieces on the Shell Report (How we know, scan-photo checks, counted aerial photo, foot traffic).
+   Main's tokens only, so light and dark both follow the theme. */
+.ev { display: inline; }
+.ev-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 2px; border: 0; background: none; color: var(--coral-ink); font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; vertical-align: baseline; }
+.ev-chev { width: 14px; height: 14px; transition: transform 0.15s var(--hermit-ease); }
+.ev-btn[aria-expanded="true"] .ev-chev { transform: rotate(180deg); }
+.ev-body:not([hidden]) { display: block; margin-top: 6px; padding: 8px 12px; border-left: 3px solid var(--line-strong); background: var(--sand-1); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 14px; font-weight: 400; color: var(--ink-soft); line-height: 1.45; overflow-wrap: anywhere; text-align: left; }
+.ev-line { display: block; }
+.ev-line + .ev-line { margin-top: 4px; }
+
+/* A scan-photo thumbnail that opens larger (components/Evidence.tsx SeenPhoto). */
+.seen-photo { display: inline-flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--card); color: var(--ink); font: inherit; font-weight: 700; cursor: zoom-in; }
+.seen-photo:has(> span:not(.sr-only)) { padding-right: 12px; }
+.seen-photo:hover { background: var(--coral-wash-2); }
+.seen-photo img { display: block; width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+.seen-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--card); color: var(--ink); box-shadow: var(--soft-shadow); }
+.seen-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+.seen-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.seen-dialog-head h3 { margin: 0; font-size: 20px; }
+.seen-fig { margin: 0 0 12px; }
+.seen-fig img { display: block; width: 100%; height: auto; max-height: 38vh; object-fit: contain; border-radius: var(--r-sm); background: #111; }
+.seen-fig figcaption { margin-top: 6px; font-size: 16px; }
+
+/* Overview: the seen-fixture line and Also fits in the verdict card. */
+.ov-find { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); }
+.ov-find p { font-size: 16px; }
+.ov-also { font-size: 16px; }
+
+/* Inside: what the scan photos show per room. */
+.room-check { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 10px 4px; font-size: 14px; }
+.room-check .seen-photo, .room-list .room-check .seen-photo { width: auto; justify-content: flex-start; gap: 8px; padding: 3px 12px 3px 3px; font-size: 14px; text-transform: none; border-color: var(--line-strong); }
+.room-check .seen-photo img { width: 40px; height: 40px; }
+.rc-note { color: var(--ink-soft); }
+/* Grid children default to min-width: auto, so the tour's furniture row pushed the page wider than a phone. */
+.inside-main > *, .inside-tour .furnish-tour, .inside-tour .furnish-stage { min-width: 0; }
+
+/* From above: the one parking sentence, the counted Vexcel photo, then foot traffic. */
+.above { display: grid; gap: 14px; min-width: 0; }
+.above .aerial-section { padding: 20px 22px; border-radius: var(--r-xl); }
+.above .aerial-frame { position: relative; height: min(62vh, 520px); border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); background: var(--sea-wash); }
+.above .aerial-section > p.small { margin: 10px 0 0; }
+@media (max-width: 560px) { .above .aerial-section { padding: 16px; } .above .aerial-frame { height: 440px; } }
+.aerial-finding { display: grid; gap: 4px; justify-items: start; margin: 0 0 12px; font-size: 17px; }
+.aerial-finding p { margin: 0; }
+.aerial-finding p:first-child { font-weight: 700; color: var(--ink); }
+/* The photo/map stage inside .aerial-view (components/Aerial.tsx): one fills it, the other sits in the corner. */
+.aerial-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--sea-wash); }
+.aerial-main { position: absolute; inset: 0; }
+.aerial-map { position: absolute; inset: 0; overflow: hidden; background: #eee; }
+.aerial-map img { max-width: none; }
+.aerial-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.aerial-map-n { position: absolute; top: 6px; left: 8px; font-size: 12px; font-weight: 700; color: #111; background: rgb(255 255 255 / 0.85); padding: 0 5px; border-radius: 4px; }
+.aerial-map-credit { position: absolute; bottom: 4px; left: 6px; font-size: 11px; color: #333; background: rgb(255 255 255 / 0.8); padding: 0 4px; border-radius: 3px; }
+.aerial-msg { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center; color: var(--ink-soft); }
+.aerial-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #1d2a2c; }
+.aerial-inset { position: absolute; right: 12px; bottom: 12px; width: 240px; height: 176px; padding: 0; overflow: hidden; border-radius: var(--r-sm); border: 3px solid #fff; box-shadow: 0 4px 14px rgb(0 0 0 / 0.3); background: #eee; cursor: zoom-in; }
+.aerial-inset .aerial-photo { object-fit: cover; }
+.aerial-inset .aerial-map-credit, .aerial-inset .aerial-map-n { display: none; }
+.aerial-inset:focus-visible { outline: 3px solid var(--coral); outline-offset: 2px; }
+.aerial-inset-tag { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #fff; background: rgb(0 0 0 / 0.6); padding: 2px 7px; border-radius: 999px; }
+.aerial-inset-tag svg { width: 12px; height: 12px; }
+@media (max-width: 760px) { .aerial-inset { width: 140px; height: 104px; right: 8px; bottom: 8px; } }
+.aerial-counted { position: absolute; inset: 0; display: grid; place-items: center; background: #1d2a2c; container-type: size; }
+.aerial-counted-box { position: relative; width: min(100cqw, 100cqh); aspect-ratio: 1; }
+.aerial-counted-box img { display: block; width: 100%; height: 100%; }
+.aerial-counted-box svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.aerial-counted .ab-halo { fill: none; stroke: rgb(0 0 0 / 0.75); stroke-width: 6px; vector-effect: non-scaling-stroke; }
+.aerial-counted .ab-line { fill: none; stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
+.aerial-counted .ab-roof .ab-line { stroke: #ffd27a; }
+.aerial-counted .ab-lot .ab-line { stroke: #7fd0ef; stroke-dasharray: 7 4; }
+.aerial-legend { position: absolute; top: 8px; left: 8px; margin: 0; padding: 4px 10px; list-style: none; display: grid; gap: 2px; border-radius: 8px; background: rgb(0 0 0 / 0.72); color: #fff; font-size: 13px; }
+.aerial-legend li { display: flex; align-items: center; gap: 6px; }
+.ab-swatch { display: inline-block; width: 16px; height: 10px; border: 2px solid; }
+.ab-swatch.ab-roof { border-color: #ffd27a; }
+.ab-swatch.ab-lot { border-color: #7fd0ef; border-style: dashed; }
+.aerial-inset .aerial-legend, .aerial-inset .aerial-credit { display: none; }
+.aerial-credit { position: absolute; left: 8px; bottom: 6px; padding: 0 6px; border-radius: 4px; background: rgb(0 0 0 / 0.65); color: #fff; font-size: 12px; font-weight: 700; }
+.above .heat-card { border-radius: var(--r-xl); box-shadow: var(--shadow); }
+.above .heat-head { padding: 18px 22px 12px; }
+.above .heat-controls { padding: 12px 22px 16px; }
+@media (max-width: 560px) { .above .heat-head, .above .heat-controls { padding-inline: 16px; } }
+@media (prefers-reduced-motion: reduce) { .ev-chev { transition: none; } }
+/* == end U1 == */
