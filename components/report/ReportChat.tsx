@@ -11,6 +11,7 @@ export function ReportChat({ report, runId, tab }: { report: ShellReport; spec: 
   const key = `hermit:reportchat:${report.shellId}`;
   const openKey = `${key}:open`;
   const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,14 +20,16 @@ export function ReportChat({ report, runId, tab }: { report: ShellReport; spec: 
 
   useEffect(() => {
     try { setMsgs(JSON.parse(sessionStorage.getItem(key) ?? "[]")); setOpen(sessionStorage.getItem(openKey) === "1"); } catch { /* storage blocked */ }
+    setLoaded(true);
   }, [key, openKey]);
   useEffect(() => {
+    if (!loaded) return;
     try { sessionStorage.setItem(openKey, open ? "1" : "0"); } catch { /* storage blocked */ }
-  }, [open, openKey]);
+  }, [open, openKey, loaded]);
   useEffect(() => {
-    try { sessionStorage.setItem(key, JSON.stringify(msgs.slice(-40))); } catch { /* storage blocked */ }
+    if (loaded) try { sessionStorage.setItem(key, JSON.stringify(msgs.slice(-40))); } catch { /* storage blocked */ }
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, key, open]);
+  }, [msgs, key, open, loaded]);
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
   async function send(e: React.FormEvent) {

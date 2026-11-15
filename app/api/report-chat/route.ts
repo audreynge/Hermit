@@ -21,9 +21,10 @@ export async function POST(req: Request) {
   if (!run || !r) return NextResponse.json({ reply: "I can't find this report on the server, so I can't answer about it." });
   const facts = reportFacts(r, run.spec);
   const last = messages[messages.length - 1];
-  const action = last.role === "user" ? detectAction(last.text) : undefined;
+  const isQuestion = /\?|\bhow\b|\bwhat\b|\btotal\b/i.test(last.text);
+  const action = last.role === "user" && !isQuestion ? detectAction(last.text) : undefined;
   const done = action?.type === "save" ? "Saved." : action ? `Opening ${action.tab}.` : null;
-  if (action && done && !/\?|\bhow\b|\bwhat\b|\btotal\b/i.test(last.text)) return NextResponse.json({ reply: done, action });
+  if (action && done) return NextResponse.json({ reply: done, action });
 
   let reply = fallbackReply(last.text, facts);
   if (hasGemini()) {
