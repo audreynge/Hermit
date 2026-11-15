@@ -1,6 +1,6 @@
 "use client";
 import { Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { landlordQuestions } from "@/lib/packet";
 import type { ShellReport } from "@/lib/types";
 import { usePersisted } from "./shared";
@@ -10,7 +10,12 @@ import type { ReportCtx } from "./ShellReportPage";
 export function useQuestions(report: Pick<ShellReport, "shellId" | "unknowns" | "buildout">, concerns: string[] = []) {
   const [extra, setExtra] = usePersisted<string[]>(`hermit:extraq:${report.shellId}`, []);
   const [stored, setPicked] = usePersisted<string[] | null>(`hermit:picked:${report.shellId}`, null);
-  const all = useMemo(() => [...new Set([...landlordQuestions(report, concerns), ...extra])], [report, concerns, extra]);
+  // Concerns come from the live run only; keep them so the print page (no run context) still lists them.
+  const [savedConcerns, setConcerns] = usePersisted<string[]>(`hermit:concerns:${report.shellId}`, []);
+  const key = concerns.join("\n");
+  useEffect(() => { if (key && key !== savedConcerns.join("\n")) setConcerns(concerns); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cs = concerns.length ? concerns : savedConcerns;
+  const all = useMemo(() => [...new Set([...landlordQuestions(report, cs), ...extra])], [report, cs, extra]);
   const picked = stored ?? all;
   return {
     all, picked,

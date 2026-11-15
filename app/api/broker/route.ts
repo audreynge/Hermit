@@ -13,11 +13,11 @@ const ProfileIn = z.object({
 const Body = z.object({
   step: z.literal("next"),
   profile: ProfileIn.default({}),
-  spec: z.object({ useType: z.string().default("business"), transaction: z.enum(["lease", "buy"]).optional(), mode: z.string().optional(), rawText: z.string().max(4000).optional() }),
+  spec: z.object({ useType: z.string().max(80).default("business"), transaction: z.enum(["lease", "buy"]).optional(), mode: z.string().max(20).optional(), rawText: z.string().max(4000).optional() }),
   report: z.object({ name: z.string().max(300), address: z.string().max(300).optional() }).optional(),
   field: z.enum(ASK.map((a) => a.field) as [AskField, ...AskField[]]).optional(),
-  answer: z.string().max(2000).optional(),
-  skipped: z.array(z.string()).default([]),
+  answer: z.string().max(500).optional(),
+  skipped: z.array(z.string().max(20)).max(ASK.length).default([]),
   seed: z.boolean().optional(),
 });
 
@@ -47,8 +47,10 @@ export async function POST(req: Request) {
 
   if (field && answer?.trim()) {
     const meta = ASK.find((a) => a.field === field)!;
-    const ai = hasGemini() ? await extract(answer, `${where} They were just asked: "${meta.q}"`) : null;
-    const got = ai && Object.keys(ai).length ? ai : parseAnswer(field, answer);
+    // Contact details never go to the model; the parser handles them exactly.
+    const ai = hasGemini() && field !== "email" && field !== "phone" ? await extract(answer, `${where} They were just asked: "${meta.q}"`) : null;
+    const got = ai?.[field] ? { [field]: ai[field] } : parseAnswer(field, answer);
+    if (ai) p = { ...p, ...ai };
     if (!got) return NextResponse.json({ question: ask(meta), done: false, profile: p, note: `Sorry, I didn't catch that. Try something like "${meta.hint}", or skip it.` });
     p = { ...p, ...got };
   } else if (seed && spec.rawText && hasGemini()) {

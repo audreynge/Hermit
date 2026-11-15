@@ -20,7 +20,9 @@ export function Broker({ report, spec, runId, challenge }: ReportCtx) {
   const [p, setP, loaded] = useProfile(spec);
   const concerns = useMemo(() => (challenge?.shellId === report.shellId ? challenge.concerns : []), [challenge, report.shellId]);
   const q = useQuestions(report, concerns);
+  const [skipped, setSkipped, skipLoaded] = usePersisted<string[]>("hermit:profile-skipped", []);
   const [edit, setEdit] = useState<AskField | null>(null);
+  const [pick, setPick] = useState<AskField | "">("");
   const step = flow.step;
   const reached = Math.max(step, flow.max ?? 1);
   const goStep = (n: number) => { setFlow({ ...flow, step: n, max: Math.max(reached, n) }); window.scrollTo({ top: 0 }); };
@@ -31,15 +33,15 @@ export function Broker({ report, spec, runId, challenge }: ReportCtx) {
       <ol className="broker-steps" aria-label="Steps">
         {STEPS.map((s, i) => (
           <li key={s} aria-current={step === i + 1 ? "step" : undefined} data-done={step > i + 1 || undefined}>
-            <button type="button" disabled={i + 1 > reached}onClick={() => goStep(i + 1)}>
+            <button type="button" disabled={i + 1 > reached} onClick={() => goStep(i + 1)}>
               <span className="broker-num" aria-hidden="true">{step > i + 1 ? <Check /> : i + 1}</span> {s}
             </button>
           </li>
         ))}
       </ol>
 
-      {step === 1 && loaded && flowLoaded && (
-        <DetailsChat key={edit ?? "start"} p={p} setP={setP} spec={spec} report={report} edit={edit} onDone={() => { setEdit(null); goStep(2); }} />
+      {step === 1 && loaded && flowLoaded && skipLoaded && (
+        <DetailsChat key={edit ?? "start"} p={p} setP={setP} skipped={skipped} setSkipped={setSkipped} spec={spec} report={report} edit={edit} onDone={() => { setEdit(null); goStep(2); }} />
       )}
 
       {step === 2 && (
@@ -50,12 +52,14 @@ export function Broker({ report, spec, runId, challenge }: ReportCtx) {
           <div className="actions">
             <button type="button" className="btn primary big" onClick={() => goStep(3)}><Check aria-hidden="true" /> Confirm, it looks good to me</button>
             <a className="btn" href={`/packet/${runId}/${report.shellId}?print=1`} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download PDF</a>
-            <label className="broker-edit"><Pencil aria-hidden="true" className="inline-icon" /> <span className="sr-only">Change a detail</span>
-              <select value="" onChange={(e) => { setEdit(e.target.value as AskField); goStep(1); }}>
+            <span className="broker-edit">
+              <label htmlFor="b-edit" className="sr-only">Detail to change</label>
+              <select id="b-edit" value={pick} onChange={(e) => setPick(e.target.value as AskField | "")}>
                 <option value="">Change something…</option>
                 {askList(spec).map((a) => <option key={a.field} value={a.field}>{a.label}</option>)}
               </select>
-            </label>
+              <button type="button" className="btn" disabled={!pick} onClick={() => { if (pick) { setEdit(pick); setPick(""); goStep(1); } }}><Pencil aria-hidden="true" /> Edit</button>
+            </span>
           </div>
         </section>
       )}
@@ -76,11 +80,13 @@ export function Broker({ report, spec, runId, challenge }: ReportCtx) {
   );
 }
 
-function DetailsChat({ p, setP, spec, report, edit, onDone }: { p: Profile; setP: (p: Profile) => void; spec: ReportCtx["spec"]; report: ReportCtx["report"]; edit: AskField | null; onDone: () => void }) {
+function DetailsChat({ p, setP, skipped: skipped0, setSkipped: saveSkipped, spec, report, edit, onDone }: { p: Profile; setP: (p: Profile) => void; skipped: string[]; setSkipped: (s: string[]) => void; spec: ReportCtx["spec"]; report: ReportCtx["report"]; edit: AskField | null; onDone: () => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [done, setDone] = useState(false);
-  const [skipped, setSkipped] = useState<string[]>([]);
+  const [skipped, setSkippedState] = useState(skipped0);
+  const setSkipped = (s: string[]) => { setSkippedState(s); saveSkipped(s); };
+  const started = useRef(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const prof = useRef(p);
@@ -114,6 +120,8 @@ function DetailsChat({ p, setP, spec, report, edit, onDone }: { p: Profile; setP
   }
 
   useEffect(() => {
+    if (started.current) return; // StrictMode runs mount effects twice
+    started.current = true;
     const start = inferProfile(prof.current, spec);
     save(start);
     if (edit) { show(toAsk(ASK.find((a) => a.field === edit)!), [{ from: "hermit", text: "Sure, let's change that." }]); return; }
