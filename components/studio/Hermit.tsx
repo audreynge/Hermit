@@ -19,7 +19,7 @@ import type { Draft } from "@/lib/spec/survey";
 import { packFor, seedRooms } from "@/lib/uses/packs";
 import type { RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/types";
 import { Interview, type ChatMsg } from "./Interview";
-import { Journey } from "./Journey";
+import { CrewTrace } from "./CrewTrace";
 import { MatchingSpaces } from "./MatchingSpaces";
 import { LayoutPreview } from "../LayoutPreview";
 import { LayoutStudio } from "../LayoutStudio";
@@ -375,8 +375,6 @@ export function Hermit() {
 
   const searched = running || events.length > 0;
   const cta = ready && !searched;
-  const sel = reports[selected];
-  const links = runId && sel ? [undefined, `/shell/${sel.shellId}?run=${runId}&tab=inside`, `/shell/${sel.shellId}?run=${runId}&tab=broker`] : [];
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
 
   const studio = <LayoutStudio inline useType={spec.useType} initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
@@ -384,7 +382,7 @@ export function Hermit() {
   return (
     <div className="studio">
       <div className="studio-top">
-        {searched ? <Journey step={0} links={links} /> : <span />}
+        <span />
         <button type="button" className="btn small" onClick={reset}><RotateCcw aria-hidden="true" /> Start over</button>
       </div>
       <div className="studio-grid">
@@ -414,6 +412,7 @@ export function Hermit() {
             <>
               <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
                 onOpen={(r) => setViewIndex(reports.indexOf(r))} design={blocks} viewIndex={viewIndex} onViewIndex={setViewIndex} />
+              <CrewTrace events={events} running={running} useLabel={(spec.useType || "space").toLowerCase()} />
               <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
                 <summary>Edit your layout</summary>
                 {studio}
