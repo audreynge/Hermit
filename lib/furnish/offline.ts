@@ -3,6 +3,9 @@
 import { COLORS, MATERIAL_NAMES, normName } from "./catalog";
 import type { Anchor, FurnishOp, Placed } from "./ops";
 
+/** Wording that means every room, not the one the user stands in ("furnish this place", "the whole unit"). */
+export const WHOLE_PLACE = /\b(place|whole|entire|everything|every room|all the rooms|all rooms|apartment|house|unit|suite|condo|property)\b/i;
+
 export type Parsed = { ops: FurnishOp[] } | { ask: string };
 
 const NUM: Record<string, number> = { a: 1, an: 1, one: 1, another: 1, two: 2, three: 3, four: 4, five: 5, six: 6, couple: 2, pair: 2 };
@@ -57,7 +60,7 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
   // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
   if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) {
     const room = t.match(/\b(bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility)\b/)?.[1].replace(/ room$/, "");
-    const all = /\b(place|whole|entire|everything|every room|all|apartment|house|home|unit|suite|condo|property)\b/.test(t);
+    const all = WHOLE_PLACE.test(t);
     return { ops: [room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" }] };
   }
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));

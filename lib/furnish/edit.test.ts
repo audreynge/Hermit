@@ -44,4 +44,11 @@ describe("furnishEdit", () => {
     const out = await furnishEdit({ text: "furnish this place", items }, fake({ reply: "On it.", ops: [{ op: "furnish", scope: "all", room: null, terms: [] }] }));
     expect(out.ops).toEqual([{ op: "furnish", scope: "all" }]);
   });
+
+  it("\"this place\" means every room even when Gemini echoes the current room", async () => {
+    const out = await furnishEdit({ text: "furnish this place", items, room: "living" }, fake({ reply: "On it.", ops: [{ op: "furnish", scope: "room", room: "living" }] }));
+    expect(out.ops).toEqual([{ op: "furnish", scope: "all" }]);
+    const one = await furnishEdit({ text: "furnish this room", items, room: "living" }, fake({ reply: "On it.", ops: [{ op: "furnish", scope: "room", room: "living" }] }));
+    expect(one.ops).toEqual([{ op: "furnish", scope: "room", room: "living" }]);
+  });
 });

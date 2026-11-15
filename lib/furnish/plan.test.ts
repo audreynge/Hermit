@@ -18,7 +18,7 @@ const it2 = (o: object) => ({ terms: ["thing"], w: 0.5, d: 0.5, h: 0.5, count: 1
 
 describe("planFurnish", () => {
   it("lays out Gemini's plan: validated, capped, positions in world coordinates", async () => {
-    const f = fake({ reply: "Set up the operatory.", rooms: [
+    const f = fake({ rooms: [
       { roomId: "op", items: [
         it2({ key: "dc", name: "dental chair", terms: ["dental chair"], w: 0.8, d: 1.9, h: 1.2, place: "center" }),
         it2({ key: "st", name: "stool", place: "beside", of: "dc", count: 99 }),
@@ -37,11 +37,12 @@ describe("planFurnish", () => {
       expect(o.pos.x).toBeGreaterThan(0); expect(o.pos.x).toBeLessThan(3.2);
       expect(-o.pos.z).toBeGreaterThan(0); expect(-o.pos.z).toBeLessThan(3.6); // plan y = -world z
     }
-    expect(out.reply).toMatch(/^Set up the operatory\./);
+    expect(out.reply).toMatch(/^Placed dental chair, .*stool.*cabinet in the office\./); // from what was placed, not the model
+    expect(out.reply).not.toMatch(/sofa/);
   });
 
   it("tells Gemini who the user is, what they asked, and each room's size, doors and contents", async () => {
-    const f = fake({ reply: "ok", rooms: [] });
+    const f = fake({ rooms: [] });
     await planFurnish({
       text: "set this up as my ramen shop", use: "ramen shop",
       rooms: [room("k", "kitchen", 4, 3, { objects: ["sink", "stove"], ceiling: 2.7 })],
@@ -113,5 +114,13 @@ describe("planRooms", () => {
     expect(a.doors[0].at.x).toBeCloseTo(4); // on the shared wall
     expect(a.doors[0].width).toBeCloseTo(0.914, 2);
     expect(a.objects).toEqual(["sofa"]);
+  });
+
+  it("offline reception: the receptionist's chair sits behind the desk, facing the room", async () => {
+    const out = await planFurnish({ text: "furnish", use: "dental practice", rooms: [room("r", "reception", 6, 4)], placed: [] }, null);
+    const ops = out.ops as Add[], desk = ops.find((o) => o.name === "reception desk")!, chair = ops.find((o) => o.name === "office chair")!;
+    expect(chair.rotY).toBeCloseTo(desk.rotY);
+    const a = (desk.rotY * Math.PI) / 180, f = { x: Math.sin(a), z: Math.cos(a) }; // world front
+    expect((chair.pos.x - desk.pos.x) * f.x + (chair.pos.z - desk.pos.z) * f.z).toBeLessThan(0); // behind it
   });
 });

@@ -253,4 +253,25 @@ describe("layoutRoom", () => {
     expect(bed.pos.y).toBeGreaterThan(2.5);
     expect(Math.abs(bed.pos.x - 2.5)).toBeLessThan(0.3);
   });
+
+  it("behind: a reception desk stands off its wall with the receptionist's chair between, facing the same way", () => {
+    const r = room(rect(6, 4), [{ at: { x: 1, y: 0 }, width: 0.9 }]);
+    const { placed } = layoutRoom([
+      item("reception desk", 2, 0.8, 1.1, "wall", { key: "rd", wall: "near-door" }),
+      item("office chair", 0.65, 0.65, 1.1, "behind", { of: "rd" }),
+      item("waiting chair", 0.5, 0.55, 0.9, "wall", { count: 3, priority: 2 }),
+    ], r);
+    sane(placed, r);
+    const [desk] = of(placed, "reception desk"), [chair] = of(placed, "office chair");
+    expect(chair.rotY).toBeCloseTo(desk.rotY);
+    expect(backGap(desk, r.polygon)).toBeGreaterThanOrEqual(0.65);
+    const f = front(desk);
+    expect((chair.pos.x - desk.pos.x) * f.x + (chair.pos.y - desk.pos.y) * f.y).toBeLessThan(0);
+  });
+
+  it("a center piece in a big room goes in the middle, not the first corner far enough from the walls", () => {
+    const r = room(rect(16, 14));
+    const [t] = layoutRoom([item("conference table", 3, 1.2, 0.75, "center")], r).placed;
+    expect(Math.hypot(t.pos.x - 8, t.pos.y - 7)).toBeLessThan(0.5);
+  });
 });

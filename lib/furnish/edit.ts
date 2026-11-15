@@ -4,7 +4,7 @@ import { z } from "zod";
 import { unflatten } from "../design/edit";
 import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
 import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
-import { parseFurnish } from "./offline";
+import { parseFurnish, WHOLE_PLACE } from "./offline";
 
 const FlatOp = z.object({
   op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish"]),
@@ -22,7 +22,7 @@ Ops:
 - add {name, terms, count?, at, color?, material?, w?, d?, h?}: name = 1-3 plain words; terms = 2-3 search words from specific to generic that would match a low-poly 3D model title; w/d/h = typical size in meters when it is unusual.
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
 - move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
-- furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"). Code plans and places the items; don't also add them.
+- furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"; "place" always means all rooms). Code plans and places the items; don't also add them.
 at: "point" = the spot the user clicked or is pointing at ("here", "there", "this spot"); "front" = in front of them (default for add); "center" = middle of the room; "wall" = against the nearest wall.
 color: a plain color name or #rrggbb. material: one of ${MATERIAL_NAMES.join(", ")}.
 Use only listed item ids. "it"/"this" means the selected item. If the message is unclear, or names an item that isn't placed, return no ops and ask one short question in reply.
@@ -56,6 +56,10 @@ function offline(input: EditIn, why?: string): EditOut {
   return { ops: enrich(p.ops, input.suggestions), reply: `Done${note}.`, source: "offline" };
 }
 
+/** Gemini tends to echo the current room into a furnish request; "this place" / "the whole unit" means every room. */
+const wholePlace = (ops: object[], text: string) =>
+  WHOLE_PLACE.test(text) ? ops.map((o) => ((o as { op: string }).op === "furnish" ? { op: "furnish", scope: "all" } : o)) : ops;
+
 export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): Promise<EditOut> {
   const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);
   if (!g) return offline(input);
@@ -68,7 +72,7 @@ export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): 
   try {
     const out = Out.safeParse(await geminiJson(g, PROMPT, [{ text: lines.join("\n") }], SCHEMA));
     if (!out.success) return offline(input, "bad output");
-    return { ops: enrich(toOps(out.data.ops), input.suggestions), reply: out.data.reply.slice(0, 300), source: "gemini" };
+    return { ops: wholePlace(enrich(toOps(out.data.ops), input.suggestions), input.text), reply: out.data.reply.slice(0, 300), source: "gemini" };
   } catch (e) {
     console.warn(`[hermit] furnish edit fell back (${e instanceof Error ? e.message : e})`);
     return offline(input, "error");

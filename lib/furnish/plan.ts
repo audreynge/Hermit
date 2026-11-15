@@ -14,10 +14,10 @@ const Item = z.object({
   w: z.number(), d: z.number(), h: z.number(), count: z.number(), place: z.enum(PLACES),
   of: z.string().nullable(), wall: z.enum(["near-door", "far-from-door"]).nullable(), priority: z.number(),
 });
-const Out = z.object({ reply: z.string(), rooms: z.array(z.object({ roomId: z.string(), items: z.array(Item).max(12) })) });
+const Out = z.object({ rooms: z.array(z.object({ roomId: z.string(), items: z.array(Item).max(12) })) });
 const SCHEMA = z.toJSONSchema(Out);
 // Parsed loosely so one bad item doesn't throw the whole plan away.
-const Loose = z.object({ reply: z.string(), rooms: z.array(z.object({ roomId: z.string(), items: z.array(z.unknown()) })) });
+const Loose = z.object({ rooms: z.array(z.object({ roomId: z.string(), items: z.array(z.unknown()) })) });
 
 const PROMPT = `You plan furniture layouts inside a virtual tour of a real space. Given who the user is (their intended use), what they asked, and each room's size, doors and contents, decide which movable furniture and equipment go in each room and how the pieces relate. Code computes exact positions from your roles; never give coordinates.
 Per item:
@@ -31,10 +31,12 @@ Per item:
   center = open middle (dining or conference table, dental chair, island)
   grid = repeated in rows with aisles (restaurant tables, retail racks, open-office or classroom desks)
   beside = next to its anchor on the same wall (nightstands by a bed, filing cabinet by a desk)
-  front = in front of its anchor; seats face it (desk chair at a desk, styling chair at a mirror, coffee table before a sofa)
+  front = in front of its anchor; seats face it (desk chair at a desk against the wall, styling chair at a mirror, guest chairs at an executive desk, coffee table before a sofa)
+  behind = the seat of someone who works at the anchor facing the room (receptionist's chair at a reception desk, the lawyer's chair at an executive desk); code leaves room between the anchor and the wall
   around = seats around its anchor (chairs around a table)
   facing = across the room facing its anchor (TV stand facing a sofa)
-- of: the anchor's key for beside/front/around/facing, else null. Every chair or stool belongs to a table, desk, counter or mirror.
+- of: the anchor's key for beside/front/behind/around/facing, else null.
+- Seats always belong to what they're used at: chairs and stools are front/behind/around a table, desk, counter or mirror; booths and benches are around a table. Only waiting, lounge or living-room seating stands alone. A salon station is a mirror (wall) with a styling chair in front.
 - wall: "near-door" for what greets people (reception desk, host stand, checkout), "far-from-door" for beds, sofas, desks and treatment chairs, else null.
 - priority: 1 essential for this use, 2 useful, 3 nice to have. Code drops 3s first when space runs out.
 Rules:
@@ -43,8 +45,7 @@ Rules:
 - Hallways stay clear (nothing, or one small item). Bathroom and kitchen fixtures are built in; only add movable pieces there.
 - Skip anything the scan already shows or that is already placed. One reception desk, host stand or checkout for the whole place, in the room people enter.
 - No walls, built-ins, plumbing, wiring, light fixtures, art or decor. Never use vague words like "furniture" or "equipment".
-- Use only the listed room ids. A room that needs nothing gets an empty list.
-reply: one short friendly sentence on what you planned.`;
+- Use only the listed room ids. A room that needs nothing gets an empty list.`;
 
 export type PlacedIn = { name: string; pos: { x: number; z: number }; size: Size; rotY: number }; // world coords
 export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[] };
@@ -101,12 +102,12 @@ const HOME: Record<string, T[]> = {
 };
 const EMPTY = new Set(["bathroom", "hallway", "stairs", "closet"]);
 const PUBLIC = new Set(["reception", "living", "open", "dining", "other", "lobby"]); // where customers are
-const WAITING: T[] = [["rd", "reception desk", "wall", { wall: "near", once: true }], ["wc", "waiting chair", "wall", { count: 4, pri: 2, terms: ["chair"], once: true }], ["plant", "plant", "corner", { pri: 3 }]];
+const WAITING: T[] = [["rd", "reception desk", "wall", { wall: "near", once: true }], ["rc", "office chair", "behind", { of: "rd", once: true }], ["wc", "waiting chair", "wall", { count: 4, pri: 2, terms: ["chair"], once: true }], ["plant", "plant", "corner", { pri: 3 }]];
 const USES: { re: RegExp; public?: T[]; private?: T[]; kitchen?: T[] }[] = [
   { re: /dent/, public: WAITING, private: [["dc", "dental chair", "center"], ["st", "stool", "beside", { of: "dc" }], ["cab", "cabinet", "wall", { wall: "far", count: 2, pri: 2 }]] },
   { re: /clinic|medical|doctor|physician|therap|chiro|exam|health|vet|pediatric/, public: WAITING, private: [["et", "exam table", "wall", { wall: "far" }], ["st", "stool", "beside", { of: "et" }], ["cab", "cabinet", "wall", { pri: 2 }], ["ch", "chair", "corner", { pri: 3 }]] },
   { re: /restaurant|cafe|café|coffee|\bbar\b|ramen|diner|bistro|bakery|eatery|pizz|food|tea/, public: [["t", "four top table", "grid", { count: 20 }], ["c", "chair", "around", { of: "t", count: 4 }], ["hs", "host stand", "wall", { wall: "near", pri: 2, once: true }]], kitchen: [["pt", "prep table", "wall", { count: 2 }], ["rg", "commercial range", "wall", { wall: "far" }], ["rf", "reach-in fridge", "wall", { pri: 2 }]] },
-  { re: /salon|barber|spa|nail|beauty|hair/, public: [["m", "mirror", "wall", { count: 6, wall: "far" }], ["sc", "styling chair", "front", { of: "m" }], ["rd", "reception desk", "wall", { wall: "near", pri: 2, once: true }], ["wc", "waiting chair", "wall", { count: 3, pri: 3, terms: ["chair"], once: true }]], private: [["ss", "shampoo sink", "wall", { count: 2, once: true }]] },
+  { re: /salon|barber|spa|nail|beauty|hair/, public: [["m", "mirror", "wall", { count: 6, wall: "far" }], ["sc", "styling chair", "front", { of: "m" }], ["rd", "reception desk", "wall", { wall: "near", pri: 2, once: true }], ["rc", "office chair", "behind", { of: "rd", pri: 2, once: true }], ["wc", "waiting chair", "wall", { count: 3, pri: 3, terms: ["chair"], once: true }]], private: [["ss", "shampoo sink", "wall", { count: 2, once: true }]] },
   { re: /retail|shop|store|boutique|showroom|gallery/, public: [["dr", "display rack", "grid", { count: 12 }], ["cc", "checkout counter", "wall", { wall: "near", once: true }]] },
   { re: /office|startup|agency|law|account|consult|studio|tech|cowork|insurance|real estate/, public: [["d", "desk", "grid", { count: 12 }], ["ch", "office chair", "front", { of: "d" }]], private: [["d", "desk", "wall", { wall: "far" }], ["ch", "office chair", "front", { of: "d" }], ["bs", "bookshelf", "wall", { pri: 2 }]] },
 ];
@@ -131,7 +132,7 @@ async function geminiPlans(g: GeminiClient, input: PlanIn, rooms: PlanRoom[], pl
     const seen = new Set<string>();
     plans.set(r.roomId, r.items.slice(0, 12).flatMap((i) => toItem(i, seen) ?? []));
   }
-  return { plans, reply: out.data.reply.slice(0, 300) };
+  return plans;
 }
 
 const listNames = (xs: { name: string; count: number }[]) => xs.map((x) => (x.count > 1 ? `${x.count} × ${x.name}` : x.name)).join(", ");
@@ -152,7 +153,7 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
   }
   const source = got ? "gemini" as const : "offline" as const;
   const once = new Set<string>(); // offline "once" items already planned for an earlier room
-  const planFor = (r: PlanRoom) => got ? got.plans.get(r.id) ?? [] : template(input.use, r.label, once).filter((t) => !inRoom(r.id).includes(t.name));
+  const planFor = (r: PlanRoom) => got ? got.get(r.id) ?? [] : template(input.use, r.label, once).filter((t) => !inRoom(r.id).includes(t.name));
 
   // Fair share of the item budget per room; then what rooms left unused goes back to rooms that hit their share, the
   // current room (first) first. A bigger budget only appends to a room's greedy layout, so re-running it is safe.
@@ -169,7 +170,12 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
     for (const x of l.dropped) { const hit = dropped.find((y) => y.name === x.name); if (hit) hit.count += x.count; else dropped.push({ ...x }); }
   }
   const capped = lays.some((l) => l.capped);
-  const lead = got?.reply || (ops.length ? `Laid out ${rooms.length > 1 ? `${rooms.length} rooms` : `the ${rooms[0].label}`} for ${input.use.trim() || "a home"}.` : "");
+  // The reply says only what was actually placed (the model's own summary could name things that didn't fit).
+  const counts = new Map<string, number>();
+  for (const l of lays) for (const p of l.placed) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
+  const kinds = [...counts].map(([name, count]) => ({ name, count })), used = lays.filter((l) => l.placed.length).length;
+  const where = used > 1 ? `${used} rooms` : `the ${rooms[lays.findIndex((l) => l.placed.length)]?.label ?? "room"}`;
+  const lead = `Placed ${listNames(kinds.slice(0, 6))}${kinds.length > 6 ? ` and ${kinds.length - 6} more kinds` : ""} in ${where}.`;
   const reply = !ops.length ? `I couldn't fit anything${dropped.length ? ` (no room for ${listNames(dropped)})` : ""}.`
     : `${lead}${dropped.length ? ` No room for: ${listNames(dropped)}.` : ""}${capped ? ` I stopped at ${ops.length} pieces to keep the tour quick; ask again in a room to add more there.` : ""}`;
   const note = why ? " (simple mode: the AI assistant isn't available right now)" : "";

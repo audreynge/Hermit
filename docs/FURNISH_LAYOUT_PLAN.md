@@ -33,6 +33,7 @@ chat "furnish this place"
 | `grid` | repeated across the floor in rows with aisles (restaurant tables, retail racks, open-office desks) | no |
 | `beside` | left/right of the anchor, backs aligned (nightstands, filing cabinet by desk) | yes |
 | `front` | in front of the anchor; seats face it and tuck to its edge (desk chair), others sit 0.4 m off (coffee table) | yes |
+| `behind` | the seat of someone working at the anchor, facing the room (receptionist); the anchor stands off its wall to make room | yes |
 | `around` | seats on the anchor's sides, long sides first, each facing it (dining chairs) — `count` is per anchor | yes |
 | `facing` | on the wall opposite the anchor, facing it (TV across from sofa) | yes |
 
@@ -103,7 +104,12 @@ chat "furnish this place"
 - [x] G2 Planner tests: Gemini output validated and capped, prompt carries use/dims/doors/objects, offline templates by use.
 - [x] G3 Ops: `add` with exact `pos`/`rotY` places exactly; offline parser maps "furnish this place" → `furnish` scope all.
 - [x] G4 `npm test` (all but `pipeline/sample.test.ts`, which fails on `main` too) and `tsc` green.
-- [ ] G5 Live check in the tour with Gemini on (not run: needs the Matterport SDK key and a browser session).
+- [x] G5 Live Gemini check through the dev server (edit + plan endpoints, 6 sample floors × uses, 2–6 s per plan, every
+  layout inside its rooms with no overlaps). Found and fixed: "this place" came back as one room (code guard
+  `WHOLE_PLACE`); the model's reply named things it never placed (reply now built from what was placed); receptionist chairs
+  on the visitor side (`behind`); lone booths and styling chairs (prompt: seats belong to what they're used at); a center
+  table drifting to a corner of a big room (tie-break toward the middle).
+- [ ] G6 In the 3D tour itself (needs a real scan in the bundle; the local sample scans are synthetic).
 
 ## Not doing
 

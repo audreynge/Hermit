@@ -7,9 +7,9 @@ import type { RoomGraph } from "../types";
 import { clampSize, type Size } from "./catalog";
 import { underCeiling } from "./ops";
 
-export const PLACES = ["wall", "corner", "center", "grid", "beside", "front", "around", "facing"] as const;
+export const PLACES = ["wall", "corner", "center", "grid", "beside", "front", "behind", "around", "facing"] as const;
 export type Place = (typeof PLACES)[number];
-export const DEPENDENT: readonly Place[] = ["beside", "front", "around", "facing"];
+export const DEPENDENT: readonly Place[] = ["beside", "front", "behind", "around", "facing"];
 export type PlanItem = { key: string; name: string; terms: string[]; size: Size; count: number; place: Place; of?: string; wall?: "near-door" | "far-from-door"; priority: number };
 export type Door = { at: Pt; width: number }; // meters, plan coords
 export type LayoutRoom = { id: string; label: string; polygon: Pt[]; ceiling?: number; doors: Door[] };
@@ -118,11 +118,13 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
       && (e.group === group || ((!e.zone || !overlaps(b, e.zone)) && (!zone || !overlaps(zone, e.box)) && !(grid && e.grid && zone && e.zone && overlaps(zone, e.zone)))));
   };
 
-  // Room an item's seats need: "around" seats on every side, "front" seats (desk chair) on the front only.
+  // Room an item's seats need: "around" seats on every side, "front" seats (desk chair) ahead, "behind" (receptionist) behind.
   const depth = (it: PlanItem, place: Place) => Math.max(0, ...plan.filter((p) => p.of === it.key && p.place === place && p.size.h > FLAT_H).map((p) => p.size.d + 0.05));
   /** The box grown by `front` ahead, `back` behind and `side` left and right. */
   const extend = (b: Box, front: number, back: number, side: number): Box => ({ c: add(b.c, b.f, (front - back) / 2), f: b.f, w: b.w + 2 * side, d: b.d + front + back });
-  const reach = (it: PlanItem, b: Box, m = 0) => { const a = depth(it, "around"); return extend(b, Math.max(a, depth(it, "front")) + m, a + m, a + m); };
+  const reach = (it: PlanItem, b: Box, m = 0) => { const a = depth(it, "around"); return extend(b, Math.max(a, depth(it, "front")) + m, Math.max(a, depth(it, "behind")) + m, a + m); };
+  // A desk someone sits behind stands off its wall with room for the chair and to get in and out.
+  const backGap = (it: PlanItem) => (depth(it, "behind") ? depth(it, "behind") + 0.15 : WALL_GAP);
   const zoneOf = (it: PlanItem, b: Box): Box | undefined => {
     if (it.place === "wall" || it.place === "corner") {
       // Wide and deep enough for what sits in front (a styling chair, a desk chair pulled out), so stations don't crowd.
@@ -135,12 +137,12 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
     return undefined;
   };
 
-  function wallSpots(s: Size): { box: Box; t: number; len: number }[] {
+  function wallSpots(s: Size, back = WALL_GAP): { box: Box; t: number; len: number }[] {
     return edges.flatMap((e) => {
       if (e.len < s.w + 2 * WALL_GAP) return [];
       const lo = s.w / 2 + WALL_GAP, hi = e.len - s.w / 2 - WALL_GAP, ts = [lo, hi, (lo + hi) / 2];
       for (let t = lo + 0.1; t < hi; t += 0.1) ts.push(t);
-      return ts.map((t) => ({ t, len: e.len, box: { c: add(add(e.a, e.u, t), e.n, s.d / 2 + WALL_GAP), f: e.n, w: s.w, d: s.d } }));
+      return ts.map((t) => ({ t, len: e.len, box: { c: add(add(e.a, e.u, t), e.n, s.d / 2 + back), f: e.n, w: s.w, d: s.d } }));
     });
   }
   // Floor positions on a lattice aligned to the longest wall (s along it, t into the room); both orientations unless `fixed`.
@@ -156,6 +158,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
     }
     return out;
   }
+  const middle = add(add(longest.a, longest.u, (S0 + S1) / 2), longest.n, (T0 + T1) / 2);
   const lattices = new Map<string, Box[]>();
   /** Grid items: the lattice phase (centered first, then quarter shifts) that fits the most free spots, far from the door first. */
   function lattice(it: PlanItem, size: Size, ok: (b: Box) => boolean): Box[] {
@@ -175,7 +178,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
 
   /** Room for an anchor's beside/front companions at this spot (so a sofa isn't centered where its armchair can't go).
    *  `ideal`: only their first-choice slots (chair straight in front, nightstands on both sides). */
-  function companionsFit(it: PlanItem, box: Box, group: string, place: "beside" | "front", ideal: boolean): boolean {
+  function companionsFit(it: PlanItem, box: Box, group: string, place: "beside" | "front" | "behind", ideal: boolean): boolean {
     return plan.every((d) => {
       if (d.of !== it.key || d.place !== place) return true;
       const need = Math.min(d.count, place === "beside" ? 2 : 1), spots = dependentSpots(d, sizeOf(d), box);
@@ -191,7 +194,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
     const depW = Math.max(size.w, ...plan.filter((p) => p.of === it.key).map((p) => p.size.w));
     let cands: { box: Box; score: number }[];
     if (it.place === "wall" || it.place === "corner") {
-      cands = wallSpots(size).map(({ box, t, len }) => {
+      cands = wallSpots(size, backGap(it)).map(({ box, t, len }) => {
         const dd = doorDist(box.c);
         let score = it.wall === "far-from-door" ? Math.min(dd, 8) : it.wall === "near-door" ? -dd * 2 : Math.min(dd, 2) * 0.5;
         if (it.place === "corner") score -= Math.min(t - size.w / 2, len - t - size.w / 2) * 2;
@@ -204,7 +207,8 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
       const ok = (b: Box) => inside(reach(it, b)) && free(b, group, flat, zoneOf(it, b), true);
       cands = lattice(it, size, ok).map((box, i) => ({ box, score: -i }));
     } else {
-      cands = floorSpots(size, 0.15, 0.15).map((box) => ({ box, score: Math.min(3, nearestOnBoundary(box.c, poly).dist) + Math.min(2, doorDist(box.c)) * 0.3 }));
+      // Open middle: away from walls and doors; in a big room, ties go to the middle rather than the first corner found.
+      cands = floorSpots(size, 0.15, 0.15).map((box) => ({ box, score: Math.min(3, nearestOnBoundary(box.c, poly).dist) + Math.min(2, doorDist(box.c)) * 0.3 - dist(box.c, middle) * 0.05 }));
     }
     cands.sort((a, b) => b.score - a.score);
     const floor = it.place === "center" || it.place === "grid";
@@ -215,8 +219,9 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
       const zone = zoneOf(it, box);
       if (zone && (it.place === "wall" || it.place === "corner") && !pointInPolygon(zone.c, poly)) continue; // not facing a wall up close
       if (!free(box, group, flat, zone, it.place === "grid")) continue;
-      if (!companionsFit(it, box, group, "front", false)) continue; // a mirror without room for its chair is pointless
-      if (companionsFit(it, box, group, "front", true) && companionsFit(it, box, group, "beside", true)) return box;
+      // A mirror without room for its chair, or a reception desk without its receptionist's, is pointless.
+      if (!companionsFit(it, box, group, "front", false) || !companionsFit(it, box, group, "behind", false)) continue;
+      if (companionsFit(it, box, group, "front", true) && companionsFit(it, box, group, "behind", true) && companionsFit(it, box, group, "beside", true)) return box;
       const tier = companionsFit(it, box, group, "beside", false) ? 1 : 2;
       tiers[tier] ??= box; // a bed is still a bed without its nightstands
     }
@@ -239,6 +244,10 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
       const c = add(k.c, k.f, k.d / 2 + gap + size.d / 2), pitch = size.w + 0.15, m = Math.max(1, Math.floor((k.w + 0.15) / pitch));
       const offs = Array.from({ length: m }, (_, j) => (j - (m - 1) / 2) * pitch).sort((a, b) => Math.abs(a) - Math.abs(b) || b - a);
       return (m === 1 ? [0, 0.35, -0.35] : offs).map((o) => ({ c: add(c, r, o), f: seat ? { x: -k.f.x, y: -k.f.y } : k.f, w: size.w, d: size.d }));
+    }
+    if (it.place === "behind") {
+      const c = add(k.c, k.f, -(k.d / 2 + 0.02 + size.d / 2)); // faces the same way as its anchor: over the desk
+      return [0, 0.35, -0.35].map((o) => ({ c: add(c, r, o), f: k.f, w: size.w, d: size.d }));
     }
     if (it.place === "around") {
       const sides = [{ n: k.f, len: k.w, half: k.d / 2 }, { n: { x: -k.f.x, y: -k.f.y }, len: k.w, half: k.d / 2 }, { n: r, len: k.d, half: k.w / 2 }, { n: { x: -r.x, y: -r.y }, len: k.d, half: k.w / 2 }];
