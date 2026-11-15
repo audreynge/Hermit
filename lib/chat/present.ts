@@ -119,7 +119,17 @@ export type Step = { id: string; icon: string; label: string; tone: "info" | "wa
 
 export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step[] {
   const steps: Step[] = [];
-  const add = (id: string, icon: string, label: string, tone: Step["tone"] = "info") => steps.push({ id, icon, label, tone });
+  const add = (id: string, icon: string, label: string, tone: Step["tone"] = "info") => { if (!steps.some((s) => s.label === label)) steps.push({ id, icon, label, tone }); };
+  // "From above" only when something was actually counted on an aerial photo, not just because parking was asked for.
+  const fromAbove = (ev?: { source: string }[]) => !!ev?.some((x) => /aerial|vexcel/i.test(x.source) && !/not counted/i.test(x.source));
+  const aerial = events.some((e) => (e.type === "drop" && fromAbove(e.evidence)) || (e.type === "escalate" && fromAbove(e.evidence)) || (e.type === "report" && e.reports.some((r) => r.aerial)));
+  const names = new Map<string, string>();
+  const ruled = new Set<string>();
+  for (const e of events) {
+    if (e.type === "funnel") for (const s of e.stages) for (const r of s.removed) names.set(r.id, displayName(r.name));
+    if (e.type === "veto") names.set(e.shellId, displayName(e.name));
+    if (e.type === "report") for (const r of e.reports) names.set(r.shellId, displayName(r.name));
+  }
   const LEVEL: Record<string, string> = { city: `City: ${CITY[spec.city]} permitting`, county: "County: health permits", state: `State: ${STATE[spec.city]} licensing`, federal: "Federal: ADA" };
   for (const e of events) {
     if (e.type === "tool" && e.tool === "search_shells") add(e.id, "search", `Searched spaces in ${CITY[spec.city]}`);
@@ -133,7 +143,7 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       add(`${e.id}-z`, "gavel", "Checked zoning rules");
       if (spec.needs.heavyPower || spec.needs.threePhase) add(`${e.id}-e`, "bolt", "Checked electrical power");
       if (spec.needs.esfr) add(`${e.id}-f`, "flame", "Checked fire sprinklers");
-      if (spec.needs.parking || spec.needs.parkingStalls || spec.mode === "business") add(`${e.id}-p`, "car", "Looked at parking from above");
+      if (aerial && (spec.needs.parking || spec.needs.parkingStalls || spec.mode === "business")) add(`${e.id}-p`, "car", "Looked at parking from above");
       if (spec.needs.wheelchair || spec.needs.stepFree) add(`${e.id}-a`, "accessible", "Checked accessibility");
       add(`${e.id}-l`, "tag", "Checked what's still available");
     }
@@ -142,7 +152,18 @@ export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step
       if (spec.rooms.length) add(`${e.id}-r`, "layout", "Matched your rooms to layouts");
       add(`${e.id}-c`, "dollar", "Estimated build-out costs");
     }
-    if (e.type === "drop") add(e.id, "x", `Ruled out: ${e.reason.split(/[;(]/)[0].replace(/^\w+: /, "").trim()}`, "warn");
+    if ((e.type === "drop" || e.type === "veto") && ruled.has(e.shellId)) continue;
+    if (e.type === "drop" || e.type === "veto") ruled.add(e.shellId);
+    if (e.type === "drop" || e.type === "veto") {
+      // Newer runs start the reason with the space's name ("Suite 375, Denmark House: has no exam rooms"); older
+      // ones don't, so the name comes from the run's other events. Old rule-key prefixes ("zoning: ...") are dropped.
+      const own = e.reason.match(/^([^:]{3,90}): (.+)$/);
+      const named = own && !/^[a-z_]+$/.test(own[1]);
+      const name = named ? own![1] : e.type === "veto" ? displayName(e.name) : names.get(e.shellId);
+      const why = (named ? own![2] : e.reason).split(/[;(]/)[0].replace(/^[a-z_]+: /, "").replace(/\.$/, "").trim();
+      const what = why.charAt(0).toLowerCase() + why.slice(1);
+      add(e.id, "x", name ? `Ruled out ${name}: ${what}` : `Ruled out: ${why}`, "warn");
+    }
     if (e.type === "escalate") {
       const thing = e.question.match(/is there an? ([\w -]+?) in/i)?.[1];
       add(e.id, "eye", thing ? `Looked for ${an(thing)} in the scan` : "Rechecked a detail in the scan");

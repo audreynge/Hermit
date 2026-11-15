@@ -125,10 +125,23 @@ describe("thinkingSteps", () => {
     const labels = thinkingSteps(events, spec).map((s) => s.label);
     expect(labels[0]).toBe("Searched spaces in Houston");
     expect(labels.join(" ")).not.toMatch(/2,?659/);
-    expect(labels).toEqual(expect.arrayContaining(["Checked zoning rules", "Checked electrical power", "Looked at parking from above", "Measured the rooms"]));
+    expect(labels).toEqual(expect.arrayContaining(["Checked zoning rules", "Checked electrical power", "Measured the rooms"]));
+    expect(labels).not.toContain("Looked at parking from above"); // nothing was counted on an aerial photo
     expect(labels.every((l) => l.split(" ").length <= 7)).toBe(true);
     expect(labels.some((l) => /Ruled out/.test(l))).toBe(true);
     expect(labels.some((l) => /Looked for a sink/.test(l))).toBe(true);
+  });
+
+  it("says it looked from above only when an aerial count exists, and names ruled-out spaces once", () => {
+    const ev: TraceEvent[] = [
+      { type: "funnel", id: "f", stages: [{ key: "type", label: "commercial", count: 2, removed: [{ id: "X", name: "Suite 9 · Tower", reason: "r" }], removedCount: 1 }] },
+      ...events,
+      { type: "drop", id: "7", shellId: "X", reason: "zoning: Zone R3 is residential", evidence: [] },
+      { type: "report", id: "8", reports: [report({ aerial: { stalls: { n: 4 } } as never })] },
+    ];
+    const labels = thinkingSteps(ev, spec).map((s) => s.label);
+    expect(labels).toContain("Looked at parking from above");
+    expect(labels.filter((l) => /Ruled out/.test(l))).toEqual(["Ruled out Suite 9: zone R3 is residential"]);
   });
 
   it("organizes regulation research by government level", () => {
