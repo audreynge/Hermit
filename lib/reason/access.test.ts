@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAccess, turnCircleIn } from "./access";
+import { checkAccess, doorPoint, turnCircleIn } from "./access";
 import type { Room, RoomGraph } from "../types";
 
 const room = (id: string, label: string, w = 4, h = 4): Room => ({
@@ -94,5 +94,23 @@ describe("turnCircleIn", () => {
   it("is the short side of a rectangle, in inches", () => {
     expect(turnCircleIn(room("ba", "bathroom", 1.5, 2))).toBeCloseTo(59.1, 0);
     expect(turnCircleIn(room("ba", "bathroom", 2.5, 3))).toBeCloseTo(98.4, 0);
+  });
+});
+
+describe("doorPoint", () => {
+  const at = (id: string, x: number, y = 0): Room => ({ ...room(id, "office"), polygon: [{ x, y }, { x: x + 4, y }, { x: x + 4, y: y + 4 }, { x, y: y + 4 }] });
+  // a | b share the wall x=4; c sits apart. Scan polygons can stop short, so a measured centre may miss one room.
+  const g = { ...graph([]), rooms: [at("a", 0), at("b", 4), at("c", 20)] };
+
+  it("keeps a measured centre on the shared wall and snaps one that misses a room's outline onto it", () => {
+    expect(doorPoint(g, "a", "b", { x: 4, y: 2 })).toEqual({ x: 4, y: 2 });
+    const p = doorPoint(g, "a", "b", { x: 8, y: 2 })!; // on b's far wall, nowhere near a
+    expect(Math.abs(p.x - 4)).toBeLessThan(0.01);
+    expect(doorPoint(g, "a", "c", { x: 20, y: 2 })).toBeNull();
+  });
+
+  it("drops an outside door that lands inside another room", () => {
+    expect(doorPoint(g, "a", null, { x: 0, y: 2 })).toEqual({ x: 0, y: 2 });
+    expect(doorPoint(g, "c", null, { x: 6, y: 2 })).toBeNull();
   });
 });

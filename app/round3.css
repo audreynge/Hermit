@@ -234,3 +234,11 @@ nav.primary svg { width: 21px; height: 21px; }
   .pv-guide-nav { width: 100%; justify-content: space-between; }
 }
 /* == end W4a == */
+/* == W4b: FitView design side by side == */
+.fit-twoup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.fit-twoup h4 { margin: 0 0 6px; font-size: 16px; }
+.fit-twoup .plan { padding: 0; }
+.fit-twoup svg { height: 300px; max-height: none !important; width: 100%; min-width: 0 !important; }
+.fit-twoup-summary { margin: 12px 0 0; font-size: 16px; line-height: 1.5; }
+@media (max-width: 720px) { .fit-twoup { grid-template-columns: 1fr; } .fit-twoup svg { height: 240px; } }
+/* == end W4b == */
