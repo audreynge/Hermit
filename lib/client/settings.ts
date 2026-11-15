@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 export type Settings = { theme: "system" | "light" | "dark"; text: "normal" | "large"; motion: "full" | "reduced"; tech: boolean };
-export const DEFAULT_SETTINGS: Settings = { theme: "system", text: "normal", motion: "full", tech: false };
+export const DEFAULT_SETTINGS: Settings = { theme: "light", text: "normal", motion: "full", tech: false };
 const KEY = "hermit:settings";
 const EVENT = "hermit-settings";
 

@@ -60,8 +60,6 @@ header.top { position: relative; z-index: 2; display: flex; align-items: center;
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font-weight: 800; font-size: 34px; letter-spacing: -0.02em; padding-right: var(--s6); border-right: 1px solid var(--line); }
 .brand img { width: 44px; height: auto; margin: 0; }
 nav.primary { display: flex; gap: var(--s3); }
-.ai-status { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
-a.ai-status { text-decoration: none; }
 nav.primary a { display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: 16px; color: var(--ink); text-decoration: none; font-weight: 600; font-size: 19px; }
 nav.primary a:hover { background: var(--coral-wash-2); }
 nav.primary a[aria-current="page"] { background: var(--coral-wash); color: var(--coral-ink); }
@@ -180,7 +178,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .msg.user { flex-direction: row-reverse; }
 .avatar { flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: var(--coral-wash); }
 .avatar.bot { background: #fff; border: 1px solid var(--line); overflow: hidden; }
-.avatar.bot img { width: 42px; height: auto; display: block; }
+.avatar.bot img { width: 34px; height: auto; display: block; }
 .avatar.user svg { color: var(--coral); width: 30px; height: 30px; fill: var(--coral); }
 .bubbles { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 520px; }
 .bubble { padding: 18px 22px; border-radius: 22px; background: var(--coral-wash-2); font-size: 18px; line-height: 1.55; overflow-wrap: anywhere; }
