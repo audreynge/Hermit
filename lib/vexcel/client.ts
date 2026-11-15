@@ -17,7 +17,10 @@ function request(lat: number, lon: number, view: VexcelView) {
     : { path: "oriented/extract", body: { ...base, layer: "urban", "product-type": view, rotation: "natural", crop: "bbox" } };
 }
 
-export async function vexcelImage(lat: number, lon: number, view: VexcelView, fetchFn: typeof fetch = fetch): Promise<Buffer | null> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// `retries` (default 0, so live routes stay fast) re-tries 429s, 5xx and network errors with backoff; the pipeline uses it.
+export async function vexcelImage(lat: number, lon: number, view: VexcelView, fetchFn: typeof fetch = fetch, opts: { retries?: number; backoffMs?: number } = {}): Promise<Buffer | null> {
   const name = `${lat.toFixed(5)}_${lon.toFixed(5)}_${view}.jpg`;
   // The deploy bundle is read-only on Vercel, so fetched images are cached in /tmp there.
   const cached = [path.join(dataDir(), "vexcel", name), path.join(process.env.VERCEL ? "/tmp" : dataDir(), "vexcel", name)].find((f) => fs.existsSync(f));
@@ -26,18 +29,24 @@ export async function vexcelImage(lat: number, lon: number, view: VexcelView, fe
   const key = apiKey();
   if (!key) return null;
   const { path: p, body } = request(lat, lon, view);
-  try {
-    const res = await fetchFn(`${API}/${p}`, {
-      method: "POST", headers: { "Content-Type": "application/json", "X-API-KEY": key }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok || !res.headers.get("content-type")?.startsWith("image/")) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+  const retries = opts.retries ?? 0;
+  for (let i = 0; i <= retries; i++) {
+    if (i) await sleep((opts.backoffMs ?? 2000) * 2 ** (i - 1));
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, buf);
-    } catch {} // caching is best-effort; never discard an image we already have
-    return buf;
-  } catch {
-    return null;
+      const res = await fetchFn(`${API}/${p}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-API-KEY": key }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
+      });
+      if (res.status === 429 || res.status >= 500) continue;
+      if (!res.ok || !res.headers.get("content-type")?.startsWith("image/")) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, buf);
+      } catch {} // caching is best-effort; never discard an image we already have
+      return buf;
+    } catch {
+      // network error or timeout: retry if allowed
+    }
   }
+  return null;
 }
