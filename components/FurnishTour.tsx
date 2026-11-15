@@ -3,7 +3,7 @@
 // Drag items to move them; drag cards from the tray into the room to place them. Falls back (onFail) to the plain
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
-import { Box, ChevronLeft, ChevronRight, FlipVertical2, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Rotate3d, RotateCwSquare, Ruler, RotateCcw, RotateCw, Search, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { Box, ChevronLeft, ChevronRight, Eye, EyeOff, FlipVertical2, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Rotate3d, RotateCwSquare, Ruler, RotateCcw, RotateCw, Search, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
@@ -102,6 +102,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   const [mode, setModeState] = useState<ViewMode>("inside");
   const [picked, setPicked] = useState<string | undefined>(); // a room id or ALL chosen with the select tool / picker
   const [undoText, setUndoText] = useState<string | null>(null); // the furnish message that offers an Undo button
+  const [hideAll, setHideAll] = useState(false); // see the bare space; any change to the furniture shows it again
   const sized = useRef(new Set<string>());
   // Every room outline on the plan (with its ceiling), so items stay inside whichever room they're in. Each gets a
   // readable name: the scan labels many rooms "other", so those become "Room 1", "Room 2"…
@@ -196,7 +197,8 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     return () => { dead = true; clearTimeout(timeout); scene.current?.destroy(); scene.current = null; viewer.current?.remove(); };
   }, [sid, report.floorplan, onFail, onLoad]);
 
-  useEffect(() => { scene.current?.sync(items, selected); if (loadedKey === saveKey) save(saveKey, items, "local"); }, [items, selected, saveKey, loadedKey, ready]);
+  useEffect(() => { setHideAll(false); }, [items]);
+  useEffect(() => { scene.current?.sync(hideAll ? [] : items, hideAll ? undefined : selected); if (loadedKey === saveKey) save(saveKey, items, "local"); }, [items, selected, saveKey, loadedKey, ready, hideAll]);
   useEffect(() => { setPopover(null); }, [selected]);
   useEffect(() => {
     if (!toast || (undoText && toast !== undoText)) setUndoText(null);
@@ -676,6 +678,11 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
                 <button key={m} type="button" aria-pressed={mode === m} onClick={() => void setMode(m)} title={l}><Icon aria-hidden="true" /><span>{l}</span></button>
               ))}
             </div>
+            {items.length > 0 && (
+              <button type="button" className="btn small" aria-pressed={hideAll} onClick={() => { setHideAll(!hideAll); setSelected(undefined); }}>
+                {hideAll ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />} {hideAll ? "Show furniture" : "Hide all furniture"}
+              </button>
+            )}
             {rooms.length > 0 && <>
               <label className="furnish-room">
                 <span className="sr-only">Room to work on</span>

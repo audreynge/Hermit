@@ -1,7 +1,7 @@
 // Prefetches free neighborhood data for every candidate site and writes data/processed/site/<sid>.json.
 // Sources: TxDOT / Caltrans annual average daily traffic, OpenStreetMap (Overpass), Census geocoder, and Census ACS
 // when CENSUS_API_KEY is set. Each city's layers are pulled once in bulk, then matched to sites locally.
-// Run: npx tsx --env-file=.env pipeline/neighborhood.ts
+// Run: npx tsx --env-file=.env pipeline/neighborhood.ts [--layers]
 import fs from "node:fs";
 import path from "node:path";
 import type { Shell } from "../lib/types";
@@ -126,6 +126,8 @@ async function main() {
     layers[city] = { counts, pois };
     console.log(city, `${counts.length} traffic counts, ${pois.length} OSM points`);
   }
+  // --layers: only the city-wide layers the report map builds from (no per-site lookups).
+  if (process.argv.includes("--layers")) return;
   // Block groups are cached; only sites added since the last run are looked up.
   const bgFile = path.join(CACHE, "blockgroups.json");
   const bgs: Record<string, string | null> = fs.existsSync(bgFile) ? JSON.parse(fs.readFileSync(bgFile, "utf8")) : {};

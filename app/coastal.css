@@ -284,7 +284,7 @@ html[data-motion="reduced"] :is(.ev-chev, .think-jump) { transition: none; }
 .aerial-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--sea-wash); }
 .aerial-main { position: absolute; inset: 0; }
 .aerial-map { position: absolute; inset: 0; overflow: hidden; background: #eee; }
-.aerial-map img { max-width: none; }
+.aerial-map img, .aerial-view .aerial-map img { max-width: none; width: 256px; height: 256px; object-fit: fill; } /* map tiles; .aerial-view img sizes the photo */
 .aerial-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .aerial-map-n { position: absolute; top: 6px; left: 8px; font-size: 12px; font-weight: 700; color: #111; background: rgb(255 255 255 / 0.85); padding: 0 5px; border-radius: 4px; }
 .aerial-map-credit { position: absolute; bottom: 4px; left: 6px; font-size: 11px; color: #333; background: rgb(255 255 255 / 0.8); padding: 0 4px; border-radius: 3px; }
