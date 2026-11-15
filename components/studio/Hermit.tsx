@@ -2,6 +2,7 @@
 import { ImageUp, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HermitNote } from "@/lib/client/session";
 import { KEYS, load, save } from "@/lib/client/store";
 import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { IState, ITurn } from "@/lib/interview/turn";
@@ -172,6 +173,17 @@ export function Hermit() {
     if (!started.current || replay || !messages.length) return;
     save(KEYS.chat, { iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, conv: conv.current } satisfies Persist);
   }, [iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, replay]);
+
+  // Notes from the 3D tour (what the user asked there and what Hermit did) join this conversation.
+  useEffect(() => {
+    const onNote = (e: Event) => {
+      const n = (e as CustomEvent<HermitNote>).detail;
+      n.handled = true;
+      setMessages((m) => [...m, { id: uid(), role: n.role, text: n.text, ...(n.agent && { agent: n.agent }) }]);
+    };
+    window.addEventListener("hermit:note", onNote);
+    return () => window.removeEventListener("hermit:note", onNote);
+  }, []);
 
   const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
   useEffect(() => { if (!touched.current || pushEditor.current) { pushEditor.current = false; setEditorInit(blocks); } }, [blocks]);
