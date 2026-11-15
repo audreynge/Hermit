@@ -568,7 +568,6 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     if (r.applied.length) {
       setUndoText(msg); setTab("placed");
       if (targets.length > 1 && state.current.mode === "inside") void setMode("dollhouse"); // see the whole result at once
-      noteToHermit({ role: "hermit", agent: "furnish", text: `In the 3D tour of ${report.name.split(" · ")[0]}: ${msg}` });
     }
     return msg;
   }
@@ -577,7 +576,13 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     if (busy || !ready) return;
     const all = picked === ALL, message = all ? "furnish everything" : "furnish this room";
     setBusy(true);
-    try { setToast(await furnish({ op: "furnish", scope: all ? "all" : "room" }, message)); }
+    try {
+      const msg = await furnish({ op: "furnish", scope: all ? "all" : "room" }, message);
+      setToast(msg);
+      // The button bypasses the chat, so record it in the shared conversation (chat requests are recorded by the chat).
+      noteToHermit({ role: "user", text: message });
+      noteToHermit({ role: "hermit", agent: "furnish", text: `In the 3D tour of ${report.name.split(" · ")[0]}: ${msg}` });
+    }
     catch { setToast("I couldn't plan that just now. Try again in a moment."); }
     finally { setBusy(false); }
   }
@@ -598,7 +603,6 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
       if (out.ops.some((o) => kind(o) === "undo")) return undo();
       const i = out.ops.findIndex((o) => kind(o) === "furnish");
       if (i >= 0) {
-        noteToHermit({ role: "user", text: message });
         const clear = out.ops.slice(0, i).find((o) => kind(o) === "clear") as { scope: "room" | "all" } | undefined; // refurnish
         return await furnish(out.ops[i] as FurnishRequest, message, clear?.scope);
       }

@@ -5,16 +5,17 @@ import { isSaved, toggleSaved } from "@/lib/client/persist";
 import { KEYS, load, save } from "@/lib/client/store";
 import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
 import { intent, screenText, TABS } from "@/lib/report-chat";
-import { hermitContext } from "@/lib/client/session";
+import { hermitContext, msgId, saveThread, thread, type HermitNote, type Msg } from "@/lib/client/session";
 import type { Turn } from "@/lib/chat/converse";
 import type { ShellReport } from "@/lib/types";
 import { usePersisted } from "./shared";
 import type { ReportCtx } from "./ShellReportPage";
 
-type Msg = { role: "user" | "hermit"; text: string; followUp?: string | null };
 type Action = { type: "tab"; tab: string } | { type: "save" };
 type Pos = { x: number; y: number };
 const W = 380, H = 520, M = 12;
+// The chat routes take plain role/text pairs of at most 2,000 characters.
+const asHistory = (msgs: Msg[], n: number) => msgs.filter((m) => m.text).slice(-n).map(({ role, text }) => ({ role, text: text.slice(0, 2000) }));
 const post = async <T,>(url: string, body: unknown): Promise<T> => {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(String(r.status));
@@ -30,11 +31,13 @@ const waitFor = async <T,>(get: () => T | null | undefined, ms = 30_000): Promis
 };
 
 // One Hermit for the whole report: answers, opens tabs, saves, furnishes the 3D tour and proposes fit-out changes.
-// Closed it's a speech bubble in the corner; open it's a panel you can drag around by its header.
+// Closed it's a speech bubble in the corner; open it's a panel you can drag around by its header. It's the same
+// conversation as Find a space: it shows and continues the studio thread, and sends it as history.
 export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit }: ReportCtx & { tab: string }) {
-  const key = `hermit:reportchat:${report.shellId}`;
   const [open, setOpen] = useState(false);
-  const [msgs, setMsgs, loaded] = usePersisted<Msg[]>(key, []);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const place = report.name.split(" · ")[0];
   const [extra, setExtra] = usePersisted<string[]>(`hermit:extraq:${report.shellId}`, []);
   const [pos, setPos] = useState<Pos | null>(null); // null = docked bottom-right
   const [text, setText] = useState("");
@@ -44,6 +47,18 @@ export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit 
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => { try { const p = JSON.parse(sessionStorage.getItem("hermit:chat-pos") ?? "null"); if (p) setPos(clamp(p)); } catch { /* storage blocked */ } }, []);
+  useEffect(() => { setMsgs(thread()); setLoaded(true); }, []);
+  useEffect(() => { if (loaded) saveThread(msgs); }, [msgs, loaded]);
+  // Notes from the 3D tour's own buttons ("Furnish this room") join the conversation while this chat is mounted.
+  useEffect(() => {
+    const onNote = (e: Event) => {
+      const n = (e as CustomEvent<HermitNote>).detail;
+      n.handled = true;
+      setMsgs((m) => [...m, { id: msgId(), role: n.role, text: n.text, ...(n.agent && { agent: n.agent }) }]);
+    };
+    window.addEventListener("hermit:note", onNote);
+    return () => window.removeEventListener("hermit:note", onNote);
+  }, []);
   useEffect(() => { if (loaded) endRef.current?.scrollIntoView({ block: "end" }); }, [msgs, open, loaded, busy]);
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
   useEffect(() => {
@@ -107,33 +122,37 @@ export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit 
   async function doAsk(next: Msg[]): Promise<Msg> {
     const q = next[next.length - 1].text;
     if (tab === "inside") {
-      const out = await post<{ answer?: string; followUp?: string | null }>("/api/ask", { runId, shellId: report.shellId, question: q, room: null, screen: screen(), history: next.slice(-8).map(({ role, text }) => ({ role, text })) });
-      return { role: "hermit", text: out.answer ?? "Sorry, I couldn't answer that.", followUp: out.followUp };
+      const out = await post<{ answer?: string; followUp?: string | null }>("/api/ask", { runId, shellId: report.shellId, question: q, room: null, screen: screen(), history: asHistory(next, 8) });
+      return { id: msgId(), role: "hermit", text: out.answer ?? "Sorry, I couldn't answer that.", followUp: out.followUp };
     }
-    const j = await post<{ reply?: string; action?: Action }>("/api/report-chat", { runId, shellId: report.shellId, tab, screen: screen(), messages: next.slice(-40).map(({ role, text }) => ({ role, text })) });
+    const j = await post<{ reply?: string; action?: Action }>("/api/report-chat", { runId, shellId: report.shellId, tab, screen: screen(), messages: asHistory(next, 40) });
     let reply = j.reply ?? "I couldn't answer just now. Try again in a moment.";
     if (j.action?.type === "save") {
       if (isSaved(report.shellId)) reply = "This space is already saved.";
       else { toggleSaved(report, runId); window.dispatchEvent(new Event("hermit:saved")); }
     }
     if (j.action?.type === "tab" && (TABS as readonly string[]).includes(j.action.tab) && j.action.tab !== tab) go(j.action.tab);
-    return { role: "hermit", text: reply };
+    return { id: msgId(), role: "hermit", text: reply };
   }
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const q = text.trim();
     if (!q || busy) return;
-    const next: Msg[] = [...msgs, { role: "user", text: q }];
-    setMsgs(next); setText(""); setBusy(true);
+    // The first message about this space says which space it is, so the shared thread reads right back in Find a space.
+    const marker = `Looking at ${place}.`;
+    const lastMarker = [...msgs].reverse().find((m) => m.agent === "report")?.text;
+    const added: Msg[] = [...(lastMarker === marker ? [] : [{ id: msgId(), role: "hermit" as const, agent: "report", text: marker }]), { id: msgId(), role: "user", text: q }];
+    const next = [...msgs, ...added];
+    setMsgs((m) => [...m, ...added]); setText(""); setBusy(true);
     let reply: Msg;
     try {
       const kind = intent(q);
-      reply = kind === "furnish" ? { role: "hermit", text: await doFurnish(q) }
-        : kind === "edit" ? { role: "hermit", text: await doEdit(q) }
+      reply = kind === "furnish" ? { id: msgId(), role: "hermit", text: await doFurnish(q) }
+        : kind === "edit" ? { id: msgId(), role: "hermit", text: await doEdit(q) }
         : await doAsk(next);
-    } catch { reply = { role: "hermit", text: "I couldn't reach the server. Try again?" }; }
-    setMsgs([...next, reply].slice(-40)); setBusy(false);
+    } catch { reply = { id: msgId(), role: "hermit", text: "I couldn't reach the server. Try again?" }; }
+    setMsgs((m) => [...m, reply]); setBusy(false); // functional: a tour note may have landed while this was in flight
   }
 
   const style = pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : undefined;
@@ -156,8 +175,8 @@ export function ReportChat({ report, spec, runId, tab, go, furnish, fit, setFit 
       </header>
       <div className="rchat-list" aria-live="polite">
         {!msgs.length && <p className="muted">Ask me anything about this space, or tell me what to change: “put a sofa by the window”, “merge the two offices”, “furnish the whole space”, “show me the lease coach”.</p>}
-        {msgs.map((m, i) => (
-          <div key={i} className="rchat-item" data-role={m.role}>
+        {msgs.filter((m) => m.text).map((m) => (
+          <div key={m.id} className="rchat-item" data-role={m.role}>
             <p className="rchat-msg" data-role={m.role}>{m.text}</p>
             {m.followUp && !extra.includes(m.followUp) && <button type="button" className="btn small" onClick={() => setExtra([...extra, m.followUp!])}><Plus aria-hidden="true" /> Add “{m.followUp}” to my broker questions</button>}
           </div>

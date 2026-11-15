@@ -165,6 +165,7 @@ export function Hermit() {
       conv.current = p.conv ?? null; announced.current = p.runId;
       return;
     }
+    if (p?.messages?.length) setMessages(p.messages); // a thread started on a report page, before any search here
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
   }, [replay, runSearch, ask, firstQ, router]);
 
