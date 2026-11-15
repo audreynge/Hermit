@@ -69,7 +69,8 @@ export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   const qty = "(\\d+|a|an|one|two|three|four|five|six|seven|eight)\\s+(?:[a-z]+\\s)?";
   for (const [re, label, hardByDefault] of ROOM_WORDS) {
     if (mode === "home" && (label === "bathroom" || label === "bedroom")) continue;
-    const m = t.match(new RegExp(`${qty}(${re.source})((?:\\s+with\\s+[a-z ]+?)?)(?=[,.;]|\\s|$)`));
+    // Largest count mentioned wins: "a new office ... 3 private offices" means 3 offices.
+    const m = [...t.matchAll(new RegExp(`${qty}(${re.source})((?:\\s+with\\s+[a-z ]+?)?)(?=[,.;]|\\s|$)`, "g"))].sort((a, b) => num(b[1]) - num(a[1]))[0];
     const bare = !m && label === "office" && mode === "home" && /home office/.test(t);
     if (!m && !bare) continue;
     const count = m ? num(m[1]) : 1;

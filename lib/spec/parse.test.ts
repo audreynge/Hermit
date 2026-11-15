@@ -95,3 +95,8 @@ describe("fromLayout", () => {
     expect(parseChairWidth("I'll measure later", true)).toBeUndefined();
   });
 });
+
+it("the largest room count wins over an earlier 'a new office'", () => {
+  const s = parseText("We need a new office in Houston with a reception area and 3 private offices", { city: "houston" });
+  expect(s.rooms.find((r) => r.label === "office")?.count).toBe(3);
+});

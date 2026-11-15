@@ -1,4 +1,5 @@
 "use client";
+import { cachedRun } from "@/lib/cached-runs";
 import { ImageUp, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -155,6 +156,9 @@ export function Hermit() {
       // Started from the hero: a fresh search, and the typed request is the first answer.
       save(KEYS.chat, null);
       setMessages([{ id: uid(), role: "user", text: firstQ }]);
+      router.replace("/studio");
+      const cached = cachedRun(firstQ);
+      if (cached) { void runSearch({ ...EMPTY, city: "houston", useType: "office" } as RequirementSpec, cached); return; }
       void ask({ spec: EMPTY, asked: [], history: [{ role: "hermit", text: "What are you opening, or looking for?" }] }, firstQ);
       router.replace("/studio");
       return;
@@ -216,6 +220,8 @@ export function Hermit() {
     if (cmd === "studio") { editLayout(); return; }
     if (cmd === "reset") { reset(); return; }
     setMessages((m) => [...m, { id: uid(), role: "user", text }]);
+    const cached = cachedRun(text);
+    if (cached) { void runSearch({ ...EMPTY, city: "houston", useType: "office" } as RequirementSpec, cached); return; }
     if (cmd === "search") { search(); return; }
     if (running) { void ask(iv, text); return; }
     if (reports.length || (blocks.some((b) => b.kind !== "object") && isLayoutEdit(text))) { void followUp(text, cmd); return; }
