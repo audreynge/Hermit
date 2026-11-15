@@ -69,6 +69,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
   const [suggestions, setSuggestions] = useState<FurnishItem[]>([]);
   const [tab, setTab] = useState<Tab>("suggested");
   const [trayOpen, setTrayOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false); // collapsed to a "Furnish" button until the user opens it
   const [popover, setPopover] = useState<"color" | "material" | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Model[] | null>(null);
@@ -331,7 +332,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); setToast(undo()); return; }
-      if (e.key === "t" || e.key === "T") { setTrayOpen((o) => !o); return; }
+      if (e.key === "t" || e.key === "T") { setChatOpen(true); setTrayOpen((o) => !o); return; }
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
       if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }], undefined, undefined, undefined, p.id); }
@@ -501,7 +502,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
   }
 
   async function runSearch(terms: string[], name: string) {
-    setTab("search"); setTrayOpen(true); setResults(null);
+    setTab("search"); setChatOpen(true); setTrayOpen(true); setResults(null);
     setResults(await findModels(terms, 12, name));
   }
   const target = items.find((p) => p.id === replacing);
@@ -563,16 +564,21 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
           </div>
         )}
 
-        <div className="furnish-tray" data-open={trayOpen}>
+        <div className="furnish-tray" data-open={chatOpen && trayOpen} data-collapsed={!chatOpen}>
           {toast && <p className="furnish-toast" role="status">{toast}</p>}
+          {!chatOpen ? (
+            <button type="button" className="btn small" aria-expanded={false} onClick={() => setChatOpen(true)}><Sofa aria-hidden="true" /> Furnish this {label}</button>
+          ) : (
           <form className="furnish-chat" onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <button type="button" className="icon-btn" aria-label={trayOpen ? "Hide the furniture tray" : "Show the furniture tray"} aria-expanded={trayOpen} onClick={() => setTrayOpen(!trayOpen)}>{trayOpen ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}</button>
             <label className="sr-only" htmlFor="furnish-text">Tell me what to place</label>
-            <input id="furnish-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Furnish this ${label}: "put a stove here", "make it navy"…`} maxLength={500} disabled={!ready} />
+            <input id="furnish-text" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={`Furnish this ${label}: "put a stove here", "make it navy"…`} maxLength={500} disabled={!ready} />
             <Mic disabled={!ready || busy} onText={(t) => void send(t)} />
             <button type="submit" className="icon-btn" aria-label="Send" disabled={!ready || busy || !text.trim()}>{busy ? <Loader aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
+            <button type="button" className="icon-btn" aria-label="Collapse the furnishing chat" onClick={() => setChatOpen(false)}><X aria-hidden="true" /></button>
           </form>
-          {trayOpen && (
+          )}
+          {chatOpen && trayOpen && (
             <div className="furnish-shelf">
               <div className="furnish-tabs">
                 <div role="tablist" aria-label="Furniture">
