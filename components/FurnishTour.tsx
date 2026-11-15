@@ -43,6 +43,7 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
   const sdk = useRef<MpSdk | null>(null);
+  const moved = useRef(false);
   const scene = useRef<FurnishScene | null>(null);
   const strip = useRef<HTMLUListElement>(null);
   const floorY = useRef(0), pointer = useRef<Vec | undefined>(undefined); // last floor spot under the cursor ("here")
@@ -103,6 +104,7 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   // Start the SDK viewer once; any startup failure hands back to the iframe tour.
   useEffect(() => {
     let dead = false;
+    moved.current = false;
     const fail = (why: string) => { console.warn(`[hermit] 3D furnishing unavailable (${why}); showing the basic tour`); onFail(); };
     const timeout = setTimeout(() => { if (!sdk.current) fail("startup timed out"); }, STARTUP_MS);
     (async () => {
@@ -136,7 +138,12 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t); }, [toast]);
   const goTo = useCallback((index: number) => {
     const id = report.floorplan?.rooms.flatMap((r) => r.sweeps ?? []).find((s) => s.index === index)?.id;
-    if (id) sdk.current?.Sweep.moveTo(id).catch(() => null);
+    const s = sdk.current;
+    if (!id || !s) return;
+    // Flying away from the start pano while it's still activating blacks out the tour ("Texture for sweep not activated"); jump the first move.
+    const first = !moved.current;
+    moved.current = true;
+    s.Sweep.moveTo(id, first ? { transition: s.Sweep.Transition.INSTANT } : {}).catch(() => null);
   }, [report.floorplan]);
   useEffect(() => { if (ready && stop != null) goTo(stop); }, [stop, ready, goTo]);
 
