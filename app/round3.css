@@ -18,18 +18,9 @@ nav.primary svg { width: 21px; height: 21px; }
 .hero-form input:focus { outline: none; }
 .hero-form:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .hero-form .cta { min-height: 54px; font-size: 19px; padding: 0 26px; }
-.hero-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-.hero-chips .chip { text-decoration: none; }
 .hero-demo { margin-top: 12px; }
 .hero-demo a { font-weight: 700; display: inline-flex; gap: 6px; align-items: center; }
 .hero-demo svg { width: 18px; height: 18px; }
-.hero-gallery h2 { font-size: 24px; margin-bottom: 12px; }
-.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.gallery-card { display: grid; background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; text-decoration: none; color: var(--ink); box-shadow: var(--shadow); transition: transform 150ms var(--ease); }
-.gallery-card:hover { transform: translateY(-2px); }
-.gallery-card img { width: 100%; height: 190px; object-fit: cover; background: #fff; }
-.gallery-card div { padding: 14px 16px 16px; display: grid; gap: 4px; }
-.gallery-card h3 { font-size: 19px; }
 .hero-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .hero-steps div { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
 .hero-steps p { color: var(--ink-soft); margin-top: 4px; }
