@@ -5,6 +5,7 @@ import { parseOps, type Rejected } from "../design/layout-ops";
 import { centroid, nearestOnBoundary, pointInPolygon, type Pt } from "../geometry/polygon";
 import { clampSize, ftIn, normName, toHex, toMaterial, typicalSize, type MaterialName, type Size } from "./catalog";
 import type { Bounds } from "./glb";
+import { orient, tipped, type Tilt } from "./orient";
 
 export type Vec = { x: number; y: number; z: number };
 export type Model = { id: string; source?: "polypizza" | "sketchfab"; url: string; title: string; thumb: string; licence: string; attribution: string; bounds?: Bounds };
@@ -12,13 +13,18 @@ export type Placed = {
   id: string; name: string; terms: string[]; size: Size; approxSize: boolean;
   model?: Model | null; // undefined: not looked up yet; null: no matching model, drawn as a labeled box
   pos: Vec; rotY: number; // degrees about the vertical axis
+  // Tipping in quarter turns (see orient.ts): pitch about the item's width axis (180 = flipped upright), roll about its
+  // depth axis. Missing = 0 (saves from before tipping; migrate() fills them in on load).
+  pitch?: number; roll?: number;
   color?: string; material?: MaterialName;
   fitted?: Size; // size as rendered (the model's real proportions at the target height); used for picking and walls
   planned?: true; // laid out by the room planner: its model never outgrows the planned footprint
 };
 type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
-/** What the user sees: the rendered size once the model is fitted, else the target size. */
-export const dims = (p: Placed): Size => p.fitted ?? p.size;
+/** What the user sees: the rendered size once the model is fitted, else the target size, as tipped. */
+export const dims = (p: Placed): Size => orient(p.fitted ?? p.size, p.pitch, p.roll).size;
+/** The same for a candidate size (a new model's fit, a resize) on an item's tilt. */
+export const dimsAs = (p: Tilt, size: Size): Size => orient(size, p.pitch, p.roll).size;
 /** Where the user is and what they point at, read from the SDK when the ops are applied. */
 export type View = {
   camera: Vec; forward: { x: number; z: number }; floorY: number;
@@ -47,6 +53,8 @@ export const FurnishOp = z.discriminatedUnion("op", [
   z.object({ op: z.literal("undo") }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
   z.object({ op: z.literal("rotate"), id: Id, degrees: z.number().min(-360).max(360) }),
+  // Tip over in quarter turns: axis x = forward or back (180 flips it upright), z = onto its side.
+  z.object({ op: z.literal("tip"), id: Id, axis: z.enum(["x", "z"]), degrees: z.number().min(-360).max(360).refine((d) => d % 90 === 0, "tip in 90° steps") }),
   z.object({ op: z.literal("remove"), id: Id }),
   z.object({ op: z.literal("recolor"), id: Id, color: Paint.optional(), material: Paint.optional() }).refine((o) => o.color || o.material, "give a color or a material"),
   z.object({ op: z.literal("swap"), id: Id, name: Name, terms: z.array(Name).max(4).optional() }),
@@ -169,6 +177,19 @@ export function freeSpot(pos: Vec, size: Size, rotY: number, items: Placed[], vi
   return at(0, 0);
 }
 
+/** Tips an item a quarter turn and re-seats it: its tipped footprint kept inside its room and its height kept (pos.y:
+ *  the floor, or the piece it stands on), scaled down if it would now poke through the ceiling. The scene lifts the
+ *  tipped box so its bottom sits at pos.y, so it never floats or sinks. */
+export function tip(cur: Placed, axis: "x" | "z", degrees: number, view: View): Placed {
+  let next: Placed = { ...cur, ...tipped(cur, axis, degrees) };
+  const h = dims(next).h, room = headroom(cur.pos, view);
+  if (room && h > room - 0.05) {
+    const k = Math.max(0.05, room - 0.05) / h, by = (s: Size) => ({ w: s.w * k, d: s.d * k, h: s.h * k });
+    next = { ...next, size: by(next.size), ...(next.fitted && { fitted: by(next.fitted) }) };
+  }
+  return { ...next, pos: settle(cur.pos, dims(next), cur.rotY, view) };
+}
+
 const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
 
 /** Applies validated ops in order. Unknown ids, bad colors and too many ops are rejected with a reason, never guessed. */
@@ -222,16 +243,18 @@ export function applyFurnishOps(items: Placed[], raw: unknown[], view: View, max
       next = { ...cur, rotY, pos: settle({ ...to.pos, y: cur.pos.y }, dims(cur), rotY, view) }; // keeps its height (a TV moved stays TV-high)
     }
     if (op.op === "rotate") { const rotY = (((cur.rotY + op.degrees) % 360) + 360) % 360; next = { ...cur, rotY, pos: settle(cur.pos, dims(cur), rotY, view) }; }
+    if (op.op === "tip") next = tip(cur, op.axis, op.degrees, view);
     if (op.op === "resize") {
       const d = dims(cur);
       const k0 = op.scale ?? (op.w ? op.w / d.w : op.d ? op.d / d.d : op.h! / d.h);
       const size = underCeiling(clampSize({ w: cur.size.w * k0, d: cur.size.d * k0, h: cur.size.h * k0 }), headroom(cur.pos, view));
       const k = size.h / cur.size.h; // after clamping
       const fitted = cur.fitted && { w: cur.fitted.w * k, d: cur.fitted.d * k, h: cur.fitted.h * k };
-      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, fitted ?? size, cur.rotY, view) };
+      next = { ...cur, size, approxSize: false, ...(fitted && { fitted }), pos: settle(cur.pos, dimsAs(cur, fitted ?? size), cur.rotY, view) };
     }
     if (op.op === "remove") next = null;
-    if (op.op === "swap") next = { ...cur, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], model: undefined };
+    // A different model has its own way up: the old one's tip doesn't carry over.
+    if (op.op === "swap") next = { ...cur, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], model: undefined, pitch: 0, roll: 0 };
     if (op.op === "recolor") {
       const color = op.color ? toHex(op.color) : undefined, material = op.material ? toMaterial(op.material) : undefined;
       if (color === null) { reject(op, `"${op.color}" isn't a color I know; try a name like navy or a hex code`); continue; }

@@ -202,3 +202,8 @@ header.top { background: transparent; backdrop-filter: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .decor { opacity: 0.35; } :root:not([data-theme="light"]) .water-shimmer { display: none; } }
 :root[data-theme="dark"] .decor { opacity: 0.35; }
 :root[data-theme="dark"] .water-shimmer { display: none; }
+
+/* U3: the selected-item toolbar gained the flip and tip buttons; it wraps to a second row on narrow tours instead of clipping. */
+.furnish-stage .furnish-toolbar { flex-wrap: wrap; justify-content: center; row-gap: 4px; white-space: normal; width: max-content; }
+.furnish-stage .furnish-toolbar > * { white-space: nowrap; }
+/* /U3 */

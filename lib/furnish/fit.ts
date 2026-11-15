@@ -22,6 +22,19 @@ const UPS: [Quaternion, number][] = [
 ];
 const YAWS = [0, Math.PI / 2];
 
+// Auto-upright on load: a clearly tall item (a bookshelf, a floor lamp) must stand on the model's longest axis, and a
+// clearly flat one (a rug) on its shortest. A model exported lying on its side or front is stood up here, once, when it
+// is fitted, even when its proportions don't match the catalog size well enough for the footprint score alone to
+// decide. Only clear cases count (a bed or a low cabinet is left to the footprint score). A box can't tell upside down
+// from upright: the tour's "Flip upright" handles that.
+const TALL = 1.3, FLAT = 0.25, WRONG_AXIS = 0.6;
+export function axisPenalty(target: Size, box: { x: number; y: number; z: number }): number {
+  const longest = Math.max(box.x, box.y, box.z), shortest = Math.min(box.x, box.y, box.z);
+  if (target.h > TALL * Math.max(target.w, target.d) && box.y < longest * 0.75) return WRONG_AXIS; // tall item lying down
+  if (target.h < FLAT * Math.min(target.w, target.d) && box.y > shortest * 2) return WRONG_AXIS; // flat item on its edge
+  return 0;
+}
+
 /** `cap`: never exceed the target footprint (shrinking height instead), for items whose spot was planned around their size. */
 export function fitModel(b: Bounds, target: Size, cap = false): Fit | null {
   const src = new Box3(new Vector3(b.min.x, b.min.y, b.min.z), new Vector3(b.max.x, b.max.y, b.max.z));
@@ -36,7 +49,7 @@ export function fitModel(b: Bounds, target: Size, cap = false): Fit | null {
       const w = s3.x * scale, d = s3.z * scale;
       // Scored on the uncapped shape, so capping never changes which way up the model stands.
       const error = (Math.abs(Math.log((s3.x * byHeight) / target.w)) + Math.abs(Math.log((s3.z * byHeight) / target.d))) / 2;
-      const score = error + penalty + (yaw ? 0.01 : 0);
+      const score = error + penalty + axisPenalty(target, s3) + (yaw ? 0.01 : 0);
       if (best && score >= best.score) continue;
       const c = box.getCenter(new Vector3());
       const e = new Euler().setFromQuaternion(q, "XYZ");

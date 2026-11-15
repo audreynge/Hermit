@@ -20,6 +20,18 @@ describe("furnishEdit", () => {
     expect(out.ops).toEqual([{ op: "resize", id: "f2", w: 1.0668 }, { op: "resize", id: "f1", scale: 1.2 }]);
   });
 
+  it("passes a tip through, and turns a spin Gemini picked for flip wording into the flip", async () => {
+    const tipOut = await furnishEdit({ text: "lay the sofa on its side", items }, fake({ reply: "Tipped.", ops: [{ op: "tip", id: "f2", axis: "z", degrees: 90 }] }));
+    expect(tipOut.ops).toEqual([{ op: "tip", id: "f2", axis: "z", degrees: 90 }]);
+    for (const text of ["it's upside down", "flip it upright", "stand it up"]) {
+      const out = await furnishEdit({ text, items, selected: "f2" }, fake({ reply: "Turned it.", ops: [{ op: "rotate", id: "f2", degrees: 180 }] }));
+      expect(out.ops, text).toEqual([{ op: "tip", id: "f2", axis: "x", degrees: 180 }]);
+    }
+    const spin = await furnishEdit({ text: "turn it around", items, selected: "f2" }, fake({ reply: "Turned it.", ops: [{ op: "rotate", id: "f2", degrees: 180 }] }));
+    expect(spin.ops).toEqual([{ op: "rotate", id: "f2", degrees: 180 }]);
+    expect((await furnishEdit({ text: "it's upside down", items, selected: "f1" }, null)).ops).toEqual([{ op: "tip", id: "f1", axis: "x", degrees: 180 }]);
+  });
+
   it("fills terms and size for an add that names a suggestion", async () => {
     const out = await furnishEdit({ text: "add a noodle cooker here", items, suggestions }, fake({ reply: "Added.", ops: [{ op: "add", name: "Noodle Cooker", at: "point" }] }));
     expect(out.ops[0]).toEqual({ op: "add", name: "Noodle Cooker", at: "point", terms: ["noodle cooker", "boiler"], size: { w: 0.6, d: 0.7, h: 0.9 } });
