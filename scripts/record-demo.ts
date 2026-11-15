@@ -1,5 +1,5 @@
 // Records golden demo runs so /studio?replay=<id> runs with zero network.
-// Usage: npx tsx --env-file=.env scripts/record-demo.ts [id] ["spoken request"] [--det] [--json] [--keep-anyway]
+// Usage: npx tsx --env-file=.env scripts/record-demo.ts [id] ["spoken request"] [--det] [--json] [--chat] [--keep-anyway]
 //   --det          deterministic planner (same crew and evidence, fixed order) for a reproducible replay
 //   --json         also write <data>/replay/<id>.json, the offline copy lib/agent/replay.ts falls back to
 //   --keep-anyway  save even if the run lacks the demo beats (a named drop or veto, an escalate with a result, a rerank)
@@ -32,7 +32,8 @@ const id = args[0] ?? "demo";
 const text = args[1] ?? GOLDEN[id];
 if (!text) throw new Error(`no request for replay "${id}"`);
 const det = flags.has("--det");
-const spec = { ...parseText(text, { city: "houston" }), input: "text" as const, avgPrice: id === "swap" ? 150 : undefined, daysOpen: id === "swap" ? 5 : undefined };
+// --chat: search exactly the rooms named, as the Find a space chat does (text input adds the use's standard rooms).
+const spec = { ...parseText(text, { city: "houston" }), input: (flags.has("--chat") ? "chat" : "text") as "chat" | "text", avgPrice: id === "swap" ? 150 : undefined, daysOpen: id === "swap" ? 5 : undefined };
 const events: TraceEvent[] = [{ type: "run", id: "run", runId: id, replay: false }];
 const gemini = det ? null : await geminiClient();
 if (!det && !gemini && !process.env.ANTHROPIC_API_KEY) console.warn("no planner key: this run will be deterministic");

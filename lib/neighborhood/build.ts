@@ -90,5 +90,6 @@ export function enrichSite(site: SiteFile | null, lat?: number, lon?: number, ci
       if (!out.traffic) out.traffic = base.traffic;
     }
   }
-  return { ...out, ...heatFor(out, city) };
+  // A site file shipped with its heat (the cached demo spaces) keeps it: the deploy has no city layers to rebuild it from.
+  return { ...out, ...(site?.heat?.length ? {} : heatFor(out, city)) };
 }
