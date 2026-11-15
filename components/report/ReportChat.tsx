@@ -9,6 +9,7 @@ const TABS = ["overview", "inside", "furnish", "neighborhood", "lease", "broker"
 
 export function ReportChat({ report, runId, tab }: { report: ShellReport; spec: RequirementSpec; runId: string; tab: string }) {
   const key = `hermit:reportchat:${report.shellId}`;
+  const openKey = `${key}:open`;
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
@@ -17,8 +18,11 @@ export function ReportChat({ report, runId, tab }: { report: ShellReport; spec: 
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    try { setMsgs(JSON.parse(sessionStorage.getItem(key) ?? "[]")); } catch { /* storage blocked */ }
-  }, [key]);
+    try { setMsgs(JSON.parse(sessionStorage.getItem(key) ?? "[]")); setOpen(sessionStorage.getItem(openKey) === "1"); } catch { /* storage blocked */ }
+  }, [key, openKey]);
+  useEffect(() => {
+    try { sessionStorage.setItem(openKey, open ? "1" : "0"); } catch { /* storage blocked */ }
+  }, [open, openKey]);
   useEffect(() => {
     try { sessionStorage.setItem(key, JSON.stringify(msgs.slice(-40))); } catch { /* storage blocked */ }
     endRef.current?.scrollIntoView({ block: "end" });

@@ -27,8 +27,8 @@ export function reportFacts(r: ShellReport, spec: RequirementSpec) {
 }
 type Facts = ReturnType<typeof reportFacts>;
 
-const SAVE = /\b(save|bookmark|favou?rite|heart)\b/i;
-const SHOW = /\b(show|open|take me|go to|see|switch|view)\b/i;
+const SAVE = /^\s*(please\s+|can you\s+|could you\s+)?(save|bookmark|favou?rite)\b/i;
+const SHOW = /^\s*(please\s+|can you\s+|could you\s+)?(show|open|take me|go to|switch to|bring up)\b/i;
 const TAB_WORDS: [(typeof TABS)[number], RegExp][] = [
   ["lease", /lease|coach|contract/],
   ["broker", /broker|email|message|contact/],
