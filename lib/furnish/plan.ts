@@ -184,8 +184,9 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
     if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], floorItems, lays[i].placed.length + spare, clear);
   }
   const ops: object[] = [], dropped: PlanOut["dropped"] = [];
-  for (const l of lays) {
-    for (const p of l.placed) ops.push({ op: "add", name: p.name, terms: p.terms, size: p.size, pos: { x: p.pos.x, z: -p.pos.y, ...(p.elevation && { y: p.elevation }) }, rotY: p.rotY });
+  for (const [i, l] of lays.entries()) {
+    // group/anchor let the browser drop a blocked anchor's whole group (dropBlocked); the FurnishOp schema strips them.
+    for (const p of l.placed) ops.push({ op: "add", name: p.name, terms: p.terms, size: p.size, pos: { x: p.pos.x, z: -p.pos.y, ...(p.elevation && { y: p.elevation }) }, rotY: p.rotY, group: `${rooms[i].id}:${p.group}`, ...(p.anchor && { anchor: true }) });
     for (const x of l.dropped.filter((d) => !once.has(d.name))) { const hit = dropped.find((y) => y.name === x.name); if (hit) hit.count += x.count; else dropped.push({ ...x }); }
   }
   const capped = lays.some((l) => l.capped);

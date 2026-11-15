@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify, inFootprint, samplePoints, type Footprint, type Sample } from "./probe";
+import { classify, dropBlocked, inFootprint, samplePoints, type Footprint, type Sample } from "./probe";
 
 const FLOOR = 0.2;
 const table: Footprint = { pos: { x: 3, y: FLOOR, z: -1 }, size: { w: 1.6, d: 0.9, h: 0.75 }, rotY: 30 };
@@ -51,5 +51,29 @@ describe("classify", () => {
   it("leaves points behind the camera or with no hit unknown", () => {
     expect(classify(FLOOR, table, probe(() => undefined))).toEqual({ blocked: false, unknown: 13 });
     expect(classify(FLOOR, table, probe((at, i) => (i < 5 ? null : at)))).toEqual({ blocked: false, unknown: 5 });
+  });
+});
+
+describe("dropBlocked", () => {
+  const add = (name: string, group: string, x: number, extra: object = {}) => ({ op: "add", name, group, pos: { x, z: 0 }, size: { w: 0.5, d: 0.5, h: 0.5 }, rotY: 0, ...extra });
+  const table = add("table", "r:table#0", 0, { anchor: true, size: { w: 1.6, d: 0.9, h: 0.75 } });
+  const chairs = [-0.6, -0.2, 0.2, 0.6].map((x) => add("chair", "r:table#0", x, { pos: { x, z: 0.8 } }));
+  const bed = add("bed", "r:bed#0", 5, { anchor: true, size: { w: 1.6, d: 2, h: 0.5 } });
+  const left = add("nightstand", "r:bed#0", 3.9), right = add("nightstand", "r:bed#0", 6.1);
+  const lamp = add("lamp", "r:bed#0", 3.9, { pos: { x: 3.9, z: 0, y: 0.5 }, size: { w: 0.3, d: 0.3, h: 0.5 } });
+  const ops = [table, ...chairs, bed, left, right, lamp];
+
+  it("drops a blocked table with its chairs", () => {
+    expect(dropBlocked(ops, new Set([0]))).toEqual({ keep: [bed, left, right, lamp], skipped: 5 });
+  });
+  it("drops only a blocked chair", () => {
+    expect(dropBlocked(ops, new Set([2]))).toEqual({ keep: ops.filter((_, i) => i !== 2), skipped: 1 });
+  });
+  it("drops a blocked nightstand with the lamp on it, keeping the bed and the other nightstand", () => {
+    expect(dropBlocked(ops, new Set([6]))).toEqual({ keep: [table, ...chairs, bed, right], skipped: 2 });
+    expect(dropBlocked(ops, new Set([7]))).toEqual({ keep: [table, ...chairs, bed, left, lamp], skipped: 1 });
+  });
+  it("keeps everything when nothing is blocked", () => {
+    expect(dropBlocked(ops, new Set())).toEqual({ keep: ops, skipped: 0 });
   });
 });

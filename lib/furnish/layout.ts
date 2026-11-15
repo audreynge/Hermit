@@ -14,7 +14,7 @@ export type PlanItem = { key: string; name: string; terms: string[]; size: Size;
 export type Door = { at: Pt; width: number }; // meters, plan coords
 export type LayoutRoom = { id: string; label: string; polygon: Pt[]; ceiling?: number; doors: Door[] };
 export type Obstacle = { pos: Pt; size: Size; rotY: number };
-export type Laid = { key: string; name: string; terms: string[]; size: Size; pos: Pt; rotY: number; elevation?: number }; // elevation: meters above the floor ("on" items)
+export type Laid = { key: string; name: string; terms: string[]; size: Size; pos: Pt; rotY: number; elevation?: number; group: string; anchor: boolean }; // elevation: meters above the floor ("on" items); group: its root anchor instance; anchor: placed as one (no `of`)
 export type Layout = { placed: Laid[]; dropped: { name: string; count: number }[]; capped: boolean }; // capped: stopped at the item budget, not for lack of room
 
 type Box = { c: Pt; f: Pt; w: number; d: number }; // center, unit front direction, width across f, depth along f
@@ -303,7 +303,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
     insts.push(inst);
     // Items standing on another piece aren't floor obstacles.
     if (!flat && !elevation) entries.push({ box, group, zone: zoneOf(it, box), grid: it.place === "grid" });
-    placed.push({ key: it.key, name: it.name, terms: it.terms, size: { w: box.w, d: box.d, h }, pos: box.c, rotY: yawOf(box.f), ...(elevation && { elevation }) });
+    placed.push({ key: it.key, name: it.name, terms: it.terms, size: { w: box.w, d: box.d, h }, pos: box.c, rotY: yawOf(box.f), ...(elevation && { elevation }), group, anchor: !it.of });
     return inst;
   };
 

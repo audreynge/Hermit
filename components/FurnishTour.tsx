@@ -10,6 +10,7 @@ import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib
 import { fitModel } from "@/lib/furnish/fit";
 import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
 import { planRooms } from "@/lib/furnish/layout";
+import { dropBlocked } from "@/lib/furnish/probe";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
 import type { ShellReport } from "@/lib/types";
@@ -437,19 +438,17 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
       ...(chairIn && { access: { chairWidthIn: chairIn } }),
     });
     // The outlines carry no fixtures: probe each new piece against the tour's surfaces (only what's in view, within
-    // PROBE_MS) and drop the ones that would sit on a built-in counter. Unchecked pieces stay.
-    const spot = (p: Placed) => `${p.name}@${p.pos.x},${p.pos.z}`;
-    const old = new Set(keep(state.current.items).map((p) => p.id)), blocked = new Set<string>();
-    const planned = applyFurnishOps(keep(state.current.items), out.ops, makeView(), out.ops.length).value.filter((p) => !old.has(p.id));
+    // PROBE_MS) and drop the ones that would sit on a built-in counter, with what depends on them. Unchecked pieces stay.
+    const base = keep(state.current.items), blocked = new Set<number>();
     const rect = viewer.current?.getBoundingClientRect(), end = Date.now() + PROBE_MS;
-    for (const p of planned) {
+    for (const [i, op] of out.ops.entries()) {
       if (!scene.current || !rect || Date.now() > end) break;
-      if ((await scene.current.probe({ pos: p.pos, size: dims(p), rotY: p.rotY }, floorY.current, rect)).blocked) blocked.add(spot(p));
+      const p = applyFurnishOps(base, [op], makeView()).value[base.length]; // the piece this op adds, if valid
+      if (p && (await scene.current.probe({ pos: p.pos, size: dims(p), rotY: p.rotY }, floorY.current, rect)).blocked) blocked.add(i);
     }
+    const { keep: ops, skipped } = dropBlocked(out.ops, blocked);
     // Re-read the items: models may have loaded while the planner and the probe ran.
-    const before = state.current.items, all = applyFurnishOps(keep(before), out.ops, makeView(), out.ops.length);
-    const r = commit(before, { ...all, value: all.value.filter((p) => old.has(p.id) || !blocked.has(spot(p))) });
-    const skipped = all.value.length - r.value.length;
+    const before = state.current.items, r = commit(before, applyFurnishOps(keep(before), ops, makeView(), ops.length));
     const note = skipped ? ` Skipped ${skipped} piece${skipped > 1 ? "s" : ""} that would sit on built-in counters or fixtures (checked what's in view).` : "";
     return (r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply) + note;
   }

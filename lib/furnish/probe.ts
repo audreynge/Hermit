@@ -45,3 +45,23 @@ export function classify(floorY: number, fp: Footprint, samples: Sample[]): Prob
   const top = Math.max(...raised);
   return { blocked, unknown, reason: `a built-in surface about ${top.toFixed(1)} m high is in the way` };
 }
+
+type PlannedAdd = { group?: string; anchor?: boolean; pos?: { x: number; z: number; y?: number }; size?: Size; rotY?: number };
+/** Which planned add ops survive the probe. A blocked anchor takes its whole group (chairs around a blocked table); a
+ *  blocked dependent takes only itself and what stands on it (the lamp on a blocked nightstand): same group, higher up,
+ *  center within its footprint. Ops without a group (not from the planner) drop alone. */
+export function dropBlocked(ops: object[], blockedIdx: Set<number>): { keep: object[]; skipped: number } {
+  const list = ops as PlannedAdd[], drop = new Set(blockedIdx);
+  for (const i of blockedIdx) {
+    const b = list[i];
+    if (!b?.group) continue;
+    list.forEach((o, j) => {
+      if (o.group !== b.group) return;
+      if (b.anchor) { drop.add(j); return; }
+      const fp = b.pos && b.size && { pos: { x: b.pos.x, y: 0, z: b.pos.z }, size: b.size, rotY: b.rotY ?? 0 };
+      if (fp && o.pos && (o.pos.y ?? 0) > (b.pos!.y ?? 0) && inFootprint({ x: o.pos.x, y: 0, z: o.pos.z }, fp, 0)) drop.add(j);
+    });
+  }
+  const keep = ops.filter((_, j) => !drop.has(j));
+  return { keep, skipped: ops.length - keep.length };
+}
