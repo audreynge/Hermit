@@ -1,7 +1,6 @@
 "use client";
 import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
 import { useState } from "react";
-import { useSettings } from "@/lib/client/settings";
 import type { TraceEvent } from "@/lib/types";
 
 export const CREW: Record<string, { name: string; role: string; Icon: typeof Search }> = {
@@ -115,9 +114,7 @@ function techRows(events: TraceEvent[], names: Map<string, string>): Row[] {
 }
 
 export function CrewTrace({ events, running, useLabel = "space" }: { events: TraceEvent[]; running: boolean; useLabel?: string }) {
-  const { tech: techSetting } = useSettings();
-  const [tools, setTools] = useState(false);
-  const tech = techSetting || tools;
+  const [tech, setTools] = useState(false);
   const names = new Map<string, string>();
   for (const e of events) if (e.type === "veto") names.set(e.shellId, e.name);
   for (const e of events) if (e.type === "report") for (const r of e.reports) names.set(r.shellId, r.name);
@@ -128,7 +125,7 @@ export function CrewTrace({ events, running, useLabel = "space" }: { events: Tra
     <section className="card crew" aria-labelledby="crew-title">
       <header className="crew-head">
         <h2 id="crew-title">The crew at work</h2>
-        <button type="button" className="btn small crew-toggle" aria-pressed={tech} onClick={() => setTools((t) => !t)} disabled={techSetting}>{tech ? "Show the crew" : "Show tool calls"}</button>
+        <button type="button" className="btn small crew-toggle" aria-pressed={tech} onClick={() => setTools((t) => !t)}>{tech ? "Show the crew" : "Show tool calls"}</button>
         <p className="muted">{running ? "Working…" : done ? (tech ? `${done.toolCalls} tool calls · ${(done.ms / 1000).toFixed(1)} s · ${vetoes} vetoes · planner: ${done.planner}` : vetoes ? `${vetoes} ruled out` : "Done") : ""}</p>
       </header>
       <ol className="crew-list">
