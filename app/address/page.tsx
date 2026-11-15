@@ -1,4 +1,5 @@
-import { AddressCheck } from "@/components/AddressCheck";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Check an address · Hermit" };
-export default function AddressPage() { return <AddressCheck />; }
+export default function AddressPage() {
+  redirect("/studio");
+}

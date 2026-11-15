@@ -18,8 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={body.variable} suppressHydrationWarning>
       <head>
-        {/* Apply saved theme before paint so dark mode doesn't flash. */}
-        <script dangerouslySetInnerHTML={{ __html: `try{var s=JSON.parse(localStorage.getItem("hermit:settings")||"{}");var e=document.documentElement;if(s.theme&&s.theme!=="system")e.dataset.theme=s.theme;if(s.text)e.dataset.text=s.text;if(s.motion)e.dataset.motion=s.motion}catch(_){}` }} />
+        {/* Apply saved theme before paint so the theme does not flash. */}
+        <script dangerouslySetInnerHTML={{ __html: `try{var s=JSON.parse(localStorage.getItem("hermit:settings")||"{}");var e=document.documentElement;if(s.theme==="system")e.removeAttribute("data-theme");else e.dataset.theme=s.theme||"light";if(s.text)e.dataset.text=s.text;if(s.motion)e.dataset.motion=s.motion}catch(_){}` }} />
       </head>
       <body>
         <a className="skip" href="#main">Skip to content</a>

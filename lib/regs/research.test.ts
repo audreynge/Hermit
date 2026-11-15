@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { closeDb } from "../db";
-import { isOfficial } from "./domains";
+import { isOfficial, levelOf } from "./domains";
 import { researchRegulations, type Finding } from "./research";
 
 beforeEach(() => {
@@ -36,7 +36,7 @@ describe("researchRegulations", () => {
     const { client, calls } = fakeClient([url], [finding(url)]);
     const r = await researchRegulations(q, client);
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0]).toMatchObject({ url, jurisdiction: "state", retrievedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}/) });
+    expect(r.findings[0]).toMatchObject({ url, jurisdiction: "state", level: "state", retrievedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}/) });
     const tools = (calls.createReq as { tools: { type: string; allowed_domains: string[] }[] }).tools;
     expect(tools[0].type).toBe("web_search_20260209");
     expect(tools[0].allowed_domains).toContain("barbercosmo.ca.gov");
@@ -69,6 +69,7 @@ describe("researchRegulations", () => {
     expect(r.fromCache).toBe(false);
     expect(r.findings.length).toBeGreaterThan(0);
     expect(r.findings.every((f) => f.certainty === "may_apply" && f.url.startsWith("https://"))).toBe(true);
+    expect(r.findings.every((f) => f.level === f.jurisdiction)).toBe(true);
     expect(r.findings.some((f) => f.topic === "zoning" && /deed restriction/i.test(f.requirement))).toBe(true);
     const { client, calls } = fakeClient([], []);
     await researchRegulations({ city: "houston", useType: "salon" }, client);
@@ -100,6 +101,16 @@ describe("research cache and fallback edges", () => {
   it("stamps fallback rules with a real review date", async () => {
     const r = await researchRegulations({ city: "houston", useType: "salon" }, null);
     expect(r.findings.every((f) => /^\d{4}-\d{2}-\d{2}$/.test(f.retrievedAt))).toBe(true);
+  });
+});
+
+describe("levelOf", () => {
+  it("reads the government level from the source domain", () => {
+    expect(levelOf("https://www.houstontx.gov/x")).toBe("city");
+    expect(levelOf("https://publichealth.lacounty.gov/eh")).toBe("county");
+    expect(levelOf("https://www.tdlr.texas.gov/x")).toBe("state");
+    expect(levelOf("https://www.ada.gov/x")).toBe("federal");
+    expect(levelOf("https://nfpa.org/x")).toBeUndefined();
   });
 });
 

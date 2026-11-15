@@ -16,7 +16,7 @@ function Choice<K extends keyof S>({ label, k, value, options, onChange }: { lab
 
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
-  const [s, setS] = useState<S>(() => ({ theme: "system", text: "normal", motion: "full", tech: false }));
+  const [s, setS] = useState<S>(() => ({ theme: "light", text: "normal", motion: "full", tech: false }));
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => { const x = readSettings(); setS(x); applySettings(x); }, []);
   useEffect(() => {

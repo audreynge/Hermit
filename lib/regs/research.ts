@@ -5,7 +5,7 @@ import table from "../../rules/screening.json";
 import { MODEL } from "../agent/model";
 import type { City } from "../types";
 import { getCached, putCached } from "./cache";
-import { isOfficial, OFFICIAL_DOMAINS } from "./domains";
+import { isOfficial, levelOf, OFFICIAL_DOMAINS, type Level } from "./domains";
 
 const Topic = z.enum(["zoning", "business_license", "occupancy", "health", "professional_license", "parking", "accessibility", "fire", "signage"]);
 const Extracted = z.object({
@@ -17,7 +17,7 @@ const Extracted = z.object({
   url: z.string(),
   citedText: z.string(),
 });
-export type Finding = z.infer<typeof Extracted> & { retrievedAt: string };
+export type Finding = z.infer<typeof Extracted> & { retrievedAt: string; level?: Level };
 export type RegQuery = { city: City; useType: string; zoning?: string | null };
 type Client = Pick<Anthropic, "messages">;
 
@@ -27,7 +27,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function screeningFindings(q: RegQuery): Finding[] {
   const s = table.sources;
   const row = (topic: Finding["topic"], jurisdiction: Finding["jurisdiction"], src: { title: string; url: string }): Finding => ({
-    topic, jurisdiction, requirement: src.title, appliesWhen: `opening a ${q.useType}`, certainty: "may_apply", url: src.url, citedText: src.title, retrievedAt: table.reviewed,
+    topic, jurisdiction, level: jurisdiction, requirement: src.title, appliesWhen: `opening a ${q.useType}`, certainty: "may_apply", url: src.url, citedText: src.title, retrievedAt: table.reviewed,
   });
   return q.city === "houston"
     ? [row("zoning", "city", s.houston_zoning), row("parking", "city", s.houston_parking), row("occupancy", "city", s.houston_permits), row("accessibility", "federal", s.ada)]
@@ -71,7 +71,7 @@ export async function researchRegulations(q: RegQuery, client?: Client | null): 
     });
     const findings = (parsed.parsed_output?.findings ?? [])
       .filter((f) => urls.has(f.url) && isOfficial(f.url))
-      .map((f) => ({ ...f, retrievedAt: today() }));
+      .map((f) => ({ ...f, level: levelOf(f.url) ?? f.jurisdiction, retrievedAt: today() }));
     // Every finding can fail the citation gate; show the screening rules then, and retry research next time.
     if (!findings.length) return { findings: screeningFindings(q), fromCache: false };
     await putCached(key, findings, 30);

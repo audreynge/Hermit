@@ -1,55 +1,52 @@
 import { useCategory } from "../reason/rules";
 import { CHAIR_TYPE_IN, parseChairWidth, parseText, USE_NOUN } from "../spec/parse";
-import { REQUIREMENTS, SIZE_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
+import { SIZE_OPTIONS, surveyToSpec, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { RoomReq } from "../types";
 import { an } from "../text";
+import { isLayoutEdit } from "./commands";
 
 export type Slot = "use" | "city" | "size" | "rooms" | "musts" | "chair";
+const SLOTS = new Set<string>(["use", "city", "size", "rooms", "musts", "chair"]);
+// The interview tracks more fields than the chat; keep only the chat's slots (the API caps asked at 10).
+export const chatAsked = (asked: string[]): Slot[] =>
+  [...new Set(asked.map((a) => (a.startsWith("rooms") || a === "baths" || a === "beds" ? "rooms" : a)).filter((a) => SLOTS.has(a)))].slice(0, 10) as Slot[];
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
-export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations"; fallback?: "deterministic"; fallbackWhy?: string; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
+export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations" | "save" | "view" | "report" | "broker" | "reset" | "search" | "edit_layout"; target?: number; fallback?: "deterministic"; fallbackWhy?: string; edit?: { target: "layout" | "fitout"; ops: unknown[] } };
 
 const MAX_QUESTIONS = 5;
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|no preference|doesn'?t matter|whatever|none of these|find (it|them|spaces|shells))\b/i;
 const CITY = (c?: string) => (c === "houston" ? "Houston" : c === "los_angeles" ? "Los Angeles" : "");
 
-type UseQ = { q: string; quick: string[]; primary?: { word: RegExp; room: (n: number, t: string) => RoomReq[] } };
+type UseQ = { q: string; primary?: { word: RegExp; room: (n: number, t: string) => RoomReq[] } };
 const QUESTIONS: Record<string, UseQ> = {
   medical: {
     q: "How many exam rooms do you need, and should they have sinks?",
-    quick: ["2 exam rooms", "3 exam rooms with sinks", "4 exam rooms + a procedure room"],
     primary: { word: /exam/, room: (n, t) => [{ label: "exam room", count: n, hard: false, ...(/sink/.test(t) ? { fixtures: ["sink"] } : {}) }] },
   },
   salon: {
     q: "How many styling stations, and do you need shampoo sinks?",
-    quick: ["4 stations", "6 stations with shampoo sinks", "8 stations + a private room"],
     primary: { word: /station|chair/, room: (n, t) => [{ label: "styling floor", count: 1, minSqft: n * 50, hard: false, ...(/sink/.test(t) ? { fixtures: ["sink"] } : {}) }] },
   },
   office: {
     q: "How many people will work there? Any private offices or a conference room?",
-    quick: ["5 people, open plan", "10 people + 2 offices", "15 people + a conference room"],
   },
   restaurant: {
     q: "About how many seats, and do you need a full commercial kitchen with a hood?",
-    quick: ["30 seats, full kitchen", "50 seats, full kitchen", "Counter service, small kitchen"],
     primary: { word: /seat/, room: (n, t) => [{ label: "dining", count: 1, minSqft: n * 15, hard: false }, { label: "kitchen", count: 1, hard: !/small|counter/.test(t), ...(/full|hood/.test(t) ? { fixtures: ["hood"] } : {}) }] },
   },
   retail: {
     q: "Anything special for the shop, like a stockroom, a fitting room or street frontage?",
-    quick: ["Stockroom + fitting room", "Street-level storefront", "Just an open floor"],
   },
   fitness: {
     q: "How many studio rooms, and do you need showers or locker rooms?",
-    quick: ["1 big studio", "2 studios + showers", "1 studio + locker rooms"],
     primary: { word: /studio/, room: (n) => [{ label: "open", count: n, hard: false }] },
   },
   warehouse: {
     q: "Do you need heavy power, drive-in or dock doors, or ESFR sprinklers?",
-    quick: ["Heavy power + 2 drive-in doors", "ESFR sprinklers + dock doors", "Just storage space"],
   },
   home: {
     q: "How many bedrooms and bathrooms?",
-    quick: ["2 bed / 1 bath", "3 bed / 2 bath", "4 bed / 2 bath + office"],
   },
 };
 const BARE_ROOMS: [RegExp, string][] = [
@@ -72,19 +69,13 @@ export function missing(spec: Draft, asked: Slot[]): Slot | null {
   return null;
 }
 
-export const MUSTS: Card = { kind: "multi", options: REQUIREMENTS.map((r) => ({ value: r.value, label: r.label })) };
-
-export function question(slot: Slot, spec: Draft): { q: string; quick: string[]; card?: Card } {
-  if (slot === "musts") return { q: "Anything you can't do without? Tap all that apply, or skip.", quick: ["None of these"], card: MUSTS };
-  if (slot === "use") return { q: "What kind of space are you looking for, and what will you use it for?", quick: USE_OPTIONS.map((u) => u.label) };
-  if (slot === "city") return { q: "Which city should I search: Houston or Los Angeles?", quick: ["Houston", "Los Angeles"] };
-  if (slot === "chair") return {
-    q: "How wide is the wheelchair at its widest point? I'll check every door against it. A measured number is best; a type works too.",
-    quick: [`Manual (~${CHAIR_TYPE_IN.manual} in)`, `Power (~${CHAIR_TYPE_IN.power} in)`, "I'll measure later"],
-  };
-  if (slot === "size") return { q: "Roughly how much space do you need? A range is fine.", quick: SIZE_OPTIONS.slice(0, 4).map((s) => s.label) };
-  const u = QUESTIONS[useKey(spec)] ?? QUESTIONS.office;
-  return { q: u.q, quick: u.quick };
+export function question(slot: Slot, spec: Draft): { q: string } {
+  if (slot === "musts") return { q: "Is there anything you can't do without, like parking, a ground-floor spot or wheelchair access?" };
+  if (slot === "use") return { q: "What kind of space are you looking for, and what will you use it for?" };
+  if (slot === "city") return { q: "Which city should I search: Houston or Los Angeles?" };
+  if (slot === "chair") return { q: `How wide is the wheelchair at its widest point? I'll check every door against it. A manual chair is about ${CHAIR_TYPE_IN.manual} inches and a power chair about ${CHAIR_TYPE_IN.power}.` };
+  if (slot === "size") return { q: "Roughly how much space do you need? A range is fine." };
+  return { q: (QUESTIONS[useKey(spec)] ?? QUESTIONS.office).q };
 }
 
 export function describe(spec: Draft): string {
@@ -168,8 +159,7 @@ export function ask(state: ChatState, lead: string, force = false): Turn {
       state: { spec, asked: state.asked, phase: "gathering" }, ready: true, quickReplies: [],
     };
   }
-  const { q, quick, card } = question(slot, state.spec);
-  return { reply: `${lead}${q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: quick, ...(card ? { card } : {}) };
+  return { reply: `${lead}${question(slot, state.spec).q}`, state: { ...state, asked: [...state.asked, slot] }, ready: false, quickReplies: [] };
 }
 
 export function openChat(spec: Draft): Turn {
@@ -178,7 +168,72 @@ export function openChat(spec: Draft): Turn {
   return ask(state, known);
 }
 
+type Action = NonNullable<Turn["action"]>;
+const ORDINAL: Record<string, number> = { first: 1, "1st": 1, one: 1, second: 2, "2nd": 2, two: 2, third: 3, "3rd": 3, three: 3, fourth: 4, "4th": 4, four: 4, fifth: 5, "5th": 5, five: 5 };
+const ORD_WORD = ["", "first", "second", "third", "fourth", "fifth"];
+export const MAX_MATCHES = 5;
+
+/** Match rank as written ("#2", "number 2", "the second one", "the top one"); may be out of range. Undefined means the selected match. */
+export function parseTarget(text: string): number | undefined {
+  const t = text.toLowerCase();
+  const n = t.match(/#\s?(\d+)\b|\b(?:number|no\.?|match|option|space|property|place|listing|result)\s+(\d+|one|two|three|four|five)\b/);
+  if (n) return ORDINAL[n[2]] ?? Number(n[1] ?? n[2]);
+  if (/\btop (one|match|pick|space|result)\b/.test(t)) return 1;
+  const w = t.match(/\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/);
+  return w ? ORDINAL[w[1]] : undefined;
+}
+
+// Save/view need to name a match, so "save this layout" or "open it up to more cities" don't trigger them.
+const MATCH_WORD = /\b(match|space|place|property|listing|option|unit|suite|building|(this|that|the \w+) one)\b/;
+const TARGETED = new Set<Action>(["save", "view", "report", "broker"]);
+const ABOUT_LAYOUT = /\b(layout|floor ?plan)\b/;
+const ACTIONS: { action: Action; re: RegExp; results: boolean; when?: (t: string, target?: number) => boolean; reply: (which: string) => string }[] = [
+  { action: "edit_layout", re: /^(?:can i |let me |i want to |i'd like to |please )?(?:edit|change|open|tweak|adjust|fix|work on|draw)\s+(?:the |my )?(?:layout|floor ?plan)$/, results: false, reply: () => "Here's your layout. Drag the rooms yourself, or tell me a change like \"add a bathroom\". What would you like to change first?" },
+  { action: "reset", re: /\b(start (over|again|fresh)|reset|from scratch|new search|clear (it|everything|all))\b/, results: false, reply: () => "Okay, starting fresh. What kind of space are you looking for?" },
+  { action: "search", re: /\b(search now|just search|search again|run (the |a )?search|find (me )?(matches|spaces|places)|see (my |the )?matches)\b/, results: false, reply: () => "Searching again with what you've told me." },
+  { action: "broker", re: /\bsend (it|the packet|my packet|the inquiry|an inquiry)\b|\bpacket\b|\b(contact|call|talk to|speak (to|with)|get in touch with|reach)\b.*\b(broker|agent)\b|^broker\b/, results: true, reply: (w) => `Let's get ${w} in front of the broker. I'll put the packet together; nothing is sent until you send it.` },
+  { action: "email", re: /\bdraft\b|\bwrite (an? )?(e-?mail|message|note)\b|\be-?mail\b|\breach out\b|\bwrite to\b|\bmessage (them|the)\b|\bcontact (them|the (property manager|landlord|owner|leasing office))\b/, results: true, reply: () => "Here's a draft to the property manager. Edit it however you like; I won't send anything for you." },
+  { action: "report", re: /\b(full|whole|complete|detailed) report\b|\breport (on|for)\b|\bmore (details|info) (on|about)\b/, results: true, reply: (w) => `Here's the full report on ${w}.` },
+  { action: "view", re: /\b(let me see|see inside|look inside|walk ?(through|inside)|tour|show me|view|open)\b/, results: true, when: (t, n) => n != null || /\binside\b/.test(t) || MATCH_WORD.test(t), reply: (w) => `Opening ${w} so you can look around.` },
+  { action: "save", re: /\b(save|bookmark|shortlist|favou?rite|star|heart)\b/, results: true, when: (t, n) => n != null || MATCH_WORD.test(t) || /\bsave it\b/.test(t), reply: (w) => `Saved ${w}. Want me to draft a note to the broker about it?` },
+  { action: "compare", re: /compar/, results: true, reply: () => "Here's how the top matches compare side by side." },
+];
+
+/** App actions the user can ask for in words ("save the second one", "start over"). Null when the text isn't one. */
+export function actionTurn(state: ChatState, text: string): Turn | null {
+  const t = text.toLowerCase().trim().replace(/[.!?]+$/, "");
+  const target = parseTarget(t);
+  const hit = ACTIONS.find((a) => a.re.test(t) && (!a.when || a.when(t, target)));
+  if (!hit) return null;
+  // Text about the layout is a layout edit ("reset the layout", "save this layout"), unless it only asks to open the editor.
+  if (hit.action !== "edit_layout" && (ABOUT_LAYOUT.test(t) || isLayoutEdit(t))) return null;
+  if (hit.results && state.phase !== "results")
+    return { reply: "I don't have any matches yet. Should I search with what you've told me so far?", state, ready: false, quickReplies: [] };
+  if (hit.action === "reset") {
+    const fresh: ChatState = { spec: surveyToSpec({ transaction: "lease", accessibility: false, requirements: [] }), asked: [], phase: "gathering" };
+    // "Start over with a bakery": reset, then read the rest as the first answer.
+    const m = t.match(hit.re)!;
+    const rest = t.slice(m.index! + m[0].length).replace(/^\W*(with|for|as|and|,)?\s*/, "");
+    if (/[a-z]{3}/.test(rest)) {
+      const next = converse(fresh, rest);
+      return { ...next, reply: `Okay, starting fresh. ${next.reply}`, action: "reset" };
+    }
+    return { reply: hit.reply(""), state: { ...fresh, asked: ["use"] }, ready: false, quickReplies: [], action: "reset" };
+  }
+  if (hit.action === "search" && state.phase !== "results") {
+    const a = ask({ ...state, asked: [...new Set<Slot>([...state.asked, "size", "rooms", "musts", "chair"])] }, "", true);
+    return { ...a, action: "search" };
+  }
+  const useTarget = TARGETED.has(hit.action) && target != null;
+  if (useTarget && (target < 1 || target > MAX_MATCHES))
+    return { reply: `I show up to ${MAX_MATCHES} matches, numbered 1 to ${MAX_MATCHES}. Which one did you mean?`, state, ready: false, quickReplies: [] };
+  const which = useTarget ? `the ${ORD_WORD[target]} match` : "this space";
+  return { reply: hit.reply(which), state, ready: false, quickReplies: [], action: hit.action, ...(useTarget ? { target } : {}) };
+}
+
 export function converse(state: ChatState, text: string): Turn {
+  const act = actionTurn(state, text);
+  if (act) return act;
   const awaiting = state.asked.at(-1) ?? null;
   const { spec, changed } = mergeText(state.spec, text, awaiting);
 
@@ -186,13 +241,10 @@ export function converse(state: ChatState, text: string): Turn {
     return { reply: `Here are the rules I found for a ${state.spec.useType} in ${CITY(state.spec.city)}. Each links to the official source; treat them as a checklist to confirm, not legal advice.`, state, ready: false, quickReplies: [], action: "regulations" };
 
   if (state.phase === "results") {
-    if (/compar/i.test(text)) return { reply: "Here's how the top matches compare side by side.", state, ready: false, quickReplies: [], action: "compare" };
-    if (/e-?mail|draft|reach out|contact|message the|write to/i.test(text))
-      return { reply: "Here's a draft to the property manager. Edit it however you like; I won't send anything for you.", state, ready: false, quickReplies: [], action: "email" };
-    if (changed) return { reply: `Updating your search: ${describe(spec)}.`, state: { ...state, spec }, ready: true, quickReplies: [] };
+    if (changed) return { reply: `Updating your search: ${describe(spec)}. Anything else you'd change?`, state: { ...state, spec }, ready: true, quickReplies: [] };
     return {
-      reply: "I can compare the layouts, adjust the size, location or budget, or draft an email to the property manager. What would help?",
-      state, ready: false, quickReplies: ["Compare the layouts", "Draft an email", "Make it bigger"],
+      reply: "I can save a match, open one so you can look inside, compare them, change the size, area or budget, or get the broker packet ready. What would help most?",
+      state, ready: false, quickReplies: [],
     };
   }
 

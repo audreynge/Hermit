@@ -3,14 +3,14 @@ import { fromLayout, type Block } from "../spec/parse";
 import type { Draft } from "../spec/survey";
 import type { RequirementSpec, RoomGraph, Shell } from "../types";
 import { applyFitout, describeGraph, evaluateFitout, type FitoutEvaluation, type FitoutOp } from "./fitout";
-import { applyLayoutOps, describeLayout, type Rejected } from "./layout-ops";
+import { applyLayoutOps, describeLayout, SIDES, type Rejected } from "./layout-ops";
 
 /** Model-facing op: one flat object so it works with any structured-output backend. Validated strictly afterwards. */
 export const FlatOp = z.object({
-  op: z.enum(["add", "remove", "resize", "relabel", "add_object", "use_as", "merge", "split", "add_fixture"]),
+  op: z.enum(["add", "remove", "resize", "relabel", "add_object", "move", "use_as", "merge", "split", "add_fixture"]),
   id: z.string().optional(), label: z.string().optional(), count: z.number().optional(), w: z.number().optional(), h: z.number().optional(), scale: z.number().optional(),
   nextTo: z.string().optional(), in: z.string().optional(), roomId: z.string().optional(), roomIds: z.array(z.string()).optional(), into: z.number().optional(),
-  fixture: z.string().optional(),
+  fixture: z.string().optional(), side: z.enum(SIDES).optional(),
 });
 export const EditOut = z.object({ target: z.enum(["none", "layout", "fitout", "ask"]), ops: z.array(FlatOp) });
 export type EditOut = z.infer<typeof EditOut>;
@@ -71,7 +71,7 @@ export function describeOutcome(o: EditOutcome, before: number): string {
     if (n) lines.push(`Updated your layout (${n} change${n > 1 ? "s" : ""}). It now has ${o.blocks.filter((b) => b.kind !== "object").length} rooms, about ${Math.round(o.blocks.filter((b) => b.kind !== "object").reduce((s, b) => s + b.w * b.h, 0)).toLocaleString()} sq ft.`);
   } else {
     const d = o.evaluation.diff;
-    if (o.ops.length > before) lines.push(`Proposed changes: fit ${d.fit[0]} → ${d.fit[1]}, known work ${workRange(d.cost[1])} (was ${workRange(d.cost[0])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
+    if (o.ops.length > before) lines.push(`Proposed changes: ${d.fit[1] > d.fit[0] ? "fits better" : d.fit[1] < d.fit[0] ? "fits worse" : "same fit"}, known work ${workRange(d.cost[1])} (was ${workRange(d.cost[0])}), ${d.weeks[1][0]}–${d.weeks[1][1]} weeks to open. These are proposals, not measured rooms.`);
     if (d.hardFailsCleared.length) lines.push(`Clears: ${d.hardFailsCleared.join("; ")}.`);
   }
   lines.push(...o.notes);

@@ -34,7 +34,7 @@ beforeAll(() => {
   closeDb();
 });
 type ChatBody = { state: ChatState; text: string; layout?: unknown; fitout?: unknown };
-const chatRes = ({ state, ...rest }: ChatBody) => post(chatPOST, { conversationId: createConversation(VID, state), ...rest });
+const chatRes = async ({ state, ...rest }: ChatBody) => post(chatPOST, { conversationId: await createConversation(VID, state), ...rest });
 const chat = async (b: ChatBody) => { const j = await (await chatRes(b)).json(); return { ...j.turn, design: j.design }; };
 
 let key: string | undefined;
@@ -83,11 +83,11 @@ describe("chat-driven design edits", () => {
     expect(b.state.spec).toEqual(gathering.spec);
   });
 
-  it("[C5] when the target is unclear, the model's question is passed on with quick replies and no ops", async () => {
+  it("[C5] when the target is unclear, the model's question is passed on with no chips and no ops", async () => {
     const t = await chatTurn(results, "add a sink", fake({ target: "ask", ops: [] }, "Your drawn layout or this space?", ["My layout", "This space"]), { ctx: { layout: CLINIC, ...homeCtx() } });
     expect(t.edit).toBeUndefined();
     expect(t.reply).toMatch(/\?/);
-    expect(t.quickReplies).toEqual(["My layout", "This space"]);
+    expect(t.quickReplies).toEqual([]);
     // Offline: two exam rooms and no number -> ask.
     const off = offlineEdit("remove the exam room", { layout: CLINIC });
     expect(off).toMatchObject({ target: "ask" });
@@ -99,17 +99,22 @@ describe("chat-driven design edits", () => {
     const res = await chat({ state: results, text: "add an office", layout: CLINIC });
     expect(res.ready).toBe(false);
     expect(res.design.kind).toBe("layout");
-    expect(res.quickReplies).toContain("Search with this");
+    expect(res.quickReplies).toEqual([]);
+    expect(res.reply).toMatch(/search again/);
   });
 
-  it("[C7] offline: add/remove work for layouts; other requests point to Layout Studio", async () => {
+  it("[C7] offline: add/remove/move work for layouts, before any search; other requests get help", async () => {
     const add = await chat({ state: gathering, text: "add an exam room next to reception", layout: CLINIC });
     expect(add.design.blocks.filter((b: { label: string }) => b.label === "exam room")).toHaveLength(3);
     const rm = await chat({ state: gathering, text: "remove the storage", layout: CLINIC });
     expect(rm.design.blocks.some((b: { label: string }) => b.label === "storage")).toBe(false);
-    const other = await chat({ state: gathering, text: "move the hallway to the left", layout: CLINIC });
+    const move = await chat({ state: gathering, text: "move the hallway to the left", layout: CLINIC });
+    expect(move.design.kind).toBe("layout");
+    const another = await chat({ state: gathering, text: "Can you add another exam room?", layout: CLINIC });
+    expect(another.design.blocks.filter((b: { label: string }) => b.label === "exam room")).toHaveLength(3);
+    const other = await chat({ state: gathering, text: "split the hallway in half", layout: CLINIC });
     expect(other.design).toBeUndefined();
-    expect(other.reply).toMatch(/Layout Studio/);
+    expect(other.reply).toMatch(/move or rename rooms/);
   });
 
   it("offline references resolve by id, ordinal, number or unique label", () => {
