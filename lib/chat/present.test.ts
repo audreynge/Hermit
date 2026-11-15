@@ -83,23 +83,25 @@ describe("naming", () => {
 describe("summarizeResults", () => {
   it("writes the chat reply naming the best fit and offering next steps", () => {
     const s = summarizeResults([report(), report({ shellId: "B", name: "Suite 400", matchScore: 87 })], spec, { considered: 240, dropped: 6 });
-    expect(s.paragraphs[0]).toMatch(/240 .*Houston/);
-    expect(s.paragraphs[1]).toMatch(/2 strong matches.*Suite 1202.*92%/);
-    expect(s.paragraphs[1]).toMatch(/1,650 sq ft/);
+    expect(s.paragraphs).toHaveLength(1);
+    expect(s.paragraphs[0]).toMatch(/2 strong matches.*Houston.*Suite 1202/);
+    expect(s.paragraphs[0]).not.toMatch(/240|%/);
+    expect(s.paragraphs[0]).toMatch(/1,650 sq ft/);
     expect(s.followUp).toMatch(/compare the layouts/);
     expect(s.followUp).toMatch(/email/);
+    expect(s.followUp.match(/\?/g)).toHaveLength(1);
   });
 
   it("mentions the size once when the best match is outside the range", () => {
     const s = summarizeResults([report({ floorplan: { ...report().floorplan!, totalAreaSqft: 1520 } })], { ...spec, sizeSqft: [2000, 3000] }, { considered: 3, dropped: 0 });
-    expect(s.paragraphs[1].match(/1,520 sq ft/g)).toHaveLength(1);
-    expect(s.paragraphs[1]).toMatch(/1,520 sq ft \(you asked for 2,000–3,000\)/);
+    expect(s.paragraphs[0].match(/1,520 sq ft/g)).toHaveLength(1);
+    expect(s.paragraphs[0]).toMatch(/1,520 sq ft \(you asked for 2,000–3,000\)/);
   });
 
   it("states an out-of-range size once, with what was asked for", () => {
     const s = summarizeResults([report({ floorplan: undefined, listing: undefined, sqft: 2400 })], spec, { considered: 10, dropped: 0 });
-    expect(s.paragraphs[1]).toMatch(/it's 2,400 sq ft \(you asked for 1,200–1,800\)/);
-    expect(s.paragraphs[1].match(/2,400/g)).toHaveLength(1);
+    expect(s.paragraphs[0]).toMatch(/it's 2,400 sq ft \(you asked for 1,200–1,800\)/);
+    expect(s.paragraphs[0].match(/2,400/g)).toHaveLength(1);
   });
 
   it("explains an empty result and suggests what to relax", () => {
@@ -121,21 +123,23 @@ describe("thinkingSteps", () => {
 
   it("turns real trace events into topical thinking steps", () => {
     const labels = thinkingSteps(events, spec).map((s) => s.label);
-    expect(labels[0]).toMatch(/Searching 2,659 spaces in Houston/);
-    expect(labels).toEqual(expect.arrayContaining(["Checking local zoning laws", "Checking electrical requirements", "Counting parking", "Measuring rooms in 3D scans"]));
+    expect(labels[0]).toBe("Searched spaces in Houston");
+    expect(labels.join(" ")).not.toMatch(/2,?659/);
+    expect(labels).toEqual(expect.arrayContaining(["Checked zoning rules", "Checked electrical power", "Looked at parking from above", "Measured the rooms"]));
+    expect(labels.every((l) => l.split(" ").length <= 7)).toBe(true);
     expect(labels.some((l) => /Ruled out/.test(l))).toBe(true);
-    expect(labels.some((l) => /Looking for a sink/.test(l))).toBe(true);
+    expect(labels.some((l) => /Looked for a sink/.test(l))).toBe(true);
   });
 
-  it("shows regulation research with what it found per jurisdiction", () => {
+  it("organizes regulation research by government level", () => {
     const ev: TraceEvent[] = [{ type: "tool", id: "r", tool: "research_regulations", args: {}, resultId: "x", summary: "3 rules (city 1, state 1, federal 1)", ms: 1 }];
     const labels = thinkingSteps(ev, spec).map((s) => s.label);
-    expect(labels).toEqual(["Researching Houston and Texas rules for a medical clinic", "Found 1 city rule", "Found 1 state rule", "Found 1 federal rule"]);
+    expect(labels).toEqual(["City: Houston permitting", "State: Texas licensing", "Federal: ADA"]);
   });
 
   it("only mentions checks the spec asked for", () => {
     const labels = thinkingSteps(events, { ...spec, needs: {} }).map((s) => s.label);
-    expect(labels).not.toContain("Checking electrical requirements");
+    expect(labels).not.toContain("Checked electrical power");
   });
 });
 
@@ -174,7 +178,7 @@ describe("compareRows", () => {
   it("names the layout-matching step when the agent compared a drawing", () => {
     const ev = [{ type: "tool", id: "t", tool: "match_layout", args: {}, resultId: "r", summary: "compared your 5-room layout with 368 scanned floor plans; most similar 85% (X)", ms: 3 }] as TraceEvent[];
     expect(traceSummary(ev)).toEqual(["Matched your layout against 368 floor plans"]);
-    expect(thinkingSteps(ev, { city: "houston", mode: "business", rooms: [], needs: {} } as never)[0].label).toBe("Comparing your drawing with 368 real floor plans");
+    expect(thinkingSteps(ev, { city: "houston", mode: "business", rooms: [], needs: {} } as never)[0].label).toBe("Compared your drawing to floor plans");
   });
 
   it("leads card highlights with layout similarity when the user drew a plan", () => {
