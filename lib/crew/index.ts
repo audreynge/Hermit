@@ -2,6 +2,7 @@ import table from "../../rules/screening.json";
 import { corridorWidth } from "../geometry/polygon";
 import { packFor } from "../uses/packs";
 import { countLine, roomCounts, shortfalls } from "../reason/fit";
+import { aerialCounted, aerialEvidence, aerialRooftop, parkingHit, parkingNeed, parkingQuestion } from "../reason/rules";
 import type { Evidence, RequirementSpec } from "../types";
 import type { Evaluation } from "../agent/report";
 
@@ -65,18 +66,36 @@ const SPECIALISTS: Record<AgentId, (spec: RequirementSpec, e: Evaluation) => Out
       const gap = Math.round(((advertised - g.totalAreaSqft) / advertised) * 100);
       if (Math.abs(gap) > 15) claims.push({ text: `Advertised ${advertised.toLocaleString()} sf vs ${Math.round(g.totalAreaSqft).toLocaleString()} sf measured (${Math.abs(gap)}% ${gap > 0 ? "smaller" : "larger"}; net vs gross differences are normal). A discrepancy to ask about.`, evidence: [scanRef(e, "dimensions.areaFloor", 0.8), { source: "index", ref: `scan name "${e.shell.name}"`, confidence: 0.6 }] });
     }
-    for (const x of e.escalations) claims.push({ text: `Closer look: ${x.question} → ${x.outcome}`, evidence: [scanRef(e, "objectAnnotations + generatedDescription", 0.5)] });
+    for (const x of e.escalations) claims.push({ text: `Closer look: ${x.outcome}`, evidence: x.evidence?.length ? x.evidence : [scanRef(e, "objectAnnotations + generatedDescription", 0.5)] });
     const status: VerdictStatus = e.fit.hardFails.length ? "veto" : short.length || e.fit.unknowns.length || !matched ? "warn" : "pass";
     const headline = e.fit.hardFails[0] ?? short[0] ?? (status === "pass" ? `Walked ${g.rooms.length} rooms: your layout fits with ${e.fit.edits.length} change${e.fit.edits.length === 1 ? "" : "s"}` : `Walked ${g.rooms.length} rooms; ${e.fit.unknowns.length} room${e.fit.unknowns.length === 1 ? "" : "s"} couldn't be identified from scan labels`);
     return { status, headline, claims, questions: e.fit.unknowns.map((u) => `Can you confirm the ${u.split(":")[0].replace(/ #\d+$/, "")} in the space?`) };
   },
 
-  surveyor(_spec, e) {
+  // Reads the Vexcel ortho counts (stalls around the building, rooftop units) and judges parking with the same
+  // record-plus-aerial rule the Code screen uses, so the two never disagree about the same evidence.
+  surveyor(spec, e) {
     const s = e.shell;
-    if (s.lat == null || s.lon == null) return { status: "unknown", headline: "No coordinates on record, so no aerial check", claims: [], questions: ["What is the exact street address of the space?"] };
-    const claims: Claim[] = [{ text: `Aerial imagery centred on ${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`, evidence: [{ source: "aerial", ref: "Esri World Imagery (Vexcel credentials pending)", confidence: 0.6 }] }];
-    claims.push({ text: "Surface parking and rooftop units need a stall count from Vexcel imagery; garages can't be counted from the air", evidence: [{ source: "aerial", ref: "not extracted", confidence: 0.3 }] });
-    return { status: "unknown", headline: "Site located; parking still uncounted", claims, questions: ["How many parking stalls are assigned to this space, and is any of it garage parking?"] };
+    const a = e.aerial ?? null;
+    if (!a) {
+      if (s.lat == null || s.lon == null) return { status: "unknown", headline: "No coordinates on record, so no aerial check", claims: [], questions: ["What is the exact street address of the space?"] };
+      return { status: "unknown", headline: "The aerial wasn't counted for this space, so parking is unconfirmed from above", claims: [], questions: ["How many parking stalls are assigned to this space, and is any of it garage parking?"] };
+    }
+    const ev = aerialEvidence(a);
+    const claims: Claim[] = [];
+    const need = parkingNeed(spec, s, e.graph);
+    const park = e.rules.find((r) => r.rule === "onsite_parking") ?? e.rules.find((r) => r.rule === "parking")
+      ?? (need ? parkingHit("parking", s, a, need, false, table.sources.costar_kit.url) : null);
+    if (aerialCounted(a)) claims.push({ text: `About ${a.stalls.n} parking stall${a.stalls.n === 1 ? "" : "s"} counted around the building on the Vexcel aerial${a.stalls.hi != null && a.stalls.hi !== a.stalls.n ? ` (${a.stalls.lo ?? a.stalls.n}–${a.stalls.hi})` : ""}`, evidence: [ev] });
+    else claims.push({ text: "Two counts of the aerial disagreed, so the parking couldn't be counted from above", evidence: [ev] });
+    const rtu = aerialRooftop(a);
+    claims.push({ text: rtu == null ? "Rooftop units couldn't be counted" : `${rtu} rooftop unit${rtu === 1 ? "" : "s"} on the roof`, evidence: [{ ...ev, confidence: a.rooftopUnits.confidence }] });
+    if (a.garageLikely) claims.push({ text: "A garage can't be counted from the air", evidence: [ev] });
+    if (park) claims.push({ text: park.detail, evidence: park.evidence });
+    const status: VerdictStatus = !park ? "unknown" : park.status === "fail" ? (park.rule === "onsite_parking" ? "veto" : "warn") : park.status;
+    const headline = park?.detail ?? claims[0].text;
+    const questions = !park || park.status === "pass" ? [] : [parkingQuestion(park, "How many parking stalls are assigned to this space, and is any of it garage parking?")];
+    return { status, headline, claims, questions };
   },
 
   code(_spec, e) {

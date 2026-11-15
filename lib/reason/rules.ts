@@ -1,6 +1,6 @@
 import table from "../../rules/screening.json";
 import { normalizeZone } from "../regs/zones";
-import type { Access, AccessRoom, Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
+import type { Access, AccessRoom, AerialCount, Evidence, RequirementSpec, RoomGraph, RuleHit, RuleStatus, Shell } from "../types";
 import { chairFor, checkAccess } from "./access";
 
 export type UseKey = keyof typeof table.uses;
@@ -90,7 +90,82 @@ function wheelchairRoute(g: RoomGraph, a: Access, measured: boolean): RuleHit[] 
   return hits;
 }
 
-export type RuleExtras = { parcelZone?: { zone: string; source: string; apn: string } | null };
+export type RuleExtras = { parcelZone?: { zone: string; source: string; apn: string } | null; aerial?: AerialCount | null };
+
+// An aerial stall count is usable only when two runs agreed (confidence ≥ 0.5) and gave a number.
+export const AERIAL_MIN_CONFIDENCE = 0.5;
+export const aerialCounted = (a: AerialCount | null | undefined): a is AerialCount & { stalls: { n: number } } =>
+  !!a && a.stalls.confidence >= AERIAL_MIN_CONFIDENCE && a.stalls.n != null;
+export const aerialEvidence = (a: AerialCount): Evidence => ({
+  source: aerialCounted(a) ? "Vexcel ortho (counted)" : "Vexcel ortho (not counted)", ref: `aerial:${a.sid}`, confidence: a.stalls.confidence,
+});
+export const aerialRooftop = (a: AerialCount | null | undefined): number | null =>
+  a && a.rooftopUnits.confidence >= AERIAL_MIN_CONFIDENCE && a.rooftopUnits.n != null ? a.rooftopUnits.n : null;
+
+/**
+ * Parking from two layers: the CoStar record and stalls counted on the Vexcel aerial around the building.
+ * Record or aerial meeting the need passes; both short (or one short and the other missing) fails, and only `hard`
+ * (the user's own must-have) turns that into a fail; one short and the other enough is a disagreement to ask about.
+ * Not counted, or counts that disagreed, is unknown, never a pass.
+ */
+export function parkingHit(rule: string, shell: Shell, aerial: AerialCount | null | undefined, need: number, hard: boolean, citation: string, needNote = "."): RuleHit {
+  const rec = shell.parkingSpaces;
+  const recEv = costar(shell, "parking.totalSpaces");
+  const counted = aerialCounted(aerial) ? aerial : null;
+  const ev = [recEv, ...(aerial ? [aerialEvidence(aerial)] : [])];
+  const recOk = rec == null ? null : rec >= need;
+  const n = counted?.stalls.n ?? 0, hi = counted?.stalls.hi ?? n;
+  const aerOk: boolean | "close" | null = !counted ? null : n >= need ? true : hi < need ? false : "close";
+  const garage = aerial?.garageLikely ? " A garage can't be counted from the air." : "";
+  const sky = counted ? `room for about ${n} car${n === 1 ? "" : "s"} around the building on the Vexcel aerial` : "";
+  const recText = rec == null ? "" : `${rec} recorded stall${rec === 1 ? "" : "s"} (CoStar)`;
+  const notCounted = !aerial ? "the aerial wasn't counted for this space" : "two counts of the aerial disagreed, so it couldn't be counted";
+  const want = `you need ${need}${needNote}`;
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const short = hard ? "fail" : "warn";
+
+  // A count of 0 means no marked surface lot was seen (faint markings get missed), not a lot that's too small:
+  // it never fails a space on its own, it becomes a question.
+  if (counted && n === 0) {
+    const none = `the Vexcel aerial shows no marked surface lot around the building`;
+    if (recOk === true) return hit(rule, "warn", `${cap(recText)}; ${want} But ${none}, so the stalls may be in a garage or a shared lot.${garage}`, citation, ev);
+    if (recOk === false) return hit(rule, short, `${cap(recText)}; ${want} And ${none}.${garage}`, citation, ev);
+    return hit(rule, "unknown", `No stall count on the CoStar record, and ${none} (faint markings can be missed); ${want}${garage}`, citation, ev);
+  }
+  if (recOk === true && aerOk !== false)
+    return hit(rule, "pass", `${cap(recText)}; ${want}${counted ? ` The Vexcel aerial shows room for about ${n} around the building.` : ""}${garage}`, citation, ev);
+  if (recOk === true && aerOk === false)
+    return hit(rule, "warn", `The records disagree: ${recText}, but ${sky}; ${want} Some stalls may be in a garage or a shared lot.${garage}`, citation, ev);
+  if (recOk === false && aerOk === true)
+    return hit(rule, "warn", `The records disagree: ${recText}, but ${sky}; ${want}${garage}`, citation, ev);
+  if (recOk === null && aerOk === true)
+    return hit(rule, "pass", `${cap(sky)}; ${want} No stall count on the CoStar record.${garage}`, citation, ev);
+  if (aerOk === false)
+    return hit(rule, short, `${cap(sky)}; ${want}${rec != null ? ` The CoStar record lists ${rec}.` : ""}${garage}`, citation, ev);
+  if (aerOk === "close")
+    return recOk === false
+      ? hit(rule, short, `${cap(recText)}; ${want} The aerial shows about ${n}–${hi} around the building, which doesn't settle it.${garage}`, citation, ev)
+      : hit(rule, "warn", `About ${n}–${hi} cars fit around the building on the Vexcel aerial; ${want} Too close to call.${garage}`, citation, ev);
+  if (recOk === false)
+    return hit(rule, short, `${cap(recText)}; ${want} ${cap(notCounted)}.${garage}`, citation, ev);
+  return hit(rule, "unknown", `No stall count on the CoStar record, and ${notCounted}; ${want}${garage}`, citation, ev);
+}
+
+export const NO_LOT_QUESTION = "Where do patients or customers park? The aerial shows no marked surface lot around the building.";
+/** The landlord question for a parking screen that isn't a pass. */
+export function parkingQuestion(h: RuleHit, fallback: string): string {
+  if (/no marked surface lot/.test(h.detail)) return NO_LOT_QUESTION;
+  return h.status === "warn" ? `${h.detail} How many stalls come with the space, and where are they?` : fallback;
+}
+
+/** The stall count Hermit screens against: the user's number when they gave one, else the use's code-minimum estimate. */
+export function parkingNeed(spec: RequirementSpec, shell: Shell, graph?: RoomGraph | null): number | null {
+  if (spec.needs.parkingStalls) return spec.needs.parkingStalls;
+  const per1000 = table.uses[useCategory(spec.useType)].parkingPer1000[spec.city];
+  const area = graph?.totalAreaSqft ?? shell.sqft ?? spec.sizeSqft?.[0];
+  if (per1000 > 0 && area) return Math.ceil((per1000 * area) / 1000);
+  return spec.needs.parking ? 1 : null;
+}
 
 export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGraph, extras: RuleExtras = {}): RuleHit[] {
   const hits: RuleHit[] = [];
@@ -149,17 +224,13 @@ export function checkRules(spec: RequirementSpec, shell: Shell, graph?: RoomGrap
     const need = Math.ceil((per1000 * area) / 1000);
     const required = Math.max(need, n.parkingStalls ?? 0);
     const cite = spec.city === "houston" ? src("houston_parking") : src("lamc_parking");
-    const ev = [costar(shell, "parking.totalSpaces")];
     const laNote = spec.city === "los_angeles" ? " AB 2097 may waive minimums near major transit." : "";
-    if (shell.parkingSpaces == null) hits.push(hit("parking", "unknown", `Screening need ~${required} stalls (${per1000}/1,000 sf); recorded count unknown.${laNote}`, cite, ev));
-    else hits.push(hit("parking", shell.parkingSpaces >= required ? "pass" : "warn", `${shell.parkingSpaces} recorded stalls vs ~${required} screening need (${per1000}/1,000 sf).${laNote}`, cite, ev));
+    // The code-minimum screen is our estimate, so it can warn but never rules a space out.
+    hits.push(parkingHit("parking", shell, extras.aerial, required, false, cite, ` (screening estimate, ${per1000}/1,000 sf).${laNote}`));
   }
 
   if (n.parking || n.parkingStalls) {
-    const ev = [costar(shell, "parking.totalSpaces")];
-    const want = Math.max(1, n.parkingStalls ?? 0);
-    if (shell.parkingSpaces == null) hits.push(hit("onsite_parking", "unknown", "On-site parking count is not recorded.", src("costar_kit"), ev));
-    else hits.push(hit("onsite_parking", shell.parkingSpaces >= want ? "pass" : "fail", `${shell.parkingSpaces} on-site stalls recorded${n.parkingStalls ? `; ${n.parkingStalls} needed` : ""}.`, src("costar_kit"), ev));
+    hits.push(parkingHit("onsite_parking", shell, extras.aerial, Math.max(1, n.parkingStalls ?? 0), true, src("costar_kit")));
   }
 
   if (n.groundFloor) {

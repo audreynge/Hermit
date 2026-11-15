@@ -1,16 +1,18 @@
 import type { Verdict } from "../crew";
 import { chairFor, checkAccess } from "../reason/access";
 import type { Finding } from "../regs/research";
-import { useCategory } from "../reason/rules";
+import { parkingQuestion, useCategory } from "../reason/rules";
 import { triangulate } from "../reason/triangulate";
 import { buildoutCheck } from "../reason/buildout";
 import { exclusiveScan } from "../reason/exclusive";
 import type { SiteFile } from "../neighborhood/types";
 import { packFor } from "../uses/packs";
-import { sqftOf } from "../query/shells";
+import { classMatches, sqftOf } from "../query/shells";
 import { countedKind, countLine, missingOf, needLine, roomCounts, roomNoun, shortfalls } from "../reason/fit";
-import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
+import type { AerialCount, Evidence, FitResult, PanoCheck, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
+import { labelCost, normalizeRoomLabel } from "../reason/labels";
+import { alsoFits } from "../reverse";
 import { mustHaves } from "./verify";
 
 export type Evaluation = {
@@ -23,11 +25,24 @@ export type Evaluation = {
   work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number]; tiAllowance?: number };
   finalScore: number;
   lines: ScoreLine[];
-  escalations: { question: string; outcome: string }[];
+  escalations: { question: string; outcome: string; result?: PanoCheck["result"]; evidence?: Evidence[] }[];
   similarity?: Similarity;
   extraUnknowns?: { topic: string; question: string }[];
   verdicts: Verdict[];
+  aerial?: AerialCount | null; // Vexcel count around the building (lib/vexcel/count.ts); null = not counted
+  checks?: PanoCheck[]; // "looked closer" results on real scan photos, one per room and feature
+  seen?: PanoCheck[]; // every "seen" photo check in this scan, used to refit rooms (a room with a visible sink can be the exam room)
 };
+
+// "Suite 1202, MEDPLACE" or "Medical Office, 7440 Cypress Creek Pky": the name a person would use, for trace reasons.
+export function spaceName(shell: Pick<Shell, "name" | "address">): string {
+  const parts = shell.name.split(" · ");
+  const first = displayName(shell.name);
+  const street = (parts[1] ?? shell.address ?? "").split(",")[0].trim();
+  if (!street || first.toLowerCase().includes(street.toLowerCase()) || street.toLowerCase().includes(first.toLowerCase())) return first || street;
+  if (parts[1] || !/\d/.test(first)) return `${first}, ${street}`;
+  return first;
+}
 
 const QUESTIONS: Record<string, string> = {
   electrical: "Is heavy power available? What is the electrical service (amps, volts, phase) to the space?",
@@ -46,6 +61,9 @@ const QUESTIONS: Record<string, string> = {
   transit: "How close is the nearest bus or rail stop?",
   zoning_records: "Which zone is the parcel in today, and does it permit our use by right?",
 };
+const PARKING_RULES = new Set(["parking", "onsite_parking"]);
+const sameRoomType = (req: string, observed: string) =>
+  normalizeRoomLabel([req]) === "other" ? req.toLowerCase() === observed.toLowerCase() : labelCost(req, observed) === 0;
 
 export const displayName = (name: string) =>
   name.split(" · ")[0].replace(/\s*[-–]\s*[\d,]+\s*(?:SF|sq\.?\s*ft)\s*$/i, "").trim();
@@ -59,8 +77,8 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
   const exact = spec.mode === "home" ? shell.mode === "home" : shell.useTags.includes(use);
   const near = !exact && shell.useTags.some((t) => NEIGHBOR[use]?.includes(t));
   lines.push({ factor: "Built for your use", earned: exact ? 20 : near ? 8 : 0, max: 20,
-    note: exact ? (shell.scanClass ? `Matterport reads it as ${shell.scanClass.replace(/_/g, " ")}` : `Prior use ${use}`) : near ? `Close use (${shell.useTags.join(", ")}); conversion needed` : "Different prior use",
-    source: shell.scanClass ? `matterport ${shell.sid}.propertyClassifications` : `models_index name "${shell.name}"` });
+    note: exact ? (classMatches(shell.scanClass, use) ? `Matterport reads it as ${shell.scanClass!.replace(/_/g, " ")}` : `Prior use ${use}`) : near ? `Close use (${shell.useTags.join(", ")}); conversion needed` : "Different prior use",
+    source: exact && classMatches(shell.scanClass, use) ? `matterport ${shell.sid}.propertyClassifications` : `models_index name "${shell.name}"` });
 
   if (graph && fit.assignment.length) {
     // Full credit for a room that's there as-is, half for one that needs a fixture or a change, none for one to build.
@@ -143,7 +161,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   const doors = doorQuestions(rules);
   const raw = [...doors, ...rules
     .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
-    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }))];
+    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: PARKING_RULES.has(r.rule) ? parkingQuestion(r, QUESTIONS[r.rule]) : QUESTIONS[r.rule] ?? r.detail }))];
   for (const f of regs) if (f.certainty === "applies") raw.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   const counts = roomCounts(spec, fit, graph);
   const short = shortfalls(spec, counts);
@@ -161,11 +179,12 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   for (const b of buildout) if (b.status !== "seen") raw.push({ topic: "unverified build-out", question: b.question });
   // Proposed-change and must-have questions lead (and are never cut from the draft); duplicates go.
   const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
-  const LEAD = new Set(["rooms", "proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
+  const LEAD = new Set(["rooms", "looked closer", "proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
   const priority = (u: { topic: string }) => (LEAD.has(u.topic) ? 0 : mustTopics.has(u.topic) ? 1 : 2);
   const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
 
-  const matched = fit.assignment.filter((a) => a.roomId).length;
+  // Rooms the scan labels as the type you asked for; a room that could be converted isn't "already built".
+  const matched = fit.assignment.filter((a) => { const room = a.roomId ? graph?.rooms.find((r) => r.id === a.roomId) : undefined; return room && sameRoomType(a.req.replace(/ #\d+$/, ""), room.label); }).length;
   const fails = rules.filter((r) => r.status === "fail");
   const unconfirmed = counts.some((c) => c.unknown || c.convert.length);
   const verdict = short.length ? "Short on rooms" : fit.hardFails.length || fails.length ? "Conditional fit"
@@ -176,7 +195,12 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   const tally = countLine(spec, counts);
   const base = (key: string) => key.replace(/ #\d+$/, "");
   const rest = fit.assignment.filter((a) => !countedKind(spec, spec.rooms.find((r) => r.label === base(a.req)) ?? { label: base(a.req), count: 1 }));
-  const restLine = rest.length ? `${tally ? ", plus " : ""}${rest.filter((a) => a.roomId).length} of ${rest.length} ${tally ? "other " : ""}rooms you need${tally ? "" : " are already built"}` : "";
+  // Same rule as roomCounts (and lib/uses/rooms.ts fitRows): built only when the scan labels the room as that type;
+  // any other matched room could be made into it, it isn't already there.
+  const restBuilt = rest.filter((a) => { const room = a.roomId ? graph?.rooms.find((r) => r.id === a.roomId) : undefined; return room && sameRoomType(base(a.req), room.label); }).length;
+  const restConvert = rest.filter((a) => a.roomId).length - restBuilt;
+  const could = restConvert ? `${tally ? " (" : "; "}${restConvert} more could be made from rooms here${tally ? ")" : ""}` : "";
+  const restLine = rest.length ? `${tally ? ", plus " : ""}${restBuilt} of ${rest.length} ${tally ? "other " : ""}rooms you need${tally ? " already built" : ` ${restBuilt === 1 ? "is" : "are"} already built`}${could}` : "";
   const rooms = tally || rest.length ? `${tally}${restLine} (${area}).${short.length ? ` Missing: ${short.join("; ")}.` : ""}` : `${area}.`;
   const unclear = fit.unknowns.length ? ` ${fit.unknowns.length} couldn't be identified from scan labels, so they're questions, not passes.` : "";
   const summary = graph
@@ -217,15 +241,20 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     listing: shell.listing,
     ...(e.similarity ? { similarity: e.similarity } : {}),
     score: e.similarity ? [...e.lines, { factor: "Match to your drawn layout", earned: e.finalScore - total(e.lines), max: 0, note: `Layout ${e.similarity.score}% similar, blended 50/50 with the evidence score`, source: "match_layout" }] : e.lines,
-    crew: e.verdicts, triangulation: triangulate(spec, shell, graph), defurnished: shell.defurnished,
+    crew: e.verdicts, triangulation: triangulate(spec, shell, graph, e.aerial ?? null), defurnished: shell.defurnished,
     buildout, conflicts: exclusive.conflicts,
+    ...(e.aerial ? { aerial: e.aerial } : {}),
+    ...(e.checks?.length ? { checks: e.checks } : {}),
+    alsoFits: graph && spec.mode !== "home" ? alsoFits(shell, graph, spec.useType) : [],
   };
 }
 
-// Open the tour on the sweep nearest the first matched room (the evidence), else the first sweep.
+// Open the tour where Hermit saw a fixture you asked for, else the sweep nearest the first matched room, else the first sweep.
 function evidenceSweep(e: Evaluation): string | undefined {
   const g = e.graph;
   if (!g) return undefined;
+  const seen = e.checks?.find((c) => c.result === "seen" && c.panoId);
+  if (seen) return seen.panoId;
   const first = e.fit.assignment.find((a) => a.roomId);
   return g.rooms.find((r) => r.id === first?.roomId)?.panoId ?? g.panos?.[0]?.id;
 }

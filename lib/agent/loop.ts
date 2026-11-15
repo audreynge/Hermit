@@ -4,7 +4,7 @@ import { AGENTS } from "../crew";
 import { cleanWording } from "../llm/wording";
 import type { RequirementSpec, TraceEvent } from "../types";
 import { displayName } from "./report";
-import { BUDGET, finalize, newEventId, Run, TOOL_DESCRIPTIONS, ToolInputs, unverifiedFixtures, type AgentDeps, type ToolName } from "./tools";
+import { BUDGET, finalize, fixtureRooms, newEventId, Run, TOOL_DESCRIPTIONS, ToolInputs, unverifiedFixtures, type AgentDeps, type ToolName } from "./tools";
 import { MODEL } from "./model";
 import { outputText, type OpenAIClient, type ResponseItem } from "../llm/openai";
 import { cleanSchema, geminiJson, geminiText, type GeminiClient, type GeminiContent } from "../llm/gemini";
@@ -34,6 +34,7 @@ export async function runAgent(spec: RequirementSpec, emit: (e: TraceEvent) => v
     }
   }
   if (!run.reports) await deterministic(run);
+  if (!run.reports?.length) await autoSubmit(run);
   emit({ type: "report", id: newEventId(), reports: run.reports ?? [] });
   emit({ type: "done", id: newEventId(), ms: Date.now() - run.started, toolCalls: run.calls, planner });
   return run.reports ?? [];
@@ -42,6 +43,21 @@ export async function runAgent(spec: RequirementSpec, emit: (e: TraceEvent) => v
 const alive = (run: Run) => [...run.evaluated.values()].filter((e) => !run.dropped.has(e.shell.id));
 const ordered = (run: Run) => alive(run).sort((a, b) => run.byRoomFit(a, b) || a.shell.id.localeCompare(b.shell.id));
 const plan = (run: Run, text: string) => run.emit({ type: "plan", id: newEventId(), text: cleanWording(text) });
+
+// Guardrail: a run never ends with no reports while a candidate is still in. Best evaluated first, else the search top 3.
+async function autoSubmit(run: Run) {
+  const evaluated = ordered(run).slice(0, 5).map((e) => e.shell.id);
+  const picks = evaluated.length ? evaluated : run.candidates.filter((c) => !run.dropped.has(c.shell.id)).slice(0, 3).map((c) => c.shell.id);
+  if (!picks.length) return;
+  plan(run, evaluated.length
+    ? `The planner finished without a report, so Hermit submits the ${picks.length} best evaluated space${picks.length === 1 ? "" : "s"}.`
+    : `The planner finished without a report, so Hermit submits the top ${picks.length} from the search.`);
+  try {
+    await finalize(run, picks);
+  } catch (e) {
+    run.emit({ type: "error", id: newEventId(), message: `Couldn't submit reports (${e instanceof Error ? e.message : e}).` });
+  }
+}
 
 // One fixable code gap is priced as work; a zoning conflict or stacked gaps rule a candidate out.
 const dealbreaker = (failedRules: string[]) => failedRules.includes("zoning") || failedRules.length >= 2;
@@ -59,7 +75,7 @@ async function deterministic(run: Run) {
   const top20 = run.candidates.slice(0, 20).map((c) => c.shell.id).filter((id) => !run.dropped.has(id));
   if (top20.length && !run.screened.size && !run.overBudget()) {
     const s = (await run.call("screen_sites", { shellIds: top20 })) as { rows: { id: string; dropped: boolean; fails: string[] }[] };
-    const drops = s.rows.flatMap((r) => (!r.dropped && dealbreaker(r.fails.map((f) => f.split(":")[0])) ? [{ shellId: r.id, reason: r.fails.join("; ") }] : []));
+    const drops = s.rows.flatMap((r) => (!r.dropped && dealbreaker(r.fails.map((f) => f.split(":")[0])) ? [{ shellId: r.id, reason: r.fails.map((f) => f.slice(f.indexOf(":") + 2).replace(/\.$/, "")).join("; ") }] : []));
     if (drops.length && !run.overBudget()) await run.call("drop_candidate", { drops });
   }
 
@@ -67,9 +83,10 @@ async function deterministic(run: Run) {
     const next = run.candidates.map((c) => c.shell.id).filter((id) => !run.dropped.has(id)).slice(0, 8);
     if (next.length) {
       const ev = (await run.call("evaluate_candidates", { shellIds: next })) as { rows: { id: string; dropped: boolean; hardFails: string[]; ruleFails: string[] }[] };
+      const details = (id: string) => run.evaluated.get(id)?.rules.filter((h) => h.status === "fail").map((h) => h.detail.replace(/\.$/, "")).join("; ");
       const drops = ev.rows.flatMap((r) => {
         if (r.dropped) return [];
-        const why = r.hardFails[0] ?? (dealbreaker(r.ruleFails) ? `fails ${r.ruleFails.join(", ")} screen` : null);
+        const why = r.hardFails[0] ?? (dealbreaker(r.ruleFails) ? details(r.id) || `fails ${r.ruleFails.join(", ")} screen` : null);
         return why ? [{ shellId: r.id, reason: why }] : [];
       });
       if (drops.length && !run.overBudget()) await run.call("drop_candidate", { drops });
@@ -85,13 +102,11 @@ async function deterministic(run: Run) {
 
   for (const e of ordered(run).slice(0, 2)) {
     if (run.inspections >= BUDGET.inspections || run.overBudget() || e.escalations.length) continue;
+    // A fixture you need that the scan hasn't confirmed is the one fact scan photos can settle, so it goes first.
     const asks = [
+      ...unverifiedFixtures(run.spec, e).map((f) => `Is there ${an(f)} in the ${fixtureRooms(run.spec, e, f) || "requested rooms"}?`),
       ...e.fit.unknowns.map((u) => `Is there ${an(u.split(":")[0].replace(/ #\d+$/, ""))} in the scanned space?`),
       ...e.fit.edits.flatMap((x) => { const m = x.match(/^Add (.+?) to (.+)$/); return m ? [`Does the ${m[2].replace(/ #\d+$/, "")} have ${an(m[1])}?`] : []; }),
-      ...unverifiedFixtures(run.spec, e).map((f) => {
-        const rooms = run.spec.rooms.filter((r) => r.fixtures?.includes(f)).map((r) => (r.count > 1 ? `${r.label}s` : r.label));
-        return `Is there ${an(f)} in the ${rooms.join(" or ") || "requested rooms"}?`;
-      }),
     ];
     if (asks[0]) {
       plan(run, `${displayName(e.shell.name)} is a contender, but one fact could move it: ${asks[0].replace(/\?$/, "")}. The Inspector takes a closer look.`);
