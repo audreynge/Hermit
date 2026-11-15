@@ -1,15 +1,7 @@
-import { Suspense } from "react";
-import { PageHead } from "@/components/Chrome";
-import { SearchChat } from "@/components/SearchChat";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Chat · Hermit" };
-
-// The original search chat: free-form chat, compare, email drafts, parcel info and layout edits.
-export default function ChatPage() {
-  return (
-    <>
-      <PageHead title="Find a space that already fits" sub="Tell Hermit what you need. It asks a few quick questions, then finds spaces already built for it." />
-      <Suspense fallback={<p>Loading…</p>}><SearchChat /></Suspense>
-    </>
-  );
+// The old search chat merged into Find a space.
+export default async function SearchPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const qs = new URLSearchParams(await searchParams).toString();
+  redirect(qs ? `/studio?${qs}` : "/studio");
 }
