@@ -1,7 +1,7 @@
 import type { RoomReq } from "../types";
 import type { Pack } from "../uses/packs";
 
-export type SketchRoom = { key: string; label: string; index: number; x: number; y: number; w: number; h: number; fixtures: string[]; pinned?: boolean };
+export type SketchRoom = { key: string; label: string; index: number; x: number; y: number; w: number; h: number; fixtures: string[]; pinned?: boolean; sized?: boolean }; // sized: the user set its size in Layout Studio
 
 const ROW_FT = 56;
 
@@ -25,7 +25,7 @@ export function toLayout(rooms: RoomReq[], pack: Pack, prev: SketchRoom[] = []):
     const key = `${r.label}#${i}`;
     const { w, h } = dims(r, pack);
     const old = pinned.get(key);
-    if (old) out.push({ ...old, w, h, fixtures: r.fixtures ?? [] });
+    if (old) out.push({ ...old, ...(old.sized ? {} : { w, h }), fixtures: r.fixtures ?? [] });
     else free.push({ key, label: r.label, index: i, x: 0, y: 0, w, h, fixtures: r.fixtures ?? [] });
   }
   let x = 0, y = 0, rowH = 0;

@@ -1,14 +1,12 @@
 "use client";
-import { Mic, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Mic, Speak } from "../Voice";
 
 export type ChatMsg = { id: string; role: "hermit" | "user"; text: string; why?: string; quick?: string[]; multi?: boolean; cta?: boolean; agent?: string };
 
-type SpeechRec = { lang: string; interimResults: boolean; start: () => void; onresult: (e: { results: { 0: { transcript: string } }[] }) => void; onend: () => void };
-
 export function Interview({ messages, busy, onSend, children, placeholder }: { messages: ChatMsg[]; busy: boolean; onSend: (t: string) => void; children?: React.ReactNode; placeholder?: string }) {
   const [text, setText] = useState("");
-  const [listening, setListening] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   // Sketch notes don't replace the question still waiting for an answer.
@@ -20,23 +18,6 @@ export function Interview({ messages, busy, onSend, children, placeholder }: { m
   }, [messages, busy]);
 
   const send = (t: string) => { if (!t.trim() || busy) return; onSend(t.trim()); setText(""); };
-  // Voice input exists only in some browsers; detect after mount so server and client render the same markup.
-  const [speech, setSpeech] = useState<(new () => SpeechRec) | undefined>(undefined);
-  useEffect(() => {
-    const w = window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec };
-    const ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (ctor) setSpeech(() => ctor);
-  }, []);
-  const listen = () => {
-    if (!speech) return;
-    const r = new speech();
-    r.lang = "en-US"; r.interimResults = false;
-    r.onresult = (e) => setText((t) => `${t} ${e.results[0][0].transcript}`.trim());
-    r.onend = () => setListening(false);
-    setListening(true);
-    r.start();
-  };
-
   return (
     <section className="card interview" aria-label="Interview with Hermit">
       <div className="messages" ref={scroller} aria-live="polite" aria-label="Conversation">
@@ -46,6 +27,7 @@ export function Interview({ messages, busy, onSend, children, placeholder }: { m
             <div className="bubbles">
               <div className="bubble"><span className="sr-only">{m.role === "hermit" ? "Hermit: " : "You: "}</span>{m.text}</div>
               {m.why && <p className="why">{m.why}</p>}
+              {m.role === "hermit" && m.agent !== "sketch" && <Speak text={m.text} />}
             </div>
           </div>
         ))}
@@ -67,7 +49,7 @@ export function Interview({ messages, busy, onSend, children, placeholder }: { m
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
         <label className="sr-only" htmlFor="composer">Message Hermit</label>
         <input id="composer" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder ?? "Answer, or describe anything else you need…"} autoComplete="off" />
-        {speech && <button type="button" className="icon-btn" onClick={listen} aria-pressed={listening} aria-label={listening ? "Listening" : "Speak your answer"}><Mic aria-hidden="true" /></button>}
+        <Mic disabled={busy} onText={(t) => setText((v) => (v ? `${v} ${t}` : t).slice(0, 2000))} />
         <button type="submit" className="send" disabled={!text.trim() || busy} aria-label="Send"><Send aria-hidden="true" /></button>
       </form>
     </section>

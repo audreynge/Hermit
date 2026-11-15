@@ -1,4 +1,5 @@
 "use client";
+import { Aerial } from "../Aerial";
 import { Bus, Car, Store, Users } from "lucide-react";
 import { useState } from "react";
 import { esriTile, tileFor } from "@/lib/geometry/tiles";
@@ -52,7 +53,15 @@ function AnswerCard({ title, a, Icon }: { title: string; a: Answer; Icon: typeof
 
 export function Neighborhood({ site, use, report, spec }: ReportCtx) {
   const home = spec.mode === "home";
-  if (!site) return <p className="card pad">Hermit doesn&apos;t have neighborhood data for this space (no coordinates in the index).</p>;
+  // Vexcel aerial (top-down and four oblique angles) from the search page, shown whenever the space has coordinates.
+  const above = report.above ? (
+    <section className="card pad aerial-section" aria-labelledby="aerial-title">
+      <h3 id="aerial-title">Aerial view</h3>
+      <div className="aerial-frame"><Aerial report={report} /></div>
+      <p className="muted small">Satellite view of the building and lot (Vexcel ortho and oblique imagery where licensed, Esri otherwise).</p>
+    </section>
+  ) : null;
+  if (!site) return <div className="neighborhood"><p className="card pad">Hermit doesn&apos;t have neighborhood data for this space (no coordinates in the index).</p>{above}</div>;
   const busy = site.busyness?.hours;
   return (
     <div className="neighborhood">
@@ -83,6 +92,7 @@ export function Neighborhood({ site, use, report, spec }: ReportCtx) {
           <p className="muted small">Free public data today (TxDOT/Caltrans counts, OpenStreetMap, US Census). In production this plugs into Placer.ai or CoStar&apos;s own foot-traffic data.</p>
         </article>
       </div>
+      {above}
     </div>
   );
 }

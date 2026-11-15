@@ -313,3 +313,17 @@ header.top { justify-content: space-between; }
 .postcard-rank { background: #14213d; color: #fff; }
 .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--ink); color: var(--card); }
 .crab .hat[data-agent="skeptic"] { background: #9d174d; } .crab .hat[data-agent="advocate"] { background: #155e75; }
+
+/* Merge: main's Layout Studio, Matching Spaces and aerial view inside the studio flow */
+.layout-card { display: grid; gap: 10px; }
+.layout-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.layout-card-head h2 { display: flex; align-items: center; gap: 8px; font-size: 20px; margin: 0; margin-right: auto; }
+.layout-card-head .view-switch { margin: 0; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--coral-ink); text-decoration: underline; cursor: pointer; }
+.studio-right .results-card { height: auto; max-height: max(680px, calc(100vh - 220px)); }
+.space-crew { display: grid; gap: 8px; margin: 6px 0 10px; }
+.space-verdict { display: flex; align-items: center; gap: 10px; }
+.space-verdict p { margin: 0; font-size: 14px; }
+.space-verdict svg { flex: none; }
+.aerial-section h3 { margin-top: 0; }
+.aerial-frame { position: relative; height: min(56vh, 460px); border-radius: 14px; overflow: hidden; background: var(--sea-wash); }

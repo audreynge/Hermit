@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { Block } from "@/lib/spec/parse";
 import { LayoutStudio } from "./LayoutStudio";
 
-export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => void; onClose: () => void }) {
+export function DesignSheet({ onDone, onClose, initial, doneLabel = "Use this layout" }: { onDone: (blocks: Block[]) => void; onClose: () => void; initial?: Block[]; doneLabel?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -26,7 +26,7 @@ export function DesignSheet({ onDone, onClose }: { onDone: (blocks: Block[]) => 
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button>
         </header>
-        <LayoutStudio onDone={onDone} doneLabel="Use this layout" />
+        <LayoutStudio onDone={onDone} doneLabel={doneLabel} initial={initial} />
       </div>
     </div>,
     document.body,
