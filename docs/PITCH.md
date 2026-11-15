@@ -1,16 +1,8 @@
 # Hermit: 2-minute pitch
 
-One story, one user: **Dr. Priya**, a pediatrician in Houston leaving a group practice to open her own. Target length about 1:55 to 1:58 at a brisk 160 words a minute. The demo runs from the recorded replay (`/studio?replay=<id>`), so it needs no network.
+One story, one user: **Dr. Priya**, a pediatrician in Houston leaving a group practice to open her own. Target length about 1:55 to 1:58 at a brisk 160 words a minute. The demo runs from the recorded replay (`/studio?replay=priya`), so it needs no network.
 
-Placeholders in `{BRACES}` come from our own recorded run. The conductor fills them in before rehearsal; never say a number that isn't on screen.
-
-| Placeholder | Meaning |
-|---|---|
-| `{N_SCANNED}` | spaces Hermit started from (funnel top) |
-| `{N_SCREENED}` | spaces it screened |
-| `{N_RULED_OUT}` | spaces it ruled out |
-| `{N_CARS}` | cars the Vexcel aerial shows room for at the ruled-out space |
-| `{ALSO_FITS}` | the other use shown under "Also fits" on the top pick |
+Every number below comes from the recorded Gemini-planned run `priya` (`/studio?replay=priya`): 2,714 Houston scans → 203 built for medical → 20 screened → 8 walked inside → 2 ruled out (a 30-inch corridor pinch; no restroom). Never say a number that isn't on screen.
 
 ## Timeline
 
@@ -18,8 +10,8 @@ Placeholders in `{BRACES}` come from our own recorded run. The conductor fills t
 |---|---|---|
 | 0:00-0:14 | Title slide, then the home page | "Dr. Priya is a pediatrician in Houston, leaving a group practice to open her own. She needs two exam rooms with sinks off a hallway, a small lab, step-free entry and parking for ten. On tour four, her contractor finds the 'medical-ready' suite has no plumbing in the back rooms." |
 | 0:14-0:20 | `/studio`: she says one sentence; she drags two exam rooms and a lab into the Layout Studio | "With Hermit, she says one sentence and sketches her layout." |
-| 0:20-0:42 | Matching Spaces, "How Hermit decided" open: the ruled-out space with its aerial; "Hermit looked closer" with the scan photo and "Sink seen in exam room"; the top pick changes | "One agent plans the search and runs specialist checks. From {N_SCANNED} scanned spaces it screened {N_SCREENED} and ruled out {N_RULED_OUT}. This one: the Vexcel aerial shows room for about {N_CARS} cars. She needs ten. Out. Here it wasn't sure, so it looked closer at the scan photos. Sink seen in exam room. Its top pick changes, and it says why." |
-| 0:42-1:00 | Shell Report: her layout on the real floor plan; the "Inside & out" line under a claim; "Also fits: {ALSO_FITS}" | "Here's her layout on the real floor plan. Every claim shows its source: CoStar's record, the Matterport scan, or the aerial. What a scan can't see, like drains behind walls, becomes a question. 'Also fits' shows who else this suite suits: the landlord side LoopNet bills." |
+| 0:20-0:42 | Matching Spaces, "How Hermit decided" open: the corridor rule-out; "Hermit looked closer" with the scan photo and "a sink is visible in exam rooms #1 and #2"; the top pick changes | "One agent plans the search and runs specialist checks. Of 2,714 scanned spaces in Houston, 203 fit a clinic. It screened 20 and walked inside 8. This one looked perfect on paper, but the 3D scan measures 30-inch pinch points in the corridor. Strollers and wheelchairs need 36. Out. Here it wasn't sure, so it looked closer at the scan photos: sinks in both exam rooms. Its top pick changes, and it says why." |
+| 0:42-1:00 | Shell Report: her layout on the real floor plan; the sink photo under the verdict; the parking line; "Also fits: Dental office" | "Here's her layout on the real floor plan. Every claim shows its source: CoStar's record, the Matterport scan, or the Vexcel aerial. The layers check each other: CoStar lists 411 parking spaces, but the aerial shows no surface lot, so Hermit asks where patients park. What a scan can't see, like drains behind walls, becomes a question. And 'Also fits' shows who else this suite suits, a dental office: the landlord side LoopNet bills." |
 | 1:00-1:05 | Talk to your broker: the drafted message | "She copies a drafted message to the listing broker. Hermit never sends it." |
 | 1:05-1:28 | One slide: the CoStar numbers, each with its source (Matterport's "over 4x the leads" is on the slide, not spoken) | "Why CoStar? CoStar says about 75% of its content isn't on the open web, and an agent using only public data had a 75% error rate in its tests. Net new bookings were $37 million last quarter, against $84 million a year earlier, with about 2,000 reps, and LoopNet the one big brand adding them. Hermit is the tenant rep a first-time owner can't get, and it hands the broker a tenant who's ready to sign." |
 | 1:28-1:40 | Same slide, Rufus and Sparky line | "Amazon says Rufus shoppers are 60% more likely to buy; Walmart says Sparky orders run about 35% bigger. Rufus can't walk inside a building or count a parking lot. Hermit can." |
