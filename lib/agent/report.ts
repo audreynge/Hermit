@@ -13,7 +13,6 @@ import { fitRows, fitShort, openingWeeks, roomList, summaryLine } from "../uses/
 import type { AerialCount, Evidence, FitResult, PanoCheck, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
 import { alsoFits, alsoFitsFromEvidence } from "../reverse";
-import { loadPanoChecks } from "../vision/pano";
 import { mustHaves } from "./verify";
 
 export type Evaluation = {
@@ -305,8 +304,9 @@ function evidenceSweep(e: Evaluation): string | undefined {
   return g.rooms.find((r) => r.id === first?.roomId)?.panoId ?? g.panos?.[0]?.id;
 }
 
-// Pack fit first; when the scan's room labels are too generic for it, fall back to measured rooms plus photo checks.
+// Pack fit first; when the scan's room labels are too generic for it, fall back to measured rooms plus the run's own
+// photo checks. (This file also runs in the browser, so it never reads files; the report page adds cached checks.)
 function alsoFitsFor(shell: Shell, graph: RoomGraph, useType: string, own: PanoCheck[]) {
   const packs = alsoFits(shell, graph, useType);
-  return packs.length ? packs : alsoFitsFromEvidence(graph, [...own, ...loadPanoChecks(shell.sid ?? shell.id)], useType);
+  return packs.length ? packs : alsoFitsFromEvidence(graph, own, useType);
 }
