@@ -344,7 +344,8 @@ export function planRooms(g: RoomGraph, ids: string[]): PlanRoom[] {
       ...g.edges.filter((e) => e.a === id || e.b === id).map((e) => ({ at: doorPoint(g, e.a, e.b, e.at), widthIn: e.widthIn })),
       ...(g.entries ?? []).filter((e) => e.roomId === id).map((e) => ({ at: doorPoint(g, id, null, e.at), widthIn: e.widthIn })),
     ].flatMap((d) => (d.at ? [{ at: d.at, width: (d.widthIn ?? 34) * 0.0254 }] : []));
-    const objects = [...new Set(g.objects.filter((o) => o.roomId === id).map((o) => o.label))].filter((l) => PLAIN.test(l)).slice(0, 30);
+    // Matterport labels look like "rre_kitchen_sink": drop the prefix and underscores so the planner can read them.
+    const objects = [...new Set(g.objects.filter((o) => o.roomId === id).map((o) => o.label.replace(/^rre_/i, "").replace(/_/g, " ").trim()))].filter((l) => PLAIN.test(l)).slice(0, 30);
     return [{ id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * 0.3048 : undefined, doors, objects }];
   });
 }

@@ -145,14 +145,14 @@ describe("planRooms", () => {
         { id: "b", label: "kitchen", rawTags: [], areaSqft: 0, polygon: rect(3, 4, 4, 0), floorId: "f" },
       ],
       edges: [{ a: "a", b: "b", kind: "door", widthIn: 36 }],
-      objects: [{ label: "sofa", roomId: "a", confidence: 1 }, { label: "sofa", roomId: "a", confidence: 1 }, { label: "weird (label)", roomId: "a", confidence: 1 }],
+      objects: [{ label: "sofa", roomId: "a", confidence: 1 }, { label: "sofa", roomId: "a", confidence: 1 }, { label: "weird (label)", roomId: "a", confidence: 1 }, { label: "rre_kitchen_sink", roomId: "a", confidence: 1 }],
     } as RoomGraph;
     const [a] = planRooms(g, ["a", "missing"]);
     expect(a.ceiling).toBeCloseTo(2.743, 2);
     expect(a.doors).toHaveLength(1);
     expect(a.doors[0].at.x).toBeCloseTo(4); // on the shared wall
     expect(a.doors[0].width).toBeCloseTo(0.914, 2);
-    expect(a.objects).toEqual(["sofa"]);
+    expect(a.objects).toEqual(["sofa", "kitchen sink"]); // scan ids like rre_kitchen_sink made readable
   });
 
   it("offline reception: the receptionist's chair sits behind the desk, facing the room", async () => {
