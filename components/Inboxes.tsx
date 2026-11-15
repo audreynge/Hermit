@@ -3,6 +3,7 @@ import { Copy, Heart, Mail, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getJSON, removeThread, saveThread, savedShells, setJSON, threads, type SavedShell, type Thread } from "@/lib/client/persist";
+import { openGmail, withPacketLink } from "@/lib/text";
 
 const SAMPLE: Thread = {
   id: "sample", shellId: "", runId: "", name: "Sample: Suite 460, Houston", to: "broker@example.com", subject: "Question about Suite 460",
@@ -64,7 +65,7 @@ export function MessagesInbox() {
         {t.reply && <div className="reply"><p>{t.reply}</p></div>}
         {!t.sample && (
           <div className="actions">
-            <a className="btn primary" href={`mailto:${t.to}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.body)}`} onClick={() => update({ status: "sent-by-you" })}><Mail aria-hidden="true" /> Open in my email app</a>
+            <button type="button" className="btn primary" onClick={() => { openGmail(t.to, t.subject, withPacketLink(t.body, t.runId, t.shellId)); update({ status: "sent-by-you" }); }}><Mail aria-hidden="true" /> Open in Gmail</button>
             <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(t.body); setStatus("Copied."); } catch { setStatus("Select the text to copy it."); } }}><Copy aria-hidden="true" /> Copy</button>
             <button type="button" className="btn danger" onClick={() => { removeThread(t.id); const n = threads(); setList(n); setOpen(n[0]?.id ?? "sample"); }}><Trash2 aria-hidden="true" /> Delete</button>
             {t.runId && <Link className="btn" href={`/shell/${t.shellId}?run=${t.runId}&tab=broker`}>Edit questions</Link>}

@@ -1,6 +1,6 @@
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
-export const TABS = ["overview", "inside", "furnish", "neighborhood", "lease", "broker"] as const;
+export const TABS = ["overview", "inside", "aerial", "lease", "broker"] as const;
 export type ChatAction = { type: "tab"; tab: (typeof TABS)[number] } | { type: "save" };
 
 const $ = (n: number) => `$${Math.round(n).toLocaleString()}`;
@@ -32,9 +32,8 @@ const SHOW = /^\s*(please\s+|can you\s+|could you\s+)?(show|open|take me|go to|s
 const TAB_WORDS: [(typeof TABS)[number], RegExp][] = [
   ["lease", /lease|coach|contract/],
   ["broker", /broker|email|message|contact/],
-  ["neighborhood", /neighbou?rhood|traffic|area|nearby/],
-  ["furnish", /furnish|furniture|layout|design/],
-  ["inside", /inside|scan|tour|floor ?plan|3d/],
+  ["aerial", /above|aerial|satellite|roof|neighbou?rhood|area|nearby/],
+  ["inside", /inside|scan|tour|floor ?plan|3d|furnish|furniture|layout|design|fit/],
   ["overview", /overview|summary|report/],
 ];
 
@@ -65,4 +64,13 @@ export function fallbackReply(q: string, f: Facts): string {
     return p.length ? p.join(" ") : unk("Parking");
   }
   return "I can answer questions about the price, total first-year cost, build-out, time to open, rooms and parking for this space. I can also open a tab or save it for you.";
+}
+
+// Which brain a report-chat message goes to: walls/rooms/fixtures → the fit-out editor (/api/chat), furniture → the 3D
+// tour, anything else → answers. ponytail: keyword router; swap for a model call if real phrasing slips through.
+const EDIT = /\b(convert|merge|combine|split|divide|knock|walls?|into|sinks?|toilets?|showers?|plumbing|use the \w+ as)\b/i;
+const FURNISH = /\b(furnish\w*|furniture|sofas?|couch\w*|chairs?|desks?|tables?|beds?|stoves?|fridges?|lamps?|rugs?|shel(f|ves)|cabinets?|plants?|tvs?|pianos?|bookcases?|dressers?|place|put|rotate|bring (it|the)|move the|remove the|delete the|navy|colou?r|material)\b/i;
+export function intent(text: string): "edit" | "furnish" | "ask" {
+  if (EDIT.test(text)) return "edit";
+  return FURNISH.test(text) && !/\?\s*$/.test(text) ? "furnish" : "ask";
 }

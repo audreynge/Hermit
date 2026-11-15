@@ -217,22 +217,11 @@ header.top { justify-content: space-between; }
 .chip.furn svg { flex: none; }
 .inline-icon { width: 15px; height: 15px; vertical-align: -2px; }
 .design { display: grid; gap: 14px; padding-top: 6px; }
-.design .btn.primary, .report .btn.primary, .guide .btn.primary { background: var(--sea-ink); border-color: var(--sea-ink); color: #fff; }
+.design .btn.primary, .report .btn.primary { background: var(--sea-ink); border-color: var(--sea-ink); color: #fff; }
 
 /* Guided tour overlay */
-.guide { position: absolute; left: 12px; bottom: 12px; right: 12px; display: flex; align-items: flex-end; gap: 8px; pointer-events: none; }
-.guide-crab { width: 84px; flex: none; filter: drop-shadow(0 3px 6px rgb(0 0 0 / 0.35)); }
-.guide-bubble { pointer-events: auto; position: relative; max-width: 460px; background: #fffdfb; color: #3b2320; border-radius: 18px; padding: 12px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.3); font-size: 15px; margin-bottom: 22px; }
-.guide-bubble::before { content: ""; position: absolute; left: -10px; bottom: 16px; border: 10px solid transparent; border-right-color: #fffdfb; border-left: 0; }
-.guide-bubble .btn { color: #3b2320; background: #fff; }
-.guide-bubble .btn.primary { color: #fff; background: #1f5e57; }
-.guide-bubble .muted { color: #5b4a44; }
-.guide-nav { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .small-x { width: 30px; height: 30px; margin-left: auto; color: #3b2320; background: #fff; }
-.guide-reopen { position: absolute; left: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 6px 14px 6px 6px; background: #fffdfb; color: #3b2320; font-weight: 800; cursor: pointer; box-shadow: 0 4px 12px rgb(0 0 0 / 0.3); }
-.guide-reopen img { width: 34px; }
-@media (max-width: 560px) { .guide-crab { width: 54px; } .guide-bubble { font-size: 14px; } }
-.seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--ink); color: var(--card); }
+@media (max-width: 560px) { .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--ink); color: var(--card); }
 
 /* Merge: main's Layout Studio, Matching Spaces and aerial view inside the studio flow */
 .layout-card { display: grid; gap: 10px; }

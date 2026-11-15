@@ -3,7 +3,7 @@
 // Drag items to move them; drag cards from the tray into the room to place them. Falls back (onFail) to the plain
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Info, Layers, Loader, LocateFixed, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Send, Sofa, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Layers, Loader, LocateFixed, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Sofa, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
@@ -12,12 +12,12 @@ import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
 import type { ShellReport } from "@/lib/types";
-import { Mic } from "./Voice";
 
 type Room = NonNullable<View["room"]>;
 type Status = "searching" | "loading" | "ready" | "none" | "failed";
 type Tab = "suggested" | "placed" | "search";
-type Stop = { label: string; index: number };
+// What the floating Hermit chat uses to furnish: send a request, get Hermit's reply back.
+export type FurnishApi = { ready: boolean; send: (text: string) => Promise<string> };
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
@@ -38,7 +38,7 @@ const M_PER_FT = 0.3048;
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function FurnishTour({ report, use, stop, stops, onFail }: { report: ShellReport; use: string; stop?: number; stops: Stop[]; onFail: () => void }) {
+export function FurnishTour({ report, use, stop, onFail, api }: { report: ShellReport; use: string; stop?: number; onFail: () => void; api?: React.MutableRefObject<FurnishApi | null> }) {
   const sid = report.inside!.sid;
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
@@ -56,12 +56,10 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   const [room, setRoom] = useState<Room | undefined>();
   const [suggestions, setSuggestions] = useState<FurnishItem[]>([]);
   const [tab, setTab] = useState<Tab>("suggested");
-  const [trayOpen, setTrayOpen] = useState(true);
   const [popover, setPopover] = useState<"color" | "material" | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Model[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [replacing, setReplacing] = useState<string | undefined>(); // Search tab is choosing a new model for this item
   const [measuring, setMeasuring] = useState<string | undefined>(); // waiting for the user to draw a measurement for this item
@@ -195,7 +193,6 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
         if (hit?.position && Math.abs(hit.position.y - floorY.current) < 0.15) return { ...hit.position, y: floorY.current };
       }
     }
-    setTrayOpen(false); // no floor visible above the tray: lower it so the default spot in front of you shows
     return undefined;
   }, []);
 
@@ -294,7 +291,6 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
-      if (e.key === "t" || e.key === "T") { setTrayOpen((o) => !o); return; }
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
       if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }]); }
@@ -391,23 +387,26 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     };
   }, [ready, measuring, apply, makeView]);
 
-  async function send(t = text) {
+  async function send(t: string): Promise<string> {
     const message = t.trim();
-    if (!message || busy || !ready) return;
-    setText(""); setBusy(true);
+    if (!message) return "";
+    if (!ready) return "The 3D tour is still loading. Try again in a moment.";
+    setBusy(true);
     try {
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
         text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: room?.label, suggestions,
       });
       const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
-      setToast(!r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`);
+      return !r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`;
     } catch {
-      setToast("Something went wrong reaching the assistant. Try again, or use the tray.");
+      return "Something went wrong reaching the assistant. Try again, or use the furniture bar.";
     } finally { setBusy(false); }
   }
+  useEffect(() => { if (api) api.current = { ready, send }; });
+  useEffect(() => () => { if (api) api.current = null; }, [api]);
 
   async function runSearch(terms: string[], name: string) {
-    setTab("search"); setTrayOpen(true); setResults(null);
+    setTab("search"); setResults(null);
     setResults(await findModels(terms, 12, name));
   }
   const target = items.find((p) => p.id === replacing);
@@ -432,6 +431,8 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
         <svg className="furnish-overlay" ref={overlay} aria-hidden="true">
           {Array.from({ length: 6 }, (_, i) => <g key={i} style={{ display: "none" }}><line /><text textAnchor="middle" /></g>)}
         </svg>
+        {toast && <p className="furnish-toast" role="status">{toast}</p>}
+        {busy && <p className="furnish-loading" role="status"><Loader aria-hidden="true" /> Hermit is arranging…</p>}
         {measuring && <p className="furnish-banner" role="status">Click where the measurement starts, then where it ends. Esc to cancel.</p>}
         {!ready && <p className="furnish-loading"><Loader aria-hidden="true" /> Loading the 3D tour… <button type="button" className="btn small" onClick={onFail}>Open the basic tour instead</button></p>}
 
@@ -469,16 +470,9 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
           </div>
         )}
 
-        <div className="furnish-tray" data-open={trayOpen}>
-          {toast && <p className="furnish-toast" role="status">{toast}</p>}
-          <form className="furnish-chat" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-            <button type="button" className="icon-btn" aria-label={trayOpen ? "Hide the furniture tray" : "Show the furniture tray"} aria-expanded={trayOpen} onClick={() => setTrayOpen(!trayOpen)}>{trayOpen ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}</button>
-            <label className="sr-only" htmlFor="furnish-text">Tell me what to place</label>
-            <input id="furnish-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Furnish this ${label}: "put a stove here", "make it navy"…`} maxLength={500} disabled={!ready} />
-            <Mic disabled={!ready || busy} onText={(t) => void send(t)} />
-            <button type="submit" className="icon-btn" aria-label="Send" disabled={!ready || busy || !text.trim()}>{busy ? <Loader aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
-          </form>
-          {trayOpen && (
+      </div>
+
+      <div className="furnish-tray" aria-label="Furniture">
             <div className="furnish-shelf">
               <div className="furnish-tabs">
                 <div role="tablist" aria-label="Furniture">
@@ -501,15 +495,6 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
                   </form>
                 )}
                 <div className="furnish-extras">
-                  {stops.length > 0 && (
-            <label className="furnish-room">
-              <span className="sr-only">Jump to a room</span>
-              <select defaultValue="" onChange={(e) => goTo(Number(e.target.value))} disabled={!ready}>
-                <option value="" disabled>Jump to a room…</option>
-                {stops.map((s) => <option key={`${s.label}-${s.index}`} value={s.index}>{s.label}</option>)}
-              </select>
-            </label>
-          )}
                   <span className="furnish-hint" title="Furniture sizes are typical, not measured. Nothing here changes the property."><Info aria-hidden="true" /> Visualization only</span>
                 {credits.length > 0 && <details className="credits"><summary>Credits</summary><ul>{credits.map((m) => <li key={m.id}>{m.attribution}</li>)}</ul></details>}
                 </div>
@@ -549,8 +534,6 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
                 <button type="button" className="icon-btn strip-nav" aria-label="Scroll right" onClick={() => scrollStrip(1)}><ChevronRight aria-hidden="true" /></button>
               </div>
             </div>
-          )}
-        </div>
       </div>
     </div>
   );

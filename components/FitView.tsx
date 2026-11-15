@@ -114,7 +114,7 @@ export function FitView({ report: measured, proposal, onKeep, onUndo, onShowInTo
   const g = report.floorplan;
   if (!g) return <p className="muted" style={{ padding: 16 }}>Record-only candidate: there is no room scan to lay the requirements onto.</p>;
   const access = measured.access; // computed on the measured scan, not on a proposed edit
-  const views: [View, string][] = [["plan", "2D plan"], ...(vs ? [[vs, "Your design vs this space"] as [View, string]] : []), ["3d", "3D model"], ...(access ? [["access", "Wheelchair access"] as [View, string]] : [])];
+  const views: [View, string][] = [...(vs ? [[vs, "Your design vs this space"] as [View, string]] : []), ["plan", "2D plan"], ["3d", "3D model"], ...(access ? [["access", "Wheelchair access"] as [View, string]] : [])];
   return (
     <div style={{ padding: 12 }}>
       <div className="view-switch" role="group" aria-label="Fit view">
@@ -352,7 +352,6 @@ function Plan2D({ report, g, measuredRooms, access }: { report: ShellReport; g: 
         )}
       </svg></div>
       <figcaption>
-        {access && `Route for a ${chair} from the entry through measured doors${access.hinges ? ", with offset hinges on every hinged door" : ""}. Clear widths are estimates (opening minus about 2 in for a hinged door); confirm with a tape. · `}
         {proposed.length > 0 && "* proposed change, not measured · "}Matterport scan {g.sid} · {measuredRooms ?? g.rooms.length} measured rooms · {Math.round(g.totalAreaSqft).toLocaleString()} sf net{floors.length > 1 ? ` · largest of ${floors.length} floors shown` : ""}
       </figcaption>
       {legend}

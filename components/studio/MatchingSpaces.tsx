@@ -3,22 +3,18 @@ import { Layers } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { savedShells, toggleSaved } from "@/lib/client/persist";
-import type { Block } from "@/lib/spec/parse";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { isBuying, ParcelInfo } from "../ParcelInfo";
-import { PropertyViewer } from "../PropertyViewer";
 import { ResultsMap } from "../ResultsMap";
 import { SpaceCard } from "../SpaceCard";
 
 // Map + cards in rank order; the score stays internal, never shown.
-export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected, onSelect, design, viewIndex, onViewIndex }: {
+export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected, onSelect }: {
   reports: ShellReport[]; spec: RequirementSpec; runId: string | null; running: boolean; onOpen: (r: ShellReport) => void;
-  design?: Block[]; viewIndex?: number | null; onViewIndex?: (i: number | null) => void;
   selected: number; onSelect: (i: number) => void;
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState<Record<string, boolean>>({});
-  const [ownView, setOwnView] = useState<number | null>(null);
   const [parcelFor, setParcelFor] = useState<ShellReport | null>(null);
   useEffect(() => {
     const load = () => setSaved(Object.fromEntries(savedShells().map((s) => [s.shellId, true])));
@@ -28,9 +24,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
   }, [reports]);
   useEffect(() => { if (selected >= reports.length) onSelect(0); }, [reports.length, selected, onSelect]);
 
-  const viewAt = onViewIndex ? viewIndex ?? null : ownView;
-  const setView = onViewIndex ?? setOwnView;
-  const viewing = viewAt != null ? reports[viewAt] : undefined;
   const details = (r: ShellReport) => (runId ? router.push(`/shell/${r.shellId}?run=${runId}&tab=overview`) : onOpen(r));
 
   return (
@@ -51,7 +44,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
             <SpaceCard key={r.shellId} index={i} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
               onSelect={() => onSelect(i)}
               onSave={() => { const on = runId ? toggleSaved(r, runId) : false; setSaved((s) => ({ ...s, [r.shellId]: on })); }}
-              onDetails={() => details(r)} onView={() => setView(i)}
+              onDetails={() => details(r)}
               onParcel={isBuying(spec, r) ? () => setParcelFor(r) : undefined}
               extra={
                 <div className="space-crew">
@@ -64,7 +57,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
           );
         })}
       </div>
-      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} use={spec.useType} design={design} onClose={() => setView(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </section>
   );

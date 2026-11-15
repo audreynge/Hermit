@@ -3,6 +3,7 @@ import { ArrowRight, Check, Copy, Download, Mail, Pencil, Send } from "lucide-re
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { saveThread } from "@/lib/client/persist";
+import { openGmail, withPacketLink } from "@/lib/text";
 import { ASK, askList, brokerMessage, inferProfile, nextAsk, parseAnswer, type AskField, type Profile } from "@/lib/packet";
 import { PacketDoc, useProfile } from "./Packet";
 import { QuestionList, useQuestions } from "./Questions";
@@ -184,11 +185,11 @@ function SendStep({ report, runId, p, questions, who, sent, onSent }: { report: 
   return (
     <section className="broker-step" aria-labelledby="b4">
       <h2 id="b4">Send it to the {who}</h2>
-      <p className="muted">{report.listing?.contact?.name ? `To ${report.listing.contact.name}${report.listing.contact.company ? ` at ${report.listing.contact.company.replace(/\.$/, "")}` : ""}. ` : ""}Edit anything you like. Hermit never sends it for you: your email app opens and you press send.</p>
+      <p className="muted">{report.listing?.contact?.name ? `To ${report.listing.contact.name}${report.listing.contact.company ? ` at ${report.listing.contact.company.replace(/\.$/, "")}` : ""}. ` : ""}Edit anything you like. Hermit never sends it for you: Gmail opens with it filled in, plus a link to your packet, and you press send.</p>
       <label htmlFor="b-msg" className="sr-only">Message</label>
       <textarea id="b-msg" className="broker-msg" rows={14} value={body} onChange={(e) => setBody(e.target.value)} />
       <div className="actions">
-        <a className="btn primary big" href={`mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`} onClick={record}><Mail aria-hidden="true" /> Open in email</a>
+        <button type="button" className="btn primary big" onClick={() => { openGmail(to, subject, withPacketLink(body, runId, report.shellId)); record(); }}><Mail aria-hidden="true" /> Open in Gmail</button>
         <button type="button" className="btn" onClick={copy}><Copy aria-hidden="true" /> Copy message</button>
         <a className="btn" href={`/packet/${runId}/${report.shellId}?print=1`} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Packet PDF to attach</a>
         <span role="status" className="muted small">{status}</span>
