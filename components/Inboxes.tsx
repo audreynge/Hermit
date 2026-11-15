@@ -52,7 +52,7 @@ export function MessagesInbox() {
             </button></li>
           ))}
         </ul>
-        {!list.length && <p className="muted small pad">Drafts you save from a Shell Report&apos;s Questions tab show up here.</p>}
+        {!list.length && <p className="muted small pad">Messages you send from a space&apos;s &quot;Talk to your broker&quot; tab show up here.</p>}
       </aside>
       <section className="card pad inbox-thread" aria-labelledby="thread-title">
         <h2 id="thread-title">{t.name}</h2>
@@ -67,7 +67,7 @@ export function MessagesInbox() {
             <a className="btn primary" href={`mailto:${t.to}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.body)}`} onClick={() => update({ status: "sent-by-you" })}><Mail aria-hidden="true" /> Open in my email app</a>
             <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(t.body); setStatus("Copied."); } catch { setStatus("Select the text to copy it."); } }}><Copy aria-hidden="true" /> Copy</button>
             <button type="button" className="btn danger" onClick={() => { removeThread(t.id); const n = threads(); setList(n); setOpen(n[0]?.id ?? "sample"); }}><Trash2 aria-hidden="true" /> Delete</button>
-            {t.runId && <Link className="btn" href={`/shell/${t.shellId}?run=${t.runId}&tab=questions`}>Edit questions</Link>}
+            {t.runId && <Link className="btn" href={`/shell/${t.shellId}?run=${t.runId}&tab=broker`}>Edit questions</Link>}
             <span role="status" className="muted small">{status}</span>
           </div>
         )}
