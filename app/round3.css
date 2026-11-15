@@ -210,3 +210,39 @@ nav.primary svg { width: 21px; height: 21px; }
 .journey-dot { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: currentColor; color: #fff; font-size: 13px; }
 .journey-dot { color: inherit; }
 /* == end C0 == */
+
+/* == W5a: Shell Report overview == */
+.shell-head .back { margin: 0 0 4px; font-size: 15px; }
+.shell-head .stamp-inline { font-weight: 800; white-space: nowrap; }
+.ov { display: grid; gap: 14px; max-width: 900px; font-size: 18px; line-height: 1.5; }
+.ov-sec { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 20px 22px; display: grid; gap: 10px; }
+.ov-sec h2 { font-size: clamp(22px, 2.6vw, 28px); margin: 0; }
+.ov-sec h3 { font-size: 19px; margin: 6px 0 0; }
+.ov-sec p { margin: 0; }
+.ov-verdict { border-color: var(--coral); }
+.ov-lead { font-size: 20px; font-weight: 700; color: var(--ink); }
+.ov-list { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.ov-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.ov-group { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.ov-group-sum { font-weight: 600; color: var(--ink-soft); }
+.ov-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ov-rule { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.ov-rule-icon { width: 22px; height: 22px; margin-top: 3px; }
+.ov-rule[data-status="pass"] .ov-rule-icon { color: var(--pass); }
+.ov-rule[data-status="warn"] .ov-rule-icon { color: var(--warn); }
+.ov-rule[data-status="fail"] .ov-rule-icon { color: var(--fail); }
+.ov-rule[data-status="unknown"] .ov-rule-icon { color: var(--unknown); }
+.ov-src { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.ov-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ov-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ov-steps li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; padding: 10px 12px; border-left: 4px solid var(--sea); background: var(--sand-1); border-radius: 0 12px 12px 0; }
+.ov-weeks { font-weight: 800; color: var(--ink-soft); }
+.ov-cta { justify-self: start; font-size: 18px; }
+@media (max-width: 640px) {
+  .ov { font-size: 17px; }
+  .ov-sec { padding: 16px; }
+  .ov-rule { grid-template-columns: 26px minmax(0, 1fr); }
+  .ov-src { grid-column: 2; }
+  .ov-steps li { grid-template-columns: 1fr; }
+}
+/* == end W5a == */
