@@ -1,12 +1,19 @@
 "use client";
 import { Loader, Mic as Mic2, Square, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useSettings } from "@/lib/client/settings";
 
 // ElevenLabs voice: read a reply aloud (/api/tts) and dictate a message (/api/stt).
 // One clip at a time across all messages; starting a new one stops the previous.
 let stopCurrent: (() => void) | null = null;
 
+// The Listen button only shows when "Read replies aloud" is on in Settings (off by default).
+// useSettings starts from the defaults on the server and first render, so this stays hydration-safe.
 export function Speak({ text }: { text: string }) {
+  return useSettings().readAloud ? <Listen text={text} /> : null;
+}
+
+function Listen({ text }: { text: string }) {
   const [state, setState] = useState<"idle" | "loading" | "playing" | "error">("idle");
   const stop = useRef<(() => void) | null>(null);
   useEffect(() => () => stop.current?.(), []);
