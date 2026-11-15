@@ -62,7 +62,7 @@ export function FloorPlan({ graph, names, highlight, items = [], selected, onRoo
       })}
       {items.map((it) => (
         <g key={it.id} transform={`translate(${tx(it.x)} ${ty(it.y + it.h)}) scale(${FT})`} onClick={onItem ? (e) => { e.stopPropagation(); onItem(it.id); } : undefined} style={onItem ? { cursor: "pointer" } : undefined}>
-          <Furniture type={it.type as FurnType} w={it.w / FT} h={it.h / FT} />
+          <Furniture type={it.type} w={it.w / FT} h={it.h / FT} />
           {selected === it.id && <rect x={-0.3} y={-0.3} width={it.w / FT + 0.6} height={it.h / FT + 0.6} fill="none" stroke="#c2410c" strokeWidth={0.25} strokeDasharray="0.5 0.3" />}
         </g>
       ))}

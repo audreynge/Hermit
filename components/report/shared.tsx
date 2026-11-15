@@ -1,6 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { getJSON, setJSON } from "@/lib/client/persist";
+import type { Placed } from "@/lib/furnish/ops";
+import { migrate, type Footprint } from "@/lib/furnish/plan";
 import type { MoneyInputs } from "@/lib/money";
 import type { Evidence, RequirementSpec, ShellReport } from "@/lib/types";
 
@@ -28,5 +30,20 @@ export function moneyDefaults(spec: RequirementSpec, report: ShellReport): Money
 
 export const useMoney = (spec: RequirementSpec, report: ShellReport) => usePersisted<MoneyState>(`hermit:money:${report.shellId}`, moneyDefaults(spec, report));
 
-export type PlacedItem = { id: string; roomId: string; type: string; x: number; y: number; w: number; h: number }; // meters, scan coordinates
-export const useFurnished = (shellId: string) => usePersisted<PlacedItem[]>(`hermit:furnish:${shellId}`, []);
+export type PlacedItem = Footprint; // what the 2D plan draws: meters, scan coordinates
+
+// The furniture both the 2D plan and the 3D tour edit, saved per shell in this browser. A real React setter, so the
+// tour's functional updates (setItems((cur) => ...)) work. Older saves (2D placements, or the tour's own key under
+// the scan id) are converted on load.
+export function useFurnished(shellId: string, sid?: string): [Placed[], Dispatch<SetStateAction<Placed[]>>, boolean] {
+  const key = `hermit:furnish:${shellId}`;
+  const [items, setItems] = useState<Placed[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let v = migrate(getJSON<unknown>(key, []));
+    if (!v.length && sid && sid !== shellId) v = migrate(getJSON<unknown>(`hermit:furnish:${sid}`, []));
+    setItems(v); setLoaded(true);
+  }, [key, sid, shellId]);
+  useEffect(() => { if (loaded) setJSON(key, items); }, [key, items, loaded]);
+  return [items, setItems, loaded];
+}

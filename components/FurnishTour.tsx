@@ -4,8 +4,7 @@
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Info, Layers, Loader, LocateFixed, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Send, Sofa, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { load, save } from "@/lib/client/store";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
 import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
@@ -17,7 +16,11 @@ import { Mic } from "./Voice";
 type Room = NonNullable<View["room"]>;
 type Status = "searching" | "loading" | "ready" | "none" | "failed";
 type Tab = "suggested" | "placed" | "search";
-type Stop = { label: string; index: number };
+type Stop = { label: string; sweepId: string; yaw?: number };
+/** Where to stand: a sweep id, optionally facing `yaw` (SDK degrees). `n` changes on every request so repeats still move. */
+export type TourTarget = { sweepId: string; yaw?: number; n: number };
+/** Lets a parent (the Inside & furnish tab) send furniture requests through the tour and read where the user is. */
+export type TourHandle = { send: (text: string) => Promise<string>; room: () => string | undefined; ready: () => boolean };
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
@@ -38,7 +41,12 @@ const M_PER_FT = 0.3048;
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function FurnishTour({ report, use, stop, stops, onFail }: { report: ShellReport; use: string; stop?: number; stops: Stop[]; onFail: () => void }) {
+export function FurnishTour({ report, use, stop, stops, onFail, items, setItems, chat = true, handle }: {
+  report: ShellReport; use: string; stop?: TourTarget; stops: Stop[]; onFail: () => void;
+  items: Placed[]; setItems: Dispatch<SetStateAction<Placed[]>>; // shared with the 2D plan
+  chat?: boolean; // false: the parent shows the prompt and calls handle.send
+  handle?: MutableRefObject<TourHandle | null>;
+}) {
   const sid = report.inside!.sid;
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
@@ -48,7 +56,6 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   const floorY = useRef(0), pointer = useRef<Vec | undefined>(undefined); // last floor spot under the cursor ("here")
   const lookingUp = useRef(new Set<string>());
   const [ready, setReady] = useState(false);
-  const [items, setItems] = useState<Placed[]>(() => load<Placed[]>(`hermit:furnish:${sid}`, "local") ?? []);
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [candidates, setCandidates] = useState<Record<string, Model[]>>({});
   const [selected, setSelected] = useState<string | undefined>();
@@ -131,14 +138,16 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     return () => { dead = true; clearTimeout(timeout); scene.current?.destroy(); scene.current = null; viewer.current?.remove(); };
   }, [sid, report.floorplan, onFail, onLoad]);
 
-  useEffect(() => { scene.current?.sync(items, selected); save(`hermit:furnish:${sid}`, items, "local"); }, [items, selected, sid, ready]);
+  useEffect(() => { scene.current?.sync(items, selected); }, [items, selected, ready]);
   useEffect(() => { setPopover(null); }, [selected]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t); }, [toast]);
-  const goTo = useCallback((index: number) => {
-    const id = report.floorplan?.rooms.flatMap((r) => r.sweeps ?? []).find((s) => s.index === index)?.id;
-    if (id) sdk.current?.Sweep.moveTo(id).catch(() => null);
-  }, [report.floorplan]);
-  useEffect(() => { if (ready && stop != null) goTo(stop); }, [stop, ready, goTo]);
+  // Stand at a sweep and, when the room has no camera spot inside it, turn to face it.
+  const goTo = useCallback((sweepId: string, yaw?: number) => {
+    const s = sdk.current;
+    if (!s) return;
+    s.Sweep.moveTo(sweepId, { ...(yaw != null && { rotation: { x: 0, y: yaw } }), transition: s.Sweep.Transition.FLY }).catch(() => null);
+  }, []);
+  useEffect(() => { if (ready && stop) goTo(stop.sweepId, stop.yaw); }, [stop, ready, goTo]);
 
   // Suggestions for the room the user is standing in (one cached Gemini call per use + room); "space" when unknown.
   const roomLabel = room?.label ?? "space", roomId = room?.id;
@@ -384,20 +393,32 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     };
   }, [ready, measuring, apply, makeView]);
 
-  async function send(t = text) {
+  // "Add a table to this room": the assistant (or the offline parser) picks ops, this code applies them where the user is.
+  async function send(t = text): Promise<string> {
     const message = t.trim();
-    if (!message || busy || !ready) return;
+    if (!message || busy || !ready) return ready ? "" : "The 3D tour is still loading. Try again in a moment.";
     setText(""); setBusy(true);
+    let reply: string;
     try {
+      const { items, selected, room } = state.current;
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
         text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: room?.label, suggestions,
       });
       const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
-      setToast(!r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`);
+      reply = !r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`;
     } catch {
-      setToast("Something went wrong reaching the assistant. Try again, or use the tray.");
+      reply = "Something went wrong reaching the assistant. Try again, or use the tray.";
     } finally { setBusy(false); }
+    setToast(reply);
+    return reply;
   }
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    if (!handle) return;
+    handle.current = { send: (t) => sendRef.current(t), room: () => state.current.room?.label, ready: () => !!sdk.current && !!scene.current };
+    return () => { handle.current = null; };
+  }, [handle]);
 
   async function runSearch(terms: string[], name: string) {
     setTab("search"); setTrayOpen(true); setResults(null);
@@ -464,12 +485,14 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
 
         <div className="furnish-tray" data-open={trayOpen}>
           {toast && <p className="furnish-toast" role="status">{toast}</p>}
-          <form className="furnish-chat" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+          <form className="furnish-chat" data-compact={!chat || undefined} onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <button type="button" className="icon-btn" aria-label={trayOpen ? "Hide the furniture tray" : "Show the furniture tray"} aria-expanded={trayOpen} onClick={() => setTrayOpen(!trayOpen)}>{trayOpen ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}</button>
-            <label className="sr-only" htmlFor="furnish-text">Tell me what to place</label>
-            <input id="furnish-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Furnish this ${label}: "put a stove here", "make it navy"…`} maxLength={500} disabled={!ready} />
-            <Mic disabled={!ready || busy} onText={(t) => void send(t)} />
-            <button type="submit" className="icon-btn" aria-label="Send" disabled={!ready || busy || !text.trim()}>{busy ? <Loader aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
+            {chat ? <>
+              <label className="sr-only" htmlFor="furnish-text">Tell me what to place</label>
+              <input id="furnish-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Try: "add a table to this ${label === "space" ? "room" : label}", "make it navy"`} maxLength={500} disabled={!ready} />
+              <Mic disabled={!ready || busy} onText={(t) => void send(t)} />
+              <button type="submit" className="icon-btn" aria-label="Send" disabled={!ready || busy || !text.trim()}>{busy ? <Loader aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
+            </> : <span className="muted small">Furniture tray</span>}
           </form>
           {trayOpen && (
             <div className="furnish-shelf">
@@ -497,9 +520,9 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
                   {stops.length > 0 && (
             <label className="furnish-room">
               <span className="sr-only">Jump to a room</span>
-              <select defaultValue="" onChange={(e) => goTo(Number(e.target.value))} disabled={!ready}>
+              <select defaultValue="" onChange={(e) => { const s = stops[Number(e.target.value)]; if (s) goTo(s.sweepId, s.yaw); }} disabled={!ready}>
                 <option value="" disabled>Jump to a room…</option>
-                {stops.map((s) => <option key={`${s.label}-${s.index}`} value={s.index}>{s.label}</option>)}
+                {stops.map((s, i) => <option key={`${s.label}-${s.sweepId}`} value={i}>{s.label}</option>)}
               </select>
             </label>
           )}

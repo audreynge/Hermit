@@ -10,7 +10,8 @@ const Z = 16, SPAN = 5 * 256;
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
 const world = (lat: number, lon: number) => { const t = tileFor(lat, lon, Z); return { x: (t.x + t.fx) * 256, y: (t.y + t.fy) * 256 }; };
 
-export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteFile | null }) {
+// `heat` false: the plain address map (homes, warehouses, offices don't depend on walk-ins).
+export function FootHeatmap({ report, site, heat = true }: { report: ShellReport; site: SiteFile | null; heat?: boolean }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [hour, setHour] = useState(12);
@@ -31,15 +32,19 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
   const t = pt ? tileFor(pt.lat, pt.lon, Z) : null;
   const c = pt ? world(pt.lat, pt.lon) : null;
   const ox = t ? 2 * 256 + t.fx * 256 : 0, oy = t ? 2 * 256 + t.fy * 256 : 0;
+  // Heat sources come from the server (places + job blocks); older payloads only have places.
+  const spots = heat ? (site?.heat ?? (site?.pois ?? []).map((p) => ({ lat: p.lat, lon: p.lon, w: 0.8 }))) : [];
+  const fed = site?.heatSources?.length ? site.heatSources : site?.pois?.length ? ["nearby places (OpenStreetMap)"] : [];
+  const why = !site ? "No coordinates or neighborhood data for this space, so no heat is shown." : "No nearby places or job blocks in the cached city data, so no heat is shown.";
 
   return (
     <>
     {open && <div className="heat-backdrop" onClick={() => setOpen(false)} />}
-    <section className={`heat-card${open ? " open" : ""}`} aria-label="Estimated foot traffic map" role={open ? "dialog" : undefined} aria-modal={open || undefined}>
+    <section className={`heat-card${open ? " open" : ""}`} aria-label={heat ? "Estimated foot traffic map" : "Street map of the location"} role={open ? "dialog" : undefined} aria-modal={open || undefined}>
       <header className="heat-head">
         <div>
-          <h3>Foot traffic by time of day</h3>
-          <p className="muted">Estimated foot traffic, based on nearby places and typical busyness.</p>
+          <h3>{heat ? "Foot traffic by time of day" : "Location"}</h3>
+          <p className="muted">{heat ? `Proxy, not a foot count: ${fed.length ? fed.join(" + ") : "nearby activity"} + typical busyness by hour.` : "Street map around the address."}</p>
         </div>
         {open && <button ref={closeBtn} type="button" className="btn small" onClick={() => setOpen(false)}>Close</button>}
         <button ref={expandBtn} type="button" className="btn small" hidden={open} aria-expanded={open} onClick={() => setOpen(true)}>Expand</button>
@@ -51,7 +56,7 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
           <p className="heat-empty">Finding the location...</p>
         ) : (
           <>
-            <div className="heat-world" style={{ width: SPAN, height: SPAN, marginLeft: -ox, marginTop: -oy }} role="img" aria-label={`Street map near ${report.address} with estimated foot traffic at ${hourLabel(hour)}`}>
+            <div className="heat-world" style={{ width: SPAN, height: SPAN, marginLeft: -ox, marginTop: -oy }} role="img" aria-label={heat ? `Street map near ${report.address} with estimated foot traffic at ${hourLabel(hour)}` : `Street map near ${report.address}`}>
               {Array.from({ length: 25 }, (_, i) => {
                 const dx = (i % 5) - 2, dy = Math.floor(i / 5) - 2;
                 return (
@@ -69,9 +74,9 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
                   </radialGradient>
                 </defs>
                 <g opacity={0.15 + 0.85 * busy}>
-                  {(site?.pois ?? []).map((p, i) => {
+                  {spots.map((p, i) => {
                     const w = world(p.lat, p.lon);
-                    return <circle key={i} cx={ox + w.x - c.x} cy={oy + w.y - c.y} r={30 + 40 * busy} fill={`url(#${id}-g)`} />;
+                    return <circle key={i} cx={ox + w.x - c.x} cy={oy + w.y - c.y} r={(30 + 40 * busy) * (0.6 + 0.4 * p.w)} opacity={Math.min(1, p.w)} fill={`url(#${id}-g)`} />;
                   })}
                 </g>
                 <g transform={`translate(${ox - 16} ${oy - 40}) scale(1.35)`}>
@@ -81,11 +86,11 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
               </svg>
             </div>
             <span className="heat-note">Approximate location{byAddress ? " · Location checked by address" : ""}</span>
-            {!site?.pois?.length && <span className="heat-note heat-note-b">No nearby places on record, so no heat is shown.</span>}
+            {heat && !spots.length && <span className="heat-note heat-note-b">{why}</span>}
           </>
         )}
       </div>
-      <div className="heat-controls">
+      {heat && <div className="heat-controls">
         <div role="group" aria-label="Time of day" className="heat-chips">
           {CHIPS.map(([l, h]) => <button key={l} type="button" className="btn small" aria-pressed={hour === h} onClick={() => setHour(h)}>{l}</button>)}
         </div>
@@ -93,7 +98,7 @@ export function FootHeatmap({ report, site }: { report: ShellReport; site: SiteF
           <span>{hourLabel(hour)}: <b>{busy < 0.34 ? "Quiet" : busy < 0.67 ? "Steady" : "Busy"}</b></span>
           <input type="range" min={0} max={23} step={1} value={hour} aria-valuetext={hourLabel(hour)} onChange={(e) => setHour(Number(e.target.value))} />
         </label>
-      </div>
+      </div>}
     </section>
     </>
   );

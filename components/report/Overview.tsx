@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, HelpCircle, XCircle } from "
 import { competitors, customers, errands, gettingAround, neighbors } from "@/lib/neighborhood/summarize";
 import type { RuleHit, RuleStatus } from "@/lib/types";
 import { FootHeatmap } from "../FootHeatmap";
+import { showsFootTraffic } from "@/lib/neighborhood/relevance";
 import type { ReportCtx } from "./ShellReportPage";
 
 const ICON: Record<RuleStatus, { Icon: typeof CheckCircle2; word: string }> = {
@@ -134,7 +135,7 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
       </Section>
 
       <Section id="ov-where" title="Where it is" lead={report.address || undefined}>
-        <FootHeatmap report={report} site={site} />
+        <FootHeatmap report={report} site={site} heat={showsFootTraffic(spec.mode, use, spec.useType)} />
       </Section>
 
       <Section id="ov-nb" title="Neighborhood">

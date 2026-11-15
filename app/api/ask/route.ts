@@ -3,6 +3,7 @@ import { z } from "zod";
 import { loadRun } from "@/lib/agent/replay";
 import { generateJSON, hasGemini, type Content } from "@/lib/llm/gemini";
 import { cleanWording } from "@/lib/llm/wording";
+import { enrichSite } from "@/lib/neighborhood/build";
 import { loadSite } from "@/lib/neighborhood/load";
 
 export const runtime = "nodejs";
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
   const run = await loadRun(runId);
   const r = run?.events.flatMap((e) => (e.type === "report" ? e.reports : [])).find((x) => x.shellId === shellId);
   if (!r) return NextResponse.json({ answer: "I can't find this report on the server, so I can't answer about it.", followUp: null });
-  const site = r.inside?.sid ? loadSite(r.inside.sid) : null;
+  const site = enrichSite(r.inside?.sid ? loadSite(r.inside.sid) : null, r.above?.lat, r.above?.lon, run?.spec.city);
   const facts = {
     name: r.name, address: r.address, measuredSqft: r.floorplan ? Math.round(r.floorplan.totalAreaSqft) : null,
     rooms: r.fit.assignment.map((a) => ({ yourRoom: a.req, scanRoom: r.floorplan?.rooms.find((x) => x.id === a.roomId)?.rawTags.join("/") || (a.roomId ? "unlabeled measured room" : "not built"), sqft: Math.round(r.floorplan?.rooms.find((x) => x.id === a.roomId)?.areaSqft ?? 0) })),

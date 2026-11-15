@@ -1,5 +1,5 @@
 "use client";
-import { ArrowLeft, Box, Compass, FileSignature, Heart, LayoutDashboard, MapPinned, MessagesSquare } from "lucide-react";
+import { ArrowLeft, Box, FileSignature, Heart, LayoutDashboard, MapPinned, MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,8 +9,7 @@ import type { SiteFile } from "@/lib/neighborhood/types";
 import type { RequirementSpec, ShellReport, TraceEvent } from "@/lib/types";
 import { Journey } from "../studio/Journey";
 import { Broker } from "./Broker";
-import { Furnish } from "./Furnish";
-import { Inside } from "./Inside";
+import { InsideFurnish } from "./InsideFurnish";
 import { Lease } from "./Lease";
 import { Neighborhood } from "./Neighborhood";
 import { Overview } from "./Overview";
@@ -21,19 +20,18 @@ export type ReportCtx = {
   challenge: Extract<TraceEvent, { type: "challenge" }> | null; plan: { steps: PlanStep[]; total: [number, number] };
   go: (tab: TabId | string) => void;
 };
-export type TabId = "overview" | "inside" | "furnish" | "neighborhood" | "lease" | "broker";
+export type TabId = "overview" | "inside" | "neighborhood" | "lease" | "broker";
 
 const TABS: { id: TabId; label: string; Icon: typeof Box }[] = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
-  { id: "inside", label: "Inside", Icon: Box },
-  { id: "furnish", label: "Furnish", Icon: Compass },
+  { id: "inside", label: "Inside & furnish", Icon: Box },
   { id: "neighborhood", label: "Neighborhood", Icon: MapPinned },
   { id: "lease", label: "Lease coach", Icon: FileSignature },
   { id: "broker", label: "Talk to your broker", Icon: MessagesSquare },
 ];
-const LEGACY: Record<string, TabId> = { rules: "overview", money: "overview", questions: "broker", packet: "broker" };
+const LEGACY: Record<string, TabId> = { furnish: "inside", rules: "overview", money: "overview", questions: "broker", packet: "broker" };
 const toTab = (t?: string | null): TabId => (t && (LEGACY[t] ?? TABS.find((x) => x.id === t)?.id)) || "overview";
-const PANELS = { overview: Overview, inside: Inside, furnish: Furnish, neighborhood: Neighborhood, lease: Lease, broker: Broker };
+const PANELS = { overview: Overview, inside: InsideFurnish, neighborhood: Neighborhood, lease: Lease, broker: Broker };
 
 export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: string }) {
   const { report, runId, spec } = props;
