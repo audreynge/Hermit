@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkRoom, panosByRoom } from "./look";
+import { QuotaExhaustedError, checkRoom, panosByRoom } from "./look";
 import { loadPanoCheck, loadPanoChecks } from "./pano";
 
 const sq = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -92,6 +92,74 @@ describe("checkRoom", () => {
     expect(out[0]).toMatchObject({ result: "unclear", note: "No scan photo was taken inside this room." });
     expect(out[0].image).toBeUndefined();
     expect(calls.some((u) => u.includes("generativelanguage"))).toBe(false);
+  });
+});
+
+describe("checkRoom robustness", () => {
+  // Matterport hands out a new URL version on every query; `expired` versions answer 410. Gemini answers come from a list.
+  function stub({ expired = [] as number[], gemini = [] as Response[] }) {
+    let version = 0;
+    const calls: string[] = [];
+    const face = sharp({ create: { width: 64, height: 64, channels: 3, background: "#ccc" } }).jpeg().toBuffer();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(String(url));
+      if (String(url).includes("api.matterport.com")) {
+        version++;
+        return new Response(JSON.stringify({ data: { model: { panoLocations: [
+          { id: "pA", position: { x: 1.5, y: 1.5, z: 1.3 }, skyboxes: [{ resolution: "2k", status: "available", children: [0, 1, 2, 3, 4, 5].map((i) => `https://cdn.test/v${version}/${i}.jpg`) }] },
+        ] } } }));
+      }
+      if (String(url).startsWith("https://cdn.test/")) {
+        const v = Number(/\/v(\d+)\//.exec(String(url))?.[1]);
+        return expired.includes(v) ? new Response("gone", { status: 410 }) : new Response(new Uint8Array(await face));
+      }
+      if (String(url).includes("generativelanguage")) return gemini.shift() ?? new Response("{}", { status: 500 });
+      return new Response("nope", { status: 404 });
+    }));
+    return calls;
+  }
+  const ok = (answer: object) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] }));
+  const answer = { walls_visible: "all", features: [{ feature: "sink", result: "not_seen", image: 0, box_2d: [], note: "No sink." }] };
+
+  it("re-queries fresh skybox URLs once when a signed URL has expired", async () => {
+    writeGraph("sidExp");
+    const calls = stub({ expired: [1], gemini: [ok(answer)] });
+    const out = await checkRoom("sidExp", "exam1", ["sink"]);
+    expect(out[0]).toMatchObject({ result: "not_seen", panoId: "pA" });
+    expect(calls.filter((u) => u.includes("api.matterport.com"))).toHaveLength(2);
+    expect(calls.filter((u) => u.includes("/v2/"))).toHaveLength(4);
+  });
+
+  it("throws and writes nothing when URLs keep expiring, so a rerun retries the room", async () => {
+    writeGraph("sidExp2");
+    stub({ expired: [1, 2] });
+    await expect(checkRoom("sidExp2", "exam1", ["sink"])).rejects.toThrow(/skybox 410/);
+    expect(loadPanoChecks("sidExp2")).toEqual([]);
+  });
+
+  it("waits out a per-minute 429 and then answers", async () => {
+    writeGraph("sid429");
+    const limited = new Response(JSON.stringify({ error: { code: 429, message: "Resource exhausted", details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "0s" }] } }), { status: 429 });
+    const calls = stub({ gemini: [limited, ok(answer)] });
+    const out = await checkRoom("sid429", "exam1", ["sink"]);
+    expect(out[0].result).toBe("not_seen");
+    expect(calls.filter((u) => u.includes("generativelanguage"))).toHaveLength(2);
+  });
+
+  it("stops on a daily-quota 429 without retrying or writing", async () => {
+    writeGraph("sidDay");
+    const daily = new Response(JSON.stringify({ error: { code: 429, message: "You exceeded your current quota", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }), { status: 429 });
+    const calls = stub({ gemini: [daily, ok(answer)] });
+    await expect(checkRoom("sidDay", "exam1", ["sink"])).rejects.toBeInstanceOf(QuotaExhaustedError);
+    expect(calls.filter((u) => u.includes("generativelanguage"))).toHaveLength(1);
+    expect(loadPanoChecks("sidDay")).toEqual([]);
+  });
+
+  it("throws on an empty model answer instead of saving unclear", async () => {
+    writeGraph("sidEmpty");
+    stub({ gemini: [new Response(JSON.stringify({ candidates: [{ finishReason: "SAFETY" }] }))] });
+    await expect(checkRoom("sidEmpty", "exam1", ["sink"])).rejects.toThrow(/no answer/);
+    expect(loadPanoChecks("sidEmpty")).toEqual([]);
   });
 });
 
