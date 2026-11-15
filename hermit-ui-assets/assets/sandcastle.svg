@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 100" fill="none" role="img" aria-label="Small sandcastle">
+<path d="M12 87V57h12V42h18V27h28v15h18v15h12v30Z" fill="#F2C58E" stroke="#DEAD78" stroke-width="2"/>
+<path d="M12 57v-8h9v8m21-15v-8h9v8m10 0v-8h9v8m18 15v-8h9v8" stroke="#DEAD78" stroke-width="4"/>
+<path d="M47 87V68a9 9 0 0 1 18 0v19" fill="#DDA672"/>
+<path d="M56 28V8" stroke="#BA7256" stroke-width="2"/><path d="M57 8 79 16 57 24Z" fill="#FB6A4A"/>
+</svg>

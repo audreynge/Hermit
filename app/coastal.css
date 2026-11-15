@@ -1,0 +1,204 @@
+/* Coastal redesign (hermit-ui-assets): home hero and the Find a space chat/results page.
+   Loaded after the older sheets so these rules win. Colors come from the app tokens so dark mode keeps working;
+   the package's tokens.css/animations.css (imported in layout) supply keyframes, motion classes and the loader track. */
+:root {
+  --cta: #cf4127; --cta-hover: #b5381f; --on-cta: #fff;   /* white text passes 4.5:1 on both */
+  --display-accent: #e95c3e;                                /* large headline text only (3:1) */
+  --soft-shadow: 0 8px 24px rgb(84 52 39 / 0.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --cta: #ff9d85; --cta-hover: #ffb6a3; --on-cta: #1a2028; --display-accent: #ff9d85; --soft-shadow: 0 8px 24px rgb(0 0 0 / 0.3); }
+}
+:root[data-theme="dark"] { --cta: #ff9d85; --cta-hover: #ffb6a3; --on-cta: #1a2028; --display-accent: #ff9d85; --soft-shadow: 0 8px 24px rgb(0 0 0 / 0.3); }
+
+/* Package motion: let the hover lift win once the entrance animation has finished. */
+.hermit-enter.hermit-interactive { animation-fill-mode: backwards; }
+:root[data-theme="dark"] .hermit-shimmer { background-image: linear-gradient(105deg, var(--sand-2) 24%, var(--sand-3) 40%, var(--sand-2) 56%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hermit-shimmer { background-image: linear-gradient(105deg, var(--sand-2) 24%, var(--sand-3) 40%, var(--sand-2) 56%); } }
+html[data-motion="reduced"] :is(.hermit-crab-motion, .hermit-starfish-motion, .beach-crab, .sea-shimmer, .wave-drift, .water-shimmer, .run-crab, .run-dust span, .think-list li svg, .typing span) { animation: none; }
+
+/* ---------- Home: the beach picture fills the window; copy and the three paths sit on it ---------- */
+.beach-scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #fdf4ee; }
+/* Same proportions as the background (1672×941) and sized like background-size: cover, so props placed in % stay on their spot of sand. */
+.beach-stage { position: absolute; left: 50%; top: 50%; width: max(100vw, calc(100vh * 1672 / 941)); aspect-ratio: 1672 / 941; transform: translate(-50%, -50%);
+  background: url("/hermit-assets/beach/hero-bg.webp") center / 100% 100% no-repeat; }
+.beach-stage > * { position: absolute; height: auto; }
+.beach-crab { left: 77%; top: 47.2%; width: 8.4%; transform-origin: 50% 90%; animation: hermit-crab-bob 4s ease-in-out infinite; }
+.beach-shadow { left: 78%; top: 55.6%; width: 9.6%; height: 2.6%; border-radius: 50%; background: radial-gradient(closest-side, rgb(190 112 80 / 0.32), transparent); }
+.beach-shell { left: 68.96%; top: 57.4%; width: 3.95%; animation-delay: -2.5s; }
+.beach-rock { left: 73.56%; top: 60.5%; width: 3.59%; }
+.beach-steps { left: 87.02%; top: 50.8%; width: 7.78%; fill: #e59f80; opacity: 0.7; }
+.beach-wave { left: 65%; top: 91.6%; width: 37%; }
+/* Light glinting across the open water, clipped to the sea above the shoreline. */
+.sea-shimmer { inset: 0; height: 100%; opacity: 0.6; mix-blend-mode: screen;
+  clip-path: polygon(30% 32.3%, 100% 32.3%, 100% 37.5%, 95.5% 38.5%, 90.4% 40.5%, 85.4% 41.5%, 80.4% 44%, 75.4% 46.5%, 70.3% 49%, 65.3% 51%, 60.3% 51.5%, 55.2% 52.5%, 50.2% 53.5%, 45.2% 53.5%, 40.2% 52.5%, 35% 48%, 30% 44%);
+  background: radial-gradient(ellipse 22px 1.6px, rgb(255 255 255 / 0.95), transparent) 0 0 / 150px 26px, radial-gradient(ellipse 34px 2px, rgb(255 255 255 / 0.7), transparent) 70px 13px / 230px 38px;
+  animation: sea-glint 18s linear infinite, hermit-foam-breathe 6s ease-in-out infinite; }
+@keyframes sea-glint { to { background-position: -600px 0, 760px 13px; } }
+.wave-drift { animation: wave-drift 18s ease-in-out infinite; }
+@keyframes wave-drift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-1.5%, 3%); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .beach-scene::after { content: ""; position: absolute; inset: 0; background: rgb(17 21 26 / 0.72); } }
+:root[data-theme="dark"] .beach-scene::after { content: ""; position: absolute; inset: 0; background: rgb(17 21 26 / 0.72); }
+
+main:has(> .hero) { max-width: none; padding-inline: 4vw; } /* the reference runs the cards edge to edge */
+.hero { display: grid; gap: clamp(40px, 10vh, 100px); padding-block: clamp(28px, 9vh, 100px) 120px; }
+.hero-copy { position: relative; padding-left: 3.6vw; }
+.hero h1 { position: relative; width: fit-content; font-size: clamp(44px, 4.65vw, 80px); font-weight: 800; line-height: 1.04; letter-spacing: -0.03em; }
+.hero h1 em { font-style: normal; color: var(--display-accent); }
+.hero h1 .sparks { position: absolute; left: -0.78em; top: -0.62em; width: 0.68em; height: 0.68em; margin: 0; }
+.hero-sub { margin: 18px 0 44px; max-width: 24em; font-size: clamp(18px, 1.55vw, 26px); font-weight: 500; line-height: 1.35; color: var(--ink-soft); }
+.hero-form { display: flex; align-items: center; gap: 12px; width: min(100%, 880px, 60vw); padding: 8px 8px 8px 26px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); box-shadow: 0 16px 40px rgb(84 52 39 / 0.1); }
+.hero-form:focus-within { outline: 3px solid var(--focus); outline-offset: 3px; }
+.hero-form-icon { width: 28px; height: 28px; flex: none; color: var(--ink); }
+.hero-form input { flex: 1; min-width: 0; min-height: 56px; border: 0; background: none; font: inherit; font-size: 19px; color: var(--ink); }
+.hero-form input:focus { outline: none; }
+.hero-form button { display: inline-flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 34px; border: 0; border-radius: 999px; background: var(--cta); color: var(--on-cta); font: inherit; font-size: 20px; font-weight: 600; cursor: pointer; transition: background-color 200ms var(--hermit-ease); }
+.hero-form button:hover { background: var(--cta-hover); }
+.hero-form button svg { width: 24px; height: 24px; }
+
+.hero-paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.hero-path { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 22px; padding: 30px 26px; border: 1px solid var(--line); border-radius: 22px; background: color-mix(in srgb, var(--card) 92%, transparent); box-shadow: var(--soft-shadow); color: var(--ink); text-decoration: none; }
+.hero-path-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: var(--coral-wash-2); color: var(--coral); }
+.hero-path-icon svg { width: 40px; height: 40px; }
+.hero-path-text { display: grid; gap: 8px; }
+.hero-path-text strong { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.hero-path-text span { font-size: 15px; line-height: 1.5; color: var(--ink-soft); }
+.hero-path-go { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--coral-wash-2); color: var(--coral); transition: transform 200ms var(--hermit-ease); }
+.hero-path:hover .hero-path-go { transform: translateX(3px); }
+.hero-path-go svg { width: 22px; height: 22px; }
+.hero-path:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+@media (max-width: 1100px) { .hero-paths { grid-template-columns: minmax(0, 1fr); } }
+/* Portrait screens: show the right side of the beach (crab, shore) low on the page; the copy sits on plain sand-colored sky. */
+@media (max-width: 760px) {
+  .beach-stage { width: 240vw; left: auto; right: -42vw; top: auto; bottom: 0; transform: none; }
+  .beach-scene::before { content: ""; position: absolute; inset: 0 0 auto; height: 62%; z-index: 1; background: linear-gradient(#fdf4ee 70%, transparent); }
+  .hero-copy { padding-left: 0; }
+  .hero h1 .sparks { display: none; }
+  .hero-form { width: 100%; flex-wrap: wrap; border-radius: 22px; padding: 8px; }
+  .hero-form-icon { margin-left: 12px; }
+  .hero-form button { flex: 1 1 100%; justify-content: center; }
+  .hero-path { grid-template-columns: auto minmax(0, 1fr); gap: 16px; padding: 20px; }
+  .hero-path-icon { width: 52px; height: 52px; border-radius: 14px; }
+  .hero-path-icon svg { width: 28px; height: 28px; }
+  .hero-path-go { display: none; }
+}
+
+/* ---------- Beach frame on the other pages ---------- */
+.decor > * { position: absolute; height: auto; }
+.decor-water-top { top: 0; right: 0; width: min(56vw, 940px); transform: translateY(-52%); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%); mask-image: linear-gradient(90deg, transparent, #000 18%); }
+.decor-water-top img { display: block; width: 100%; height: auto; }
+.water-shimmer { position: absolute; inset: 0; mix-blend-mode: screen; opacity: 0.55;
+  -webkit-mask: url("/hermit-assets/beach/water-top.webp") center / 100% 100% no-repeat; mask: url("/hermit-assets/beach/water-top.webp") center / 100% 100% no-repeat;
+  background: radial-gradient(ellipse 26px 1.6px, rgb(255 255 255 / 0.95), transparent) 0 0 / 140px 18px, radial-gradient(ellipse 40px 2px, rgb(255 255 255 / 0.7), transparent) 60px 9px / 220px 26px;
+  animation: water-glint 18s linear infinite; }
+@keyframes water-glint { to { background-position: -560px 0, 660px 9px; } }
+.decor-footer { left: 0; right: 0; bottom: 0; }
+.decor-sand { display: block; width: 100%; height: auto; }
+.decor-footer > img + img { position: absolute; height: auto; }
+.decor-wave { right: -3%; bottom: -12%; width: 36%; }
+/* The pack's water also laps in at the bottom-left corner, mirrored, under the starfish. */
+.decor-wave-left { left: -4%; bottom: -1%; width: 30%; transform: scaleX(-1); -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%); }
+.decor-wave-left.wave-drift { animation-name: wave-drift-left; }
+@keyframes wave-drift-left { 0%, 100% { transform: scaleX(-1) translate(0, 0); } 50% { transform: scaleX(-1) translate(-1.5%, 3%); } }
+.decor-starfish { left: 22px; bottom: 22px; width: 66px; }
+.decor-shell { right: 34px; bottom: 50px; width: 54px; animation-delay: -3.5s; }
+
+/* ---------- Find a space: chat ~42%, results ~58% ---------- */
+.studio-grid > * { min-width: 0; } /* long chat content wraps instead of widening the page */
+@media (min-width: 981px) { .studio-grid { grid-template-columns: minmax(340px, 0.72fr) minmax(0, 1fr); gap: 20px; } }
+.interview { border-radius: 28px; padding: 20px 20px 18px; }
+.msg .bubble { padding: 16px 20px; border-radius: 22px; font-size: 16px; line-height: 1.5; }
+.msg.hermit .bubble { background: var(--sea-tint); }
+.msg.user { padding-left: 44px; }
+.msg.user .bubble { background: var(--coral-wash-2); border: 1px solid var(--coral-wash); }
+.avatar.bot { width: 48px; height: 48px; background: var(--coral-wash-2); border-color: var(--coral-wash); }
+.avatar.bot img { width: 34px; }
+.composer { border-radius: 20px; padding: 8px 8px 8px 10px; }
+.send { width: 52px; height: 46px; border-radius: 14px; background: var(--cta); color: var(--on-cta); transition: background-color 200ms var(--hermit-ease); }
+.send:not([disabled]):hover { background: var(--cta-hover); }
+
+.spec-checklist { list-style: none; margin: 10px 0 0; padding: 14px 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); font-size: 15px; }
+.spec-checklist li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.spec-checklist svg { width: 18px; height: 18px; flex: none; color: var(--coral); }
+
+.search-progress { position: relative; display: grid; justify-items: center; gap: 12px; padding: 20px 24px 22px; border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(180deg, var(--card), var(--sand-1)); color: var(--ink); overflow: hidden; }
+/* Tan dunes along the bottom of the card, cut from the same beach picture as the page footer. */
+.search-progress::before, .search-progress::after { content: ""; position: absolute; bottom: 0; width: 46%; height: 52px; background: url("/hermit-assets/beach/beach-footer.webp") left bottom / auto 100% no-repeat; opacity: 0.9; pointer-events: none; }
+.search-progress::before { left: 0; -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent); mask-image: linear-gradient(90deg, #000 60%, transparent); }
+.search-progress::after { right: 0; transform: scaleX(-1); -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent); mask-image: linear-gradient(90deg, #000 60%, transparent); }
+.search-progress > * { position: relative; z-index: 1; }
+.run-track { position: relative; width: 220px; height: 74px; }
+.run-crab { position: absolute; left: 50%; bottom: 4px; width: 84px; height: auto; margin-left: -42px; animation: run-scoot 3.2s ease-in-out infinite alternate, run-hop 0.42s ease-in-out infinite; }
+@keyframes run-scoot { from { translate: -46px 0; } to { translate: 46px 0; } }
+@keyframes run-hop { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(2deg); } }
+.run-dust span { position: absolute; bottom: 10px; width: 7px; height: 7px; border-radius: 50%; background: #f2c3a6; animation: run-puff 1.6s ease-out infinite; }
+.run-dust span:nth-child(odd) { width: 5px; height: 5px; bottom: 16px; }
+.run-dust span:nth-child(1) { left: 6px; } .run-dust span:nth-child(2) { left: 24px; animation-delay: 0.2s; } .run-dust span:nth-child(3) { left: 40px; animation-delay: 0.4s; } .run-dust span:nth-child(4) { left: 54px; animation-delay: 0.6s; }
+.run-dust span:nth-child(5) { right: 54px; animation-delay: 0.8s; } .run-dust span:nth-child(6) { right: 40px; animation-delay: 1s; } .run-dust span:nth-child(7) { right: 24px; animation-delay: 1.2s; } .run-dust span:nth-child(8) { right: 6px; animation-delay: 1.4s; }
+@keyframes run-puff { 0% { opacity: 0; transform: scale(0.4); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px) scale(1.2); } }
+
+/* The crew's checks, always visible under the search message; the newest one pulses while it runs. */
+.think-list { margin-top: 10px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); font-size: 14px; color: var(--ink-soft); }
+.think-head { margin: 0 0 6px; font-weight: 700; color: var(--ink); }
+details.think-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; min-height: 28px; cursor: pointer; list-style: none; }
+details.think-list > summary::-webkit-details-marker { display: none; }
+.think-toggle { width: 18px; height: 18px; flex: none; color: var(--ink-soft); transition: transform 200ms var(--hermit-ease); }
+details.think-list[open] .think-toggle { transform: rotate(180deg); }
+details.think-list > summary:hover .think-toggle { color: var(--coral-ink); }
+details.think-list[open] > summary { margin-bottom: 6px; }
+.think-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.think-list li { display: flex; align-items: center; gap: 8px; }
+.think-list li svg { width: 15px; height: 15px; flex: none; color: var(--coral-ink); }
+.think-list li.warn svg { color: var(--fail); }
+.think-list li[data-live] { color: var(--ink); font-weight: 600; }
+.think-list li[data-live] svg { animation: think-pulse 1.2s ease-in-out infinite; }
+@keyframes think-pulse { 50% { opacity: 0.35; transform: scale(0.85); } }
+.typing span { width: 7px; height: 7px; background: var(--coral); animation: hermit-dot 1.2s infinite; }
+.search-progress strong { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 800; }
+.search-progress .hermit-progress-track { width: min(100%, 320px); height: 10px; background: var(--sand-2); }
+.search-steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 10px; font-size: 15px; }
+.search-steps li { display: flex; align-items: center; gap: 12px; color: var(--ink-soft); }
+.search-steps li[data-state="done"], .search-steps li[data-state="active"] { color: var(--ink); }
+.search-step-dot { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; border: 2px solid var(--line-strong); }
+.search-step-dot svg { width: 13px; height: 13px; }
+li[data-state="done"] .search-step-dot { background: var(--coral); border-color: var(--coral); color: #fff; }
+li[data-state="active"] .search-step-dot { border-style: dashed; border-color: var(--coral); animation: search-step-spin 2.4s linear infinite; }
+@keyframes search-step-spin { to { transform: rotate(360deg); } }
+
+/* Results: map on top, a two-up carousel of cards, page dots below. */
+.studio-right .results-card { container-type: inline-size; height: auto; max-height: none; border-radius: 28px; padding: 24px 22px 18px; }
+.results-head h2 { font-size: 30px; }
+.results-map { border-radius: 20px; }
+.results-map .map-box { height: clamp(240px, 34vh, 360px); }
+.results-empty { padding: 40px 20px; text-align: center; }
+.results-card > .hermit-skeleton-grid { margin: 0 4px; }
+.hermit-skeleton-card { background: var(--card); border-color: var(--line); }
+.results-list { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: calc((100% - 18px) / 2); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 6px 4px 12px; flex: none; }
+.results-list::-webkit-scrollbar { display: none; }
+.results-list > .space { scroll-snap-align: start; }
+@container (max-width: 560px) { .results-list { grid-auto-columns: 100%; } }
+@media (max-width: 760px) { .results-list { grid-auto-columns: 100%; } }
+.results-dots { display: flex; justify-content: center; gap: 2px; padding-top: 4px; }
+.results-dots button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; background: none; cursor: pointer; border-radius: 50%; }
+.results-dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); transition: background-color 200ms var(--hermit-ease); }
+.results-dots button[aria-current="true"]::before { background: var(--coral); }
+
+.space { border-radius: 20px; box-shadow: var(--soft-shadow); }
+.space-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.space h3 { font-size: 21px; min-width: 0; }
+.space-price { flex: none; font-size: 18px; font-weight: 800; color: var(--coral-ink); white-space: nowrap; }
+.space-pin { background: var(--card); color: var(--coral-ink); border: 2px solid var(--coral); }
+.space-actions .btn.primary { background: var(--cta); border-color: var(--cta); color: var(--on-cta); }
+.space-actions .btn.primary:hover { background: var(--cta-hover); border-color: var(--cta-hover); }
+
+/* The nav sits on the page so the top shoreline shows through it, as in the reference. */
+header.top { background: transparent; backdrop-filter: none; }
+
+/* Over a photo the Save pill stays light in both themes, so its text must stay dark. */
+.space-save { color: #3b2320; }
+.space-save[aria-pressed="true"] { color: #a23a23; }
+/* The beach art is drawn for a light page: on dark, keep it as a faint frame and drop the foam shimmer. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .decor { opacity: 0.35; } :root:not([data-theme="light"]) .water-shimmer { display: none; } }
+:root[data-theme="dark"] .decor { opacity: 0.35; }
+:root[data-theme="dark"] .water-shimmer { display: none; }

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 110" fill="none" role="img" aria-label="Friendly orange hermit crab mascot">
+<ellipse cx="64" cy="103" rx="44" ry="5" fill="#E6C3B2" opacity=".3"/>
+<path d="M33 76 17 91M47 84 36 99M83 84 95 99M96 76l16 15" stroke="#EE6146" stroke-width="9" stroke-linecap="round"/>
+<path d="M37 65C29 28 47 7 72 8C105 8 111 48 91 68" fill="#FFE6D5" stroke="#F1AF8F" stroke-width="4"/>
+<path d="M46 62C38 35 53 18 72 18C96 18 105 45 85 59" stroke="#F4B99D" stroke-width="6" stroke-linecap="round"/>
+<path d="M58 57C54 42 64 31 77 31C92 31 94 48 81 53" stroke="#F7CBAF" stroke-width="5" stroke-linecap="round"/>
+<ellipse cx="65" cy="78" rx="44" ry="25" fill="#FB6A4A"/>
+<path d="M26 80C11 67 5 83 17 94M105 80c15-13 22 4 10 14" stroke="#F5684A" stroke-width="10" stroke-linecap="round"/>
+<circle cx="52" cy="73" r="2.8" fill="#432D2A"/><circle cx="79" cy="73" r="2.8" fill="#432D2A"/><path d="M59 80q7 8 14 0" stroke="#432D2A" stroke-width="2" stroke-linecap="round"/><circle cx="43" cy="82" r="4" fill="#FFB69A"/><circle cx="88" cy="82" r="4" fill="#FFB69A"/>
+</svg>

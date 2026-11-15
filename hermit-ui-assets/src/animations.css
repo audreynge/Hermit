@@ -1,0 +1,27 @@
+/* Gentle brand motion. All purely decorative animations respect reduced motion. */
+@keyframes hermit-wave-drift { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+@keyframes hermit-foam-breathe { 0%,100% { opacity: .58; transform: translateY(0) } 50% { opacity: .85; transform: translateY(2px) } }
+@keyframes hermit-crab-bob { 0%,100% { transform: translateY(0) rotate(0deg) } 50% { transform: translateY(-4px) rotate(-1deg) } }
+@keyframes hermit-starfish-wiggle { 0%, 83%, 100% { transform: rotate(0deg) } 87% { transform: rotate(5deg) } 92% { transform: rotate(-4deg) } 96% { transform: rotate(2deg) } }
+@keyframes hermit-shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+@keyframes hermit-enter { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: translateY(0) } }
+@keyframes hermit-progress { from { background-position: 0 0 } to { background-position: 32px 0 } }
+@keyframes hermit-dot { 0%,80%,100% { opacity: .35; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-4px) } }
+.hermit-coastal-strip { position: absolute; inset: 0 0 auto auto; width: min(48vw, 760px); height: 76px; pointer-events: none; overflow: hidden; z-index: 0; }
+.hermit-coastal-strip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.hermit-footer-shore { position: absolute; inset: auto 0 0; height: 74px; pointer-events: none; overflow: hidden; z-index: 0; }
+.hermit-footer-shore img { width: 100%; height: 100%; display: block; }
+.hermit-water-motion { position: absolute; overflow: hidden; pointer-events: none; inset: 0; opacity: .34; }
+.hermit-water-motion::before { content: ''; position: absolute; width: 200%; height: 100%; background: repeating-linear-gradient(100deg, transparent 0 60px, rgba(255,255,255,.8) 65px 100px, transparent 112px 190px); background-size: 50% 100%; animation: hermit-wave-drift 18s linear infinite; }
+.hermit-crab-motion { transform-origin: center bottom; animation: hermit-crab-bob 4s ease-in-out infinite; }
+.hermit-starfish-motion { transform-origin: center; animation: hermit-starfish-wiggle 7s ease-in-out infinite; }
+.hermit-shimmer { background: linear-gradient(105deg,#F1E8E2 24%,#FFF8F1 40%,#F1E8E2 56%); background-size: 220% 100%; animation: hermit-shimmer 1.7s ease-in-out infinite; }
+.hermit-enter { animation: hermit-enter .48s var(--hermit-ease) both; }
+.hermit-progress-fill { background-image: repeating-linear-gradient(115deg, transparent, transparent 12px, rgba(255,255,255,.16) 12px, rgba(255,255,255,.16) 22px); background-size: 32px 100%; animation: hermit-progress 1.6s linear infinite; }
+.hermit-loading-dots { display: inline-flex; gap: 4px; align-items: center; }
+.hermit-loading-dots span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: hermit-dot 1.2s infinite; }
+.hermit-loading-dots span:nth-child(2) { animation-delay: .15s } .hermit-loading-dots span:nth-child(3) { animation-delay: .3s }
+.hermit-interactive { transition: transform .2s var(--hermit-ease),box-shadow .2s var(--hermit-ease),background-color .2s ease; }
+.hermit-interactive:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(84,52,39,.1); }
+.hermit-interactive:focus-visible { outline: 3px solid var(--hermit-ocean); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .hermit-water-motion::before,.hermit-crab-motion,.hermit-starfish-motion,.hermit-shimmer,.hermit-enter,.hermit-progress-fill,.hermit-loading-dots span { animation: none !important } .hermit-interactive { transition: none !important } }

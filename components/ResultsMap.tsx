@@ -10,7 +10,7 @@ const PAD = 36;
 const px = (lat: number, lon: number, z: number) => { const t = tileFor(lat, lon, z); return { x: (t.x + t.fx) * 256, y: (t.y + t.fy) * 256 }; };
 
 // Street map of the results with numbered pins in card order. Zoom auto-fits the pins to the box.
-export function ResultsMap({ reports, selected, onSelect }: { reports: ShellReport[]; selected: number; onSelect: (i: number) => void }) {
+export function ResultsMap({ reports, selected, onSelect, place }: { reports: ShellReport[]; selected: number; onSelect: (i: number) => void; place?: string }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
@@ -68,7 +68,7 @@ export function ResultsMap({ reports, selected, onSelect }: { reports: ShellRepo
 
   return (
     <details className="results-map" open>
-      <summary><MapPin aria-hidden="true" /> Map <span className="muted">· approximate locations{missing ? ` · ${missing} without coordinates` : ""}</span></summary>
+      <summary><MapPin aria-hidden="true" /> {place ?? "Map"} <span className="muted">· approximate locations{missing ? ` · ${missing} without coordinates` : ""}</span></summary>
       <div className="map-box" ref={setEl} role="group" aria-label="Map of matching spaces. Pins are approximate locations; each pin selects its card. Drag to move, pinch or Ctrl+scroll to zoom."
         onPointerDown={(e) => { if ((e.target as Element).closest("button")) return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { sx: e.clientX, sy: e.clientY, x: view.x, y: view.y }; }}
         onPointerMove={(e) => { const d = drag.current; if (d) setView((v) => ({ ...v, x: d.x + e.clientX - d.sx, y: d.y + e.clientY - d.sy })); }}

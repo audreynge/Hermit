@@ -21,6 +21,8 @@ import type { RequirementSpec, RoomReq, ShellReport, TraceEvent } from "@/lib/ty
 import { Interview, type ChatMsg } from "./Interview";
 import { CrewTrace } from "./CrewTrace";
 import { MatchingSpaces } from "./MatchingSpaces";
+import { SearchProgress } from "./SearchProgress";
+import { SpecChecklist } from "./SpecChecklist";
 import { LayoutPreview } from "../LayoutPreview";
 import { LayoutStudio } from "../LayoutStudio";
 import { Thinking } from "../Thinking";
@@ -362,7 +364,8 @@ export function Hermit() {
   const lastFit = useMemo(() => new Map(messages.filter((m) => m.fitout).map((m) => [m.fitout!, m.id])), [messages]);
   const lastThink = useMemo(() => [...messages].reverse().find((m) => m.thinking)?.id, [messages]);
   const extraFor = (m: ChatMsg) => {
-    if (m.id === lastThink && (running || events.length > 0)) return <Thinking steps={steps} running={running} />;
+    // The search's message restates the spec and lists the crew's checks; the running-crab loader sits above the composer.
+    if (m.id === lastThink && (running || events.length > 0)) return <><SpecChecklist spec={runSpec} /><Thinking steps={steps} running={running} /></>;
     if (m.compare?.length) return <Compare reports={m.compare} />;
     if (m.findings) return <div className="bubble"><RegulationList findings={m.findings} /></div>;
     if (m.blocks) return <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>;
@@ -387,7 +390,7 @@ export function Hermit() {
       </div>
       <div className="studio-grid">
         <Interview messages={messages} busy={busy} onSend={send} extra={extraFor}
-          placeholder={reports.length ? "Ask about a match, or “make it 3 exam rooms”" : undefined}
+          placeholder={reports.length ? "Ask about a match, change the size, or refine the area…" : undefined}
           top={!searched && (
             <div className="studio-progress">
               <span id="req-progress">Your requirements: {pct}%</span>
@@ -399,6 +402,7 @@ export function Hermit() {
             <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="sr-only" tabIndex={-1} aria-label="Floor plan file"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void upload(f); }} />
           </>}>
+          {running && <SearchProgress events={events} />}
           {cta && (
             <div className="cta-row">
               <button type="button" className="cta" onClick={() => search()}><Sparkles aria-hidden="true" /> See your matches</button>
