@@ -55,7 +55,7 @@ export function PacketDoc({ report, spec, runId, profile }: { report: ShellRepor
       <section><h3>What&apos;s left to build</h3>
         {report.work.length ? <ul>{report.work.map((w, i) => <li key={i}>{w.item} ({w.weeksLow} to {w.weeksHigh} weeks)</li>)}</ul> : <p>Nothing found in the scan.</p>}</section>
       <section><h3>Questions for the landlord</h3><ol>{picked.map((q) => <li key={q}>{q}</li>)}</ol></section>
-      <p className="small muted">Screening summary from public data and the 3D scan, ref {runId}. Not an inspection or a legal review.</p>
+      <p className="small muted packet-disclaimer">Screening summary from public data and the 3D scan, ref {runId}. Not an inspection or a legal review.</p>
     </article>
   );
 }

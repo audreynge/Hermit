@@ -50,10 +50,10 @@ function Section({ id, title, lead, children }: { id: string; title: string; lea
   );
 }
 
-export function Overview({ report, spec, plan, go }: ReportCtx) {
+const RANK: Record<RuleStatus, number> = { fail: 0, warn: 1, unknown: 2, pass: 3 };
+
+export function Overview({ report, spec, plan, challenge, go }: ReportCtx) {
   const home = spec.mode === "home";
-  const total = report.fit.assignment.length;
-  const toBuild = report.fit.assignment.filter((a) => !a.roomId);
   const licenses = home ? [] : plan.steps.filter((s) => s.who && !s.unknown);
   const a = report.access;
   // Route verdicts from the scan, so the heading can't say "All clear" above a blocked door or room.
@@ -61,44 +61,53 @@ export function Overview({ report, spec, plan, go }: ReportCtx) {
   const chair = a && (a.entry.status === "blocked" ? `The front door is too narrow for a ${a.chairIn[0]} inch wheelchair (about ${a.entry.clearIn?.toFixed(0)} inches clear).`
     : a.asScanned.some((r) => r.status === "blocked") ? `A wheelchair can reach ${a.asScanned.filter((r) => r.status === "reachable").length} of ${a.asScanned.length} rooms.` : null);
   const rules = report.rules.filter((r) => !(home && GROUPS[0].rules.includes(r.rule)));
-  const issues = rules.filter((r) => r.status !== "pass");
+  // Problems first, then things to check (permits with them), then unknowns.
+  const issues = rules.filter((r) => r.status !== "pass").sort((x, y) => RANK[x.status] - RANK[y.status]);
+  const fails = issues.filter((r) => r.status === "fail"), warns = issues.filter((r) => r.status === "warn"), unknowns = issues.filter((r) => r.status === "unknown");
   const passed = rules.length - issues.length;
   const price = report.listing?.price;
   const budget = report.listing?.kind === "sale" ? spec.budgetTotal : report.listing?.kind === "lease" ? spec.budgetMonthly : undefined;
+  // The worrying questions: the skeptic's concerns, then unknowns tied to a problem or a check, then the rest.
+  const flagged = issues.filter((r) => r.status !== "unknown").map((r) => r.rule.split("_")[0]);
+  const concerns = challenge?.shellId === report.shellId ? challenge.concerns.map((c) => `Can you tell me more about this? ${c}`) : [];
+  const unknownQs = [...report.unknowns].sort((x, y) => Number(!flagged.some((f) => x.topic.toLowerCase().includes(f))) - Number(!flagged.some((f) => y.topic.toLowerCase().includes(f)))).map((u) => u.question);
+  const questions = [...new Set([...concerns, ...unknownQs])].slice(0, 5);
+  const who = home ? "the landlord" : "your broker";
 
   return (
     <div className="ov">
-      <section className="ov-sec ov-verdict" aria-labelledby="ov-verdict">
-        <h2 id="ov-verdict">{report.verdict}</h2>
-        <p className="ov-lead">{report.summary}</p>
-        {price ? <p>{budget ? (price <= budget ? `$${price.toLocaleString()}, within your budget.` : `$${price.toLocaleString()}, over your $${budget.toLocaleString()} budget.`) : `Listed at $${price.toLocaleString()}.`}</p> : null}
-      </section>
+      <div className="ov-main">
+        <Section id="ov-rules" title={home ? "Can I live here?" : "Compliance"} lead={headline(rules, accessExtra)}>
+          {!home && spec.city === "houston" && <p>Houston has no zoning, so the main check is the lot&apos;s deed restrictions.</p>}
+          {chair && <p>{chair}</p>}
+          {(issues.length > 0 || licenses.length > 0) && <ul className="ov-rules">
+            {fails.map((r, i) => <RuleRow key={`f${i}`} r={r} />)}
+            {warns.map((r, i) => <RuleRow key={`w${i}`} r={r} />)}
+            {licenses.map((s, i) => (
+              <li key={`l${i}`} className="ov-rule" data-status="warn">
+                <AlertTriangle aria-hidden="true" className="ov-rule-icon" /><span className="sr-only">To do: </span>
+                <span><strong>{s.title}.</strong> Ask {s.who!.who}.</span>
+                <a href={s.who!.url} target="_blank" rel="noreferrer" className="ov-src">Who to ask<span className="sr-only">: {s.who!.who}</span> <ExternalLink aria-hidden="true" className="inline-icon" /></a>
+              </li>
+            ))}
+            {unknowns.map((r, i) => <RuleRow key={`u${i}`} r={r} />)}
+          </ul>}
+          {passed > 0 && <p className="muted">{plural(passed, "other check")} look fine.</p>}
+        </Section>
+      </div>
 
-      <Section id="ov-fit" title={home ? "Will my stuff fit?" : "Will it fit?"}
-        lead={!total ? "This space has no scan to measure." : toBuild.length ? `${total - toBuild.length} of ${total} rooms are already built. To build: ${toBuild.map((x) => x.req).join(", ")}.` : `All ${total} rooms you want are already built.`} />
-
-      <Section id="ov-rules" title={home ? "Can I live here?" : "Compliance"} lead={headline(rules, accessExtra)}>
-        {!home && spec.city === "houston" && <p>Houston has no zoning, so the main check is the lot&apos;s deed restrictions.</p>}
-        {chair && <p>{chair}</p>}
-        {issues.length > 0 && <ul className="ov-rules">{issues.map((r, i) => <RuleRow key={i} r={r} />)}</ul>}
-        {passed > 0 && <p className="muted">{plural(passed, "other check")} look fine.</p>}
-        {licenses.length > 0 && <>
-          <h3>Licenses and permits</h3>
-          <ul className="ov-rules">{licenses.map((s, i) => (
-            <li key={i} className="ov-rule" data-status="warn">
-              <AlertTriangle aria-hidden="true" className="ov-rule-icon" /><span className="sr-only">To do: </span>
-              <span><strong>{s.title}.</strong> Ask {s.who!.who}.</span>
-              <a href={s.who!.url} target="_blank" rel="noreferrer" className="ov-src">Who to ask<span className="sr-only">: {s.who!.who}</span> <ExternalLink aria-hidden="true" className="inline-icon" /></a>
-            </li>
-          ))}</ul>
-        </>}
-      </Section>
-
-      <Section id="ov-time" title={home ? "How soon can I move in?" : "How soon can I open?"} lead={`About ${plan.total[0]} to ${plan.total[1]} weeks.`}>
-        <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>{home ? "Talk to the landlord" : "Talk to your broker"}</button>
-      </Section>
-
-      <p className="muted small">Screening only: Hermit doesn&apos;t inspect, certify code status or promise availability.</p>
+      <aside className="ov-side">
+        <section className="ov-sec ov-verdict" aria-labelledby="ov-verdict">
+          <h2 id="ov-verdict">{report.verdict}</h2>
+          <p>{report.summary}</p>
+          {price ? <p>{budget ? (price <= budget ? `$${price.toLocaleString()}, within your budget.` : `$${price.toLocaleString()}, over your $${budget.toLocaleString()} budget.`) : `Listed at $${price.toLocaleString()}.`}</p> : null}
+        </section>
+        <Section id="ov-qs" title="Questions to ask" lead={questions.length ? undefined : "Nothing worrying is open right now."}>
+          {questions.length > 0 && <ul className="ov-qs">{questions.map((q) => <li key={q}><HelpCircle aria-hidden="true" className="ov-rule-icon" /> {q}</li>)}</ul>}
+          <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>{home ? "Talk to the landlord" : "Talk to your broker"}</button>
+          <p className="muted small">These go into your message to {who}.</p>
+        </Section>
+      </aside>
     </div>
   );
 }
