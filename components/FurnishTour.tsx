@@ -3,14 +3,15 @@
 // Drag items to move them; drag cards from the tray into the room to place them. Falls back (onFail) to the plain
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Send, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FlipVertical2, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Rotate3d, Ruler, RotateCcw, RotateCw, Search, Send, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
+import { migrate } from "@/lib/furnish/footprint";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
 import { layoutRoom, type Door, type PlanItem } from "@/lib/furnish/layout";
-import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { applyFurnishOps, dimensionLines, dims, dimsAs, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
 import { pointInPolygon } from "@/lib/geometry/polygon";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
@@ -51,6 +52,59 @@ const OPEN_SQFT = 430; // ~40 m²
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
+// Shutting a Matterport viewer down (leaving the tab, or before it finished starting) makes Showcase's own unload code
+// reject promises nobody awaits ("No Data was registered to the Module", "IAnalytics module unloaded"...). They can't be
+// caught from outside the vendored bundle, and each one is a page error and a dev "Issues" entry. So a viewer we stop
+// showing is parked instead: moved, still running, into a hidden holder, and handed back the next time that scan's
+// tour opens (which is also instant). Disconnecting the element runs its teardown list, so we take that list first and
+// only give it back when a viewer is really retired (more than MAX_PARKED scans opened this session, or it failed).
+type Viewer = MatterportViewer & { teardownMethods?: (() => void)[]; hermitTeardown?: (() => void)[]; hermitFailed?: boolean };
+const MAX_PARKED = 3;
+const parked = new Map<string, Viewer>(); // scan sid → viewer, oldest first
+let holder: HTMLDivElement | null = null;
+function retire(v: Viewer) {
+  const t = v.teardownMethods;
+  if (t && v.hermitTeardown?.length) t.unshift(...v.hermitTeardown.splice(0));
+  try { v.remove(); } catch { /* already detached */ }
+}
+function park(sid: string, v: Viewer) {
+  if (v.hermitFailed || typeof document === "undefined") return retire(v);
+  const t = v.teardownMethods;
+  if (t?.length) (v.hermitTeardown ??= []).push(...t.splice(0)); // moving it must not shut it down
+  if (!holder || !holder.isConnected) {
+    holder = document.createElement("div");
+    holder.hidden = true;
+    holder.setAttribute("aria-hidden", "true");
+    holder.style.display = "none";
+    document.body.append(holder);
+  }
+  const old = parked.get(sid);
+  if (old && old !== v) retire(old);
+  parked.delete(sid);
+  holder.append(v);
+  parked.set(sid, v);
+  for (const [k, x] of parked) { if (parked.size <= MAX_PARKED) break; parked.delete(k); retire(x); }
+}
+// Showcase adds a window "unload" listener (session analytics). Where the browser disallows unload (Chrome's unload
+// deprecation), that listener would never run and the call only logs "Permissions policy violation" as a console
+// error. Skip the registration in exactly that case, so behavior is unchanged.
+let unloadQuieted = false;
+function quietUnload() {
+  if (unloadQuieted || typeof window === "undefined") return;
+  unloadQuieted = true;
+  const policy = (document as Document & { featurePolicy?: { allowsFeature?: (f: string) => boolean } }).featurePolicy;
+  if (policy?.allowsFeature?.("unload") !== false) return;
+  const add = window.addEventListener.bind(window);
+  window.addEventListener = ((type: string, ...rest: [EventListenerOrEventListenerObject, (boolean | AddEventListenerOptions)?]) => {
+    if (type !== "unload") add(type, ...rest);
+  }) as typeof window.addEventListener;
+}
+function unpark(sid: string): Viewer | undefined {
+  const v = parked.get(sid);
+  parked.delete(sid);
+  if (v) { const t = v.teardownMethods; if (t?.length) (v.hermitTeardown ??= []).push(...t.splice(0)); }
+  return v;
+}
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
 export function FurnishTour({ report, use, stop, onFail, items: sharedItems, setItems: setSharedItems, chat = true, handle }: {
@@ -61,7 +115,7 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
 }) {
   const sid = report.inside!.sid;
   // Furniture is either shared with the parent (Inside & furnish tab) or kept here and saved per scan (property viewer).
-  const [ownItems, setOwnItems] = useState<Placed[]>(() => (sharedItems ? [] : load<Placed[]>(`hermit:furnish:${sid}`, "local") ?? []));
+  const [ownItems, setOwnItems] = useState<Placed[]>(() => (sharedItems ? [] : migrate(load<unknown>(`hermit:furnish:${sid}`, "local") ?? [])));
   const items = sharedItems ?? ownItems, setItems = setSharedItems ?? setOwnItems;
   useEffect(() => { if (!sharedItems) save(`hermit:furnish:${sid}`, ownItems, "local"); }, [sharedItems, ownItems, sid]);
   const host = useRef<HTMLDivElement>(null);
@@ -129,14 +183,14 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
   // and the item is re-seated so its new footprint stays inside its room.
   const withModel = useCallback((p: Placed, model: Model | null, size: Size = p.size, approxSize = p.approxSize): Placed => {
     const fitted = model?.bounds ? fitModel(model.bounds, size)?.fitted : undefined;
-    return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, fitted ?? size, p.rotY, makeView()) };
+    return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, dimsAs(p, fitted ?? size), p.rotY, makeView()) };
   }, [makeView]);
 
   // A model failed to load: try the item's next candidate, then settle on the box.
   const onLoad = useCallback((id: string, s: LoadState, fitted?: Size) => {
     if (s === "ready") {
       // Measured in the browser (no server bounds): record the rendered size so grabbing and walls use it.
-      if (fitted) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, fitted, pos: settle(x.pos, fitted, x.rotY, makeView()) } : x)));
+      if (fitted) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, fitted, pos: settle(x.pos, dimsAs(x, fitted), x.rotY, makeView()) } : x)));
       setStatus((m) => ({ ...m, [id]: m[id] === "none" || m[id] === "failed" ? m[id] : "ready" }));
       return;
     }
@@ -148,41 +202,81 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
     setStatus((m) => ({ ...m, [id]: next ? "loading" : "failed" }));
   }, [withModel, makeView]);
 
-  // Start the SDK viewer once; any startup failure hands back to the iframe tour.
+  // Park the viewer before React detaches the stage: layout cleanup runs before the DOM removal, passive cleanup after.
+  useLayoutEffect(() => () => {
+    const v = viewer.current as Viewer | null;
+    viewer.current = null;
+    if (v) park(sid, v);
+  }, [sid]);
+  // Start the SDK viewer once (or take this scan's parked one back); any startup failure hands back to the iframe tour.
   useEffect(() => {
-    let dead = false;
+    let dead = false, failed = false;
     moved.current = false;
-    const fail = (why: string) => { console.warn(`[hermit] 3D furnishing unavailable (${why}); showing the basic tour`); onFail(); };
+    const subs: { cancel: () => void }[] = [];
+    let el: Viewer | null = null;
+    const fail = (why: string) => {
+      if (dead || failed) return; // once is enough, and never after unmount
+      failed = true;
+      console.warn(`[hermit] 3D furnishing unavailable (${why}); showing the basic tour`);
+      onFail();
+    };
+    const onError = (e: Event) => {
+      if (el) el.hermitFailed = true; // never hand a broken viewer back
+      fail((e as CustomEvent<{ error?: { message?: string } }>).detail?.error?.message ?? "viewer error");
+    };
     const timeout = setTimeout(() => { if (!sdk.current) fail("startup timed out"); }, STARTUP_MS);
     (async () => {
-      const { key } = await json<{ key: string | null }>("/api/tour-key");
-      if (!key) return fail("no SDK key");
-      await import("@matterport/webcomponent");
-      if (dead || !host.current) return;
-      const el = document.createElement("matterport-viewer") as MatterportViewer;
-      for (const [k, v] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) el.setAttribute(k, v);
-      el.addEventListener("mpViewerError", (e) => fail(e.detail.error.message));
+      let v = unpark(sid);
+      if (!v) {
+        const { key } = await json<{ key: string | null }>("/api/tour-key");
+        if (dead) return;
+        if (!key) return fail("no SDK key");
+        await import("@matterport/webcomponent");
+        if (dead) return;
+        quietUnload();
+        v = document.createElement("matterport-viewer") as Viewer;
+        for (const [k, val] of Object.entries({ m: sid, "application-key": key, "asset-base": "/mp", qs: "1", brand: "0", play: "1" })) v.setAttribute(k, val);
+      }
+      if (dead || !host.current) { park(sid, v); return; }
+      el = v;
+      el.addEventListener("mpViewerError", onError);
       host.current.prepend(el);
       viewer.current = el;
       const s = await el.playingPromise;
       if (dead) return;
+      const sc = await createScene(s, onLoad);
+      if (dead) { try { sc.destroy(); } catch { /* the viewer is already gone */ } return; }
       sdk.current = s;
-      scene.current = await createScene(s, onLoad);
-      if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = scene.current; // for e2e tests
-      s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; });
-      s.Sweep.current.subscribe((sw) => {
+      scene.current = sc;
+      if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = sc; // for e2e tests
+      subs.push(s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; }));
+      subs.push(s.Sweep.current.subscribe((sw) => {
+        if (dead) return;
         if (sw.puckPosition) floorY.current = sw.puckPosition.y;
         const r = report.floorplan?.rooms.find((x) => x.id === sw.roomInfo?.id);
         setRoom(r ? { id: r.id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined } : undefined);
-      });
+      }));
       // Matterport's own controls can change the view too; mirror them (transitions are skipped).
-      s.Mode.current.subscribe((m) => {
+      subs.push(s.Mode.current.subscribe((m) => {
+        if (dead) return;
         const next = m === s.Mode.Mode.DOLLHOUSE ? "dollhouse" : m === s.Mode.Mode.FLOORPLAN ? "floorplan" : m === s.Mode.Mode.INSIDE ? "inside" : null;
         if (next) { setModeState(next); if (next !== "inside") setTrayOpen(false); } // from above, the tray would hide the model
-      });
+      }));
       setReady(true);
-    })().catch((e) => { if (!dead) fail(e instanceof Error ? e.message : String(e)); });
-    return () => { dead = true; clearTimeout(timeout); scene.current?.destroy(); scene.current = null; viewer.current?.remove(); };
+    })().catch((e) => fail(e instanceof Error ? e.message : String(e)));
+    // Close in order: stop listening, drop our furniture scene, forget the SDK, then park the viewer (if the layout
+    // cleanup hasn't already). Each step is guarded: the SDK may still be starting.
+    return () => {
+      dead = true;
+      clearTimeout(timeout);
+      for (const sub of subs) { try { sub.cancel(); } catch { /* already closed */ } }
+      try { scene.current?.destroy(); } catch { /* already gone */ }
+      scene.current = null;
+      sdk.current = null;
+      el?.removeEventListener("mpViewerError", onError);
+      if (el && viewer.current === el) { viewer.current = null; park(sid, el); }
+      setReady(false);
+    };
   }, [sid, report.floorplan, onFail, onLoad]);
 
   useEffect(() => { scene.current?.sync(items, selected); }, [items, selected, ready]);
@@ -376,7 +470,7 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
     };
   }, [ready, apply, placeCard, makeView]);
 
-  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray.
+  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; F flips upright; Delete removes; T toggles the tray.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
@@ -385,11 +479,12 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
       if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }]); }
+      if (e.key === "f" || e.key === "F") { e.preventDefault(); apply([{ op: "tip", id: p.id, axis: "x", degrees: 180 }]); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); apply([{ op: "remove", id: p.id }]); }
       const a = ({ ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] } as Record<string, [number, number]>)[e.key];
-      if (a) {
+      if (a && scene.current) {
         e.preventDefault();
-        const f = scene.current!.camera().forward; // nudge relative to where the user is looking
+        const f = scene.current.camera().forward; // nudge relative to where the user is looking
         apply([{ op: "move", id: p.id, at: "point" }], { x: p.pos.x + (f.x * a[0] - f.z * a[1]) * NUDGE_M, y: p.pos.y, z: p.pos.z + (f.z * a[0] + f.x * a[1]) * NUDGE_M });
       }
     };
@@ -411,7 +506,7 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
       const rect = el.getBoundingClientRect(), stage = host.current!.getBoundingClientRect();
       const outline = svg.querySelector("polygon")!, ring = state.current.outline;
       const pts = ring?.map((q) => s.screenOf({ x: q.x, y: floorY.current + 0.02, z: -q.y }, rect));
-      if (pts?.length && pts.every((q) => q && !q.behind)) {
+      if (pts?.length && pts.every((q) => q && !q.behind && Number.isFinite(q.x) && Number.isFinite(q.y))) {
         outline.setAttribute("points", pts.map((q) => `${q!.x - stage.left},${q!.y - stage.top}`).join(" "));
         outline.style.display = "";
       } else outline.style.display = "none";
@@ -424,7 +519,7 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
       const groups = svg.querySelectorAll<SVGGElement>("g");
       groups.forEach((g, i) => {
         const l = lines[i], a = l && s.screenOf(l.points[0], rect), b = l && s.screenOf(l.points[1], rect);
-        if (!l || !a || !b || a.behind || b.behind) { g.style.display = "none"; return; }
+        if (!l || !a || !b || a.behind || b.behind || ![a.x, a.y, b.x, b.y].every(Number.isFinite)) { g.style.display = "none"; return; }
         g.style.display = "";
         g.dataset.kind = l.measure ? "measure" : "dim";
         const [x1, y1, x2, y2] = [a.x - stage.left, a.y - stage.top, b.x - stage.left, b.y - stage.top];
@@ -616,6 +711,10 @@ export function FurnishTour({ report, use, stop, onFail, items: sharedItems, set
             {selStatus && STATUS_TEXT[selStatus] && <span className="badge" data-status={selStatus}>{STATUS_TEXT[selStatus]}</span>}
             <button type="button" className="icon-btn" aria-label="Rotate left 15 degrees" onClick={() => apply([{ op: "rotate", id: sel.id, degrees: -15 }])}><RotateCcw aria-hidden="true" /></button>
             <button type="button" className="icon-btn" aria-label="Rotate right 15 degrees" onClick={() => apply([{ op: "rotate", id: sel.id, degrees: 15 }])}><RotateCw aria-hidden="true" /></button>
+            {/* Some downloaded models arrive upside down or lying on their side. */}
+            <button type="button" className="btn small" title="Turn it over, top to bottom (F)" onClick={() => apply([{ op: "tip", id: sel.id, axis: "x", degrees: 180 }])}><FlipVertical2 aria-hidden="true" /> Flip upright</button>
+            <button type="button" className="btn small" title="Tip it a quarter turn forward or back" onClick={() => apply([{ op: "tip", id: sel.id, axis: "x", degrees: 90 }])}><Rotate3d aria-hidden="true" /> Tip forward or back</button>
+            <button type="button" className="btn small" title="Tip it a quarter turn onto its side" onClick={() => apply([{ op: "tip", id: sel.id, axis: "z", degrees: 90 }])}><Rotate3d aria-hidden="true" style={{ transform: "rotate(90deg)" }} /> Tip onto its side</button>
             <div className="pop-wrap">
               <button type="button" className="icon-btn" aria-label="Color" aria-expanded={popover === "color"} onClick={() => setPopover(popover === "color" ? null : "color")}><Palette aria-hidden="true" /></button>
               {popover === "color" && (

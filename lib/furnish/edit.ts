@@ -7,7 +7,7 @@ import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
 import { parseFurnish } from "./offline";
 
 const FlatOp = z.object({
-  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish"]),
+  op: z.enum(["add", "move", "rotate", "tip", "remove", "recolor", "swap", "resize", "furnish"]), axis: z.enum(["x", "z"]).nullish(),
   scope: z.enum(["room", "all"]).nullish(), brief: z.string().nullish(),
   id: z.string().nullish(), name: z.string().nullish(), terms: z.array(z.string()).nullish(), count: z.number().nullish(),
   at: z.enum(["point", "front", "center", "wall"]).nullish(), color: z.string().nullish(), material: z.string().nullish(), degrees: z.number().nullish(),
@@ -21,7 +21,7 @@ const PROMPT = `You place and edit 3D furniture inside a virtual tour of a real 
 Ops:
 - add {name, terms, count?, at, color?, material?, w?, d?, h?}: name = 1-3 plain words; terms = 2-3 search words from specific to generic that would match a low-poly 3D model title; w/d/h = typical size in meters when it is unusual.
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
-- move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
+- move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), tip {id, axis, degrees} (turn a model over when it shows upside down or on its side: axis "x" tips it forward or back, "z" onto its side; degrees 90 or 180; "flip it upright"/"it's upside down" = axis x, 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
 - furnish {scope, brief}: the user wants you to set up, furnish, refurnish, redesign or lay out a whole room or the whole space ("set this room up as an exam room", "refurnish everything for 20 engineers"). scope "room" = the selected room, "all" = every room; brief = what they asked for, in their words. Use it instead of many adds.
 at: "point" = the spot the user clicked or is pointing at ("here", "there", "this spot"); "front" = in front of them (default for add); "center" = middle of the room; "wall" = against the nearest wall.
 color: a plain color name or #rrggbb. material: one of ${MATERIAL_NAMES.join(", ")}.

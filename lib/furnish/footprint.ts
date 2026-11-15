@@ -4,7 +4,7 @@ import { pointInPolygon, type Pt } from "../geometry/polygon";
 import { FURNITURE } from "../spec/furnish";
 import type { Placed as Placement } from "../spec/place";
 import { normName, typicalSize } from "./catalog";
-import { dims, type Placed } from "./ops";
+import { dims, quarter, type Placed } from "./ops";
 
 /** What the 2D plan draws: the item's axis-aligned footprint, min corner + size in plan meters. */
 export type Footprint = { id: string; roomId: string; type: string; x: number; y: number; w: number; h: number };
@@ -36,12 +36,16 @@ export function fromPlacement(f: Placement, existing: { id: string }[], floorY =
   };
 }
 
-/** Saved furniture from before the views were merged was 2D placements; anything without `pos` is converted. */
+/** Saved furniture from before the views were merged was 2D placements; anything without `pos` is converted. Saves
+ *  from before items could be tipped get pitch and roll 0; odd angles snap to the nearest quarter turn. */
 export function migrate(raw: unknown): Placed[] {
   if (!Array.isArray(raw)) return [];
   const out: Placed[] = [];
   for (const x of raw) {
-    if (x && typeof x === "object" && "pos" in x) out.push(x as Placed);
+    if (x && typeof x === "object" && "pos" in x) {
+      const p = x as Placed;
+      out.push({ ...p, rotY: Number.isFinite(p.rotY) ? p.rotY : 0, pitch: quarter(Number(p.pitch) || 0), roll: quarter(Number(p.roll) || 0) });
+    }
     else if (x && typeof x === "object" && "type" in x && "x" in x) out.push(fromPlacement(x as Placement, out));
   }
   return out;

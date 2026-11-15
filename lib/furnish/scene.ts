@@ -4,7 +4,7 @@ import type { MpSdk } from "@matterport/webcomponent";
 import type * as THREE from "three";
 import { MATERIALS, type Size } from "./catalog";
 import { fitModel } from "./fit";
-import type { Placed, Vec } from "./ops";
+import { orient, quarter, type Placed, type Vec } from "./ops";
 
 export type LoadState = "ready" | "failed";
 // The placeholder box and the model live on separate scene objects: a started node can't take new components, and
@@ -38,6 +38,19 @@ function boxFactory(): MpSdk.Scene.IComponent {
       this.mesh.material.opacity = 0.3 + 0.2 * Math.sin(this.t * 4);
     },
   } as unknown as MpSdk.Scene.IComponent;
+}
+
+/**
+ * Where an item's scene node goes and how it turns (radians, Euler "YXZ" = yaw · pitch · roll): the tipped box
+ * (orient) is shifted back by its offset, turned by the yaw, so its bottom-center lands on `pos`.
+ */
+export function pose(p: Pick<Placed, "size" | "fitted" | "pitch" | "roll">, pos: Vec, rotY: number) {
+  const { offset } = orient(p.fitted ?? p.size, p.pitch, p.roll);
+  const a = (rotY * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return {
+    position: { x: pos.x + c * offset.x + s * offset.z, y: pos.y + offset.y, z: pos.z - s * offset.x + c * offset.z },
+    rotation: { x: (quarter(p.pitch) * Math.PI) / 180, y: a, z: (quarter(p.roll) * Math.PI) / 180 },
+  };
 }
 
 const keyOf = (p: Placed) => `${p.model?.url ?? "box"}|${p.size.w}|${p.size.d}|${p.size.h}`;
@@ -134,8 +147,11 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
   }
   const stop = (e: Entry) => { e.obj.stop(); e.mobj?.stop(); };
 
-  const place = (e: Entry, pos: Vec, rotY: number) => {
-    for (const n of [e.node, e.mnode]) { if (!n) continue; n.position.set(pos.x, pos.y, pos.z); n.obj3D.rotation.y = (rotY * Math.PI) / 180; }
+  // Yaw, then the item's tip (pitch about its width axis, roll about its depth axis), lifted so the tipped box's
+  // bottom-center sits on the item's floor spot.
+  const place = (e: Entry, p: Placed, pos: Vec, rotY: number) => {
+    const t = pose(p, pos, rotY);
+    for (const n of [e.node, e.mnode]) { if (!n) continue; n.position.set(t.position.x, t.position.y, t.position.z); n.obj3D.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z, "YXZ"); }
   };
   let latest: { items: Placed[]; selected?: string } = { items: [] };
   let busy: Promise<void> = Promise.resolve();
@@ -151,7 +167,7 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
         let e = entries.get(p.id);
         if (!e) { e = await build(p); entries.set(p.id, e); }
         if (p.model && !e.model && loading < MAX_LOADING) { await startModel(e, p); loading++; }
-        if (dragging !== p.id) place(e, p.pos, p.rotY);
+        if (dragging !== p.id) place(e, p, p.pos, p.rotY);
         fit(p.id, e, p);
         paint(e, p, p.id === selected);
       }
@@ -202,8 +218,8 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
     /** Moves an item's node without touching state, for live dragging; drag(null) ends it. */
     drag(id: string | null, pos?: Vec, rotY?: number) {
       dragging = id;
-      const e = id ? entries.get(id) : undefined;
-      if (e && pos) place(e, pos, rotY ?? 0);
+      const e = id ? entries.get(id) : undefined, p = latest.items.find((x) => x.id === id);
+      if (e && p && pos) place(e, p, pos, rotY ?? p.rotY);
     },
     destroy() { clearInterval(timer); for (const e of entries.values()) stop(e); entries.clear(); lights.stop(); },
   };

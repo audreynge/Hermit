@@ -3,7 +3,7 @@
 // Both views edit the same furniture list. One Hermit prompt handles "add a table to this room" in either view and
 // answers questions about the space.
 import { Box, Map as MapIcon, Plus, Send, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load } from "@/lib/client/store";
 import { glyphFor, fromPlacement, roomOf, toFootprint } from "@/lib/furnish/footprint";
 import { FURNITURE, roomOf as sketchRoomOf, type Furn, type FurnType } from "@/lib/spec/furnish";
@@ -56,9 +56,26 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
   const approx = !!g && isApproximate(g);
   const shaped = useMemo(() => (g ? roomsWithShape(g).filter((r) => isApproximate(g) || r.floorId === mainFloor(g)) : []), [g]);
   const has2d = shaped.length > 0;
-  const [view, setView] = useState<View>(sid ? "3d" : "2d");
-  const [opened3d, setOpened3d] = useState(view === "3d"); // keep the tour mounted once opened: it's slow to start
+  // The 2D plan comes first whenever there is one: it's "your layout on the real plan".
+  const [view, setView] = useState<View>(has2d || !sid ? "2d" : "3d");
+  // Once opened, the tour stays mounted but fully hidden (display: none) in 2D: it's slow to start, and tearing the
+  // SDK down mid-start throws inside Matterport's code.
+  const [opened3d, setOpened3d] = useState(view === "3d");
   useEffect(() => { if (view === "3d") setOpened3d(true); }, [view]);
+  const onFail = useCallback(() => setPlain(true), []); // stable, or every render would restart the tour
+  // The tour streams from Matterport. Without internet, say so once and keep the measured plan.
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    if (!sid) return;
+    let live = true;
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    fetch("https://my.matterport.com/favicon.ico", { mode: "no-cors", cache: "no-store", signal: ctl.signal })
+      .then(() => null, () => { if (live) { setOffline(true); setView("2d"); } })
+      .finally(() => clearTimeout(t));
+    return () => { live = false; clearTimeout(t); ctl.abort(); };
+  }, [sid]);
+  const show3d = !!sid && !offline;
 
   // Every measured room gets a name you can type: your requirement if it matched, else "Room N".
   const names = useMemo(() => {
@@ -177,8 +194,9 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
         <div className="inside2-bar">
           <div className="seg" role="group" aria-label="View">
             <button type="button" aria-pressed={view === "2d"} disabled={!has2d} onClick={() => setView("2d")}><MapIcon aria-hidden="true" /> 2D plan</button>
-            <button type="button" aria-pressed={view === "3d"} disabled={!sid} onClick={() => setView("3d")}><Box aria-hidden="true" /> 3D tour</button>
+            <button type="button" aria-pressed={view === "3d"} disabled={!show3d} onClick={() => setView("3d")}><Box aria-hidden="true" /> 3D tour</button>
           </div>
+          {offline && <p className="inside2-offline" role="status">The 3D tour needs internet; here&apos;s the measured plan.</p>}
           <span className="muted small">{view === "2d"
             ? approx ? "Rooms drawn as squares of their measured area (no wall outlines in this scan)." : "Measured from the scan. Tap a room to pick it."
             : plain ? "Basic tour: furniture is placed on the 2D plan." : "Drag furniture to move it. Furniture sizes are typical, not measured."}</span>
@@ -192,7 +210,7 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
                 {selFoot ? (
                   <><span><strong>{items.find((p) => p.id === selItem)?.name}</strong> in {names.get(selFoot.roomId) ?? "the space"}</span>
                     <button type="button" className="btn small danger" onClick={() => { setItems((cur) => cur.filter((p) => p.id !== selItem)); setSelItem(null); }}><Trash2 aria-hidden="true" /> Remove</button></>
-                ) : selRoom ? <span><strong>{names.get(selRoom.id)}</strong> · {Math.round(selRoom.areaSqft)} sf measured. Tap a piece below to add it here.</span>
+                ) : selRoom ? <span><strong>{names.get(selRoom.id)}</strong> · {Math.round(selRoom.areaSqft)} sq ft measured. Tap a piece below to add it here.</span>
                   : <span className="muted">Tap a room to pick it, or tell Hermit what you want.</span>}
               </div>
               {selRoom && (
@@ -207,13 +225,13 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
               )}
             </div>
           )}
-          {sid && opened3d && (
-            <div className={`inside2-3d guide-stage${view === "3d" ? "" : " is-hidden"}`} aria-hidden={view !== "3d" || undefined}>
+          {show3d && opened3d && (
+            <div className="inside2-3d guide-stage" style={view === "3d" ? undefined : { display: "none" }}>
               {plain ? (
                 <div className="pv-frame">
                   <iframe key={`${target?.index ?? "start"}-${target?.yaw ?? ""}`} title={`Matterport 3D tour of ${report.name}`} src={tourUrl(sid, target?.index, target?.yaw)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
                 </div>
-              ) : <FurnishTour report={report} use={use} stop={target} onFail={() => setPlain(true)} items={items} setItems={setItems} chat={false} handle={handle} />}
+              ) : <FurnishTour report={report} use={use} stop={target} onFail={onFail} items={items} setItems={setItems} chat={false} handle={handle} />}
               <GuideCard text={steps[step].text}>
                 <button type="button" className="btn" onClick={() => goStep(step - 1)} disabled={step === 0}>Back</button>
                 <span className="muted num" aria-label={`Stop ${step + 1} of ${steps.length}`}>{step + 1} / {steps.length}</span>
@@ -234,7 +252,7 @@ export function InsideFurnish({ report, runId, use, spec }: ReportCtx) {
             return (
               <li key={a.req}>
                 {a.roomId ? <button type="button" aria-pressed={sel === a.roomId} onClick={() => pickRoom(a.roomId!)}>
-                  <strong>{a.req}</strong> <span className="muted">{Math.round(g?.rooms.find((r) => r.id === a.roomId)?.areaSqft ?? 0)} sf</span>
+                  <strong>{a.req}</strong> <span className="muted room-sqft">{Math.round(g?.rooms.find((r) => r.id === a.roomId)?.areaSqft ?? 0)} sq ft</span>
                 </button> : <span className="room-missing"><strong>{a.req}</strong> <span>not built here yet</span></span>}
                 {c && (c.seen.length > 0 || c.notSeen.length > 0 || c.unclear.length > 0) && (
                   <div className="room-check">
