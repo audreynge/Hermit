@@ -25,6 +25,7 @@ const STARTUP_MS = 25_000;
 const MAX_TRIES = 3;
 const NUDGE_M = 0.1;
 const MAX_UNDO = 20;
+const PROBE_MS = 2_500; // budget for checking planned pieces against built-in counters
 const STATUS_TEXT: Record<Status, string> = { searching: "Finding a model…", loading: "Loading…", ready: "", none: "Box: no 3D model found", failed: "Box: model didn't load" };
 const json = async <T,>(url: string, body?: unknown): Promise<T> => {
   const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -434,10 +435,22 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
       placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
       ...(chairIn && { access: { chairWidthIn: chairIn } }),
     });
-    // Re-read the items: models may have loaded while the planner ran.
-    const before = state.current.items;
-    const r = commit(before, applyFurnishOps(keep(before), out.ops, makeView(), out.ops.length));
-    return r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply;
+    // The outlines carry no fixtures: probe each new piece against the tour's surfaces (only what's in view, within
+    // PROBE_MS) and drop the ones that would sit on a built-in counter. Unchecked pieces stay.
+    const spot = (p: Placed) => `${p.name}@${p.pos.x},${p.pos.z}`;
+    const old = new Set(keep(state.current.items).map((p) => p.id)), blocked = new Set<string>();
+    const planned = applyFurnishOps(keep(state.current.items), out.ops, makeView(), out.ops.length).value.filter((p) => !old.has(p.id));
+    const rect = viewer.current?.getBoundingClientRect(), end = Date.now() + PROBE_MS;
+    for (const p of planned) {
+      if (!scene.current || !rect || Date.now() > end) break;
+      if ((await scene.current.probe({ pos: p.pos, size: dims(p), rotY: p.rotY }, floorY.current, rect)).blocked) blocked.add(spot(p));
+    }
+    // Re-read the items: models may have loaded while the planner and the probe ran.
+    const before = state.current.items, all = applyFurnishOps(keep(before), out.ops, makeView(), out.ops.length);
+    const r = commit(before, { ...all, value: all.value.filter((p) => old.has(p.id) || !blocked.has(spot(p))) });
+    const skipped = all.value.length - r.value.length;
+    const note = skipped ? ` Skipped ${skipped} piece${skipped > 1 ? "s" : ""} that would sit on built-in counters or fixtures (checked what's in view).` : "";
+    return (r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply) + note;
   }
 
   async function send(t = text) {
