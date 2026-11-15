@@ -37,11 +37,19 @@ const localIds = () => {
   }
 };
 
+// A replay must never hang on the network: a slow or unreachable Postgres is given this long, then local copies answer.
+export const REPLAY_DB_TIMEOUT_MS = 2500;
+const withTimeout = <T>(p: Promise<T>, ms: number) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([p, new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error(`no answer in ${ms}ms`)), ms); })])
+    .finally(() => clearTimeout(timer));
+};
+
 // Bundled runs (the recorded demo) are imported into local SQLite, so they stay readable when live runs go to Postgres.
 async function rows<T>(sql: string, p: string[] = []): Promise<T[]> {
   let out: T[] = [];
   try { ensureImported(); } catch { /* local SQLite unavailable */ }
-  try { out = await q<T>(sql, p); } catch { /* offline: fall through to the local copies */ }
+  try { out = await withTimeout(q<T>(sql, p), REPLAY_DB_TIMEOUT_MS); } catch { /* offline or slow: fall through to the local copies */ }
   if (usingPostgres()) try { out = [...out, ...(db().prepare(sql).all(...p) as T[])]; } catch { /* local SQLite unavailable */ }
   return out;
 }
