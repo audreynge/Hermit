@@ -3,7 +3,7 @@ import { packFor } from "../uses/packs";
 import { SIZE_OPTIONS, TIMING_OPTIONS, USE_OPTIONS, type Draft } from "../spec/survey";
 import type { Shell } from "../types";
 
-export type Field = "city" | "use" | "musts" | "price" | "days" | "rooms" | "accessibility" | "parking" | "size" | "moveIn" | "budget" | "beds" | "power" | "bays" | "sprinklers";
+export type Field = "city" | "use" | "musts" | "price" | "days" | "rooms" | "accessibility" | "parking" | "size" | "moveIn" | "budget" | "beds" | "power" | "bays" | "sprinklers" | "baths" | "other";
 export type Question = { field: Field; text: string; why: string; quick: string[]; split?: [number, number]; multi?: boolean };
 
 const answered = (spec: Draft, f: Field, asked: string[]) => {
@@ -15,7 +15,7 @@ const answered = (spec: Draft, f: Field, asked: string[]) => {
     case "price": return spec.avgPrice != null;
     case "days": return spec.daysOpen != null;
     case "size": return !!spec.sizeSqft || !!spec.headcount || (spec.mode === "home" && spec.beds != null);
-    case "rooms": return spec.rooms.some((r) => r.label !== "bathroom") && spec.input !== "survey";
+    case "rooms": return spec.mode === "home" ? spec.beds != null && spec.baths != null : spec.rooms.some((r) => r.label !== "bathroom") && spec.input !== "survey";
     case "accessibility": return spec.needs.wheelchair != null || spec.needs.stepFree != null;
     case "parking": return spec.needs.parkingStalls != null || spec.needs.parking != null;
     case "moveIn": return !!spec.moveInBy;
@@ -24,6 +24,8 @@ const answered = (spec: Draft, f: Field, asked: string[]) => {
     case "power": return spec.needs.heavyPower != null || spec.needs.threePhase != null;
     case "bays": return spec.needs.driveInBays != null;
     case "sprinklers": return spec.needs.esfr != null;
+    case "baths": return spec.mode === "home" || spec.baths != null || spec.rooms.some((r) => r.label === "bathroom");
+    case "other": return false;
   }
 };
 
@@ -48,29 +50,30 @@ function split(f: Field, pool: Shell[], spec: Draft): [number, number] | undefin
   }
 }
 
-const TEXT: Record<Field, (spec: Draft) => { text: string; quick: string[] }> = {
-  city: () => ({ text: "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. Which city should I search?", quick: ["Houston", "Los Angeles"] }),
-  use: () => ({ text: "What are you opening, or looking for?", quick: USE_OPTIONS.map((u) => u.label) }),
-  price: (spec) => ({ text: `What does a typical customer spend per visit${packFor(spec).key === "salon" ? " (a cut, a color)" : packFor(spec).key === "medical" ? " (what you collect per patient visit)" : ""}? I'll turn the rent into “customers a day”.`, quick: ["About $25", "About $55", "About $120", "Not sure yet"] }),
-  days: () => ({ text: "How many days a week will you be open?", quick: ["5 days", "6 days", "7 days"] }),
-  musts: (spec) => ({ text: "Last one: any must-haves I haven't asked about? Pick any that matter, then tap Done.", quick: packFor(spec).chips }),
-  rooms: (spec) => {
-    const pack = packFor(spec);
-    const list = pack.rooms.filter((r) => r.label !== "bathroom").map((r) => `${r.count > 1 ? `${r.count} ` : ""}${r.label}${r.count > 1 ? "s" : ""}`);
-    return { text: `A typical ${pack.label.toLowerCase()} has ${list.join(", ")}. What rooms do you actually need, and which ones need water (sinks, showers)?`, quick: pack.key === "medical" ? ["2 exam rooms with sinks + a lab", "3 exam rooms + a procedure room", "That typical layout works"] : pack.key === "salon" ? ["6 stations + 2 shampoo sinks", "4 stations + a private room", "That typical layout works"] : ["That typical layout works", "Fewer rooms, more open floor", "Add a conference room"] };
-  },
-  accessibility: () => ({ text: "Will anyone on your team or among your visitors need step-free or wheelchair access?", quick: ["Yes, wheelchair access", "Step-free entry is enough", "No special needs"] }),
-  parking: () => ({ text: "How many parking spaces do you need for staff and visitors at the busiest time?", quick: ["About 5", "About 10", "20 or more", "Street parking is fine"] }),
+const TEXT: Record<Field, (spec: Draft) => string> = {
+  city: () => "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. I cover Houston and Los Angeles right now. Which city should I search?",
+  use: () => "What are you opening, or looking for?",
+  price: (spec) => `What does a typical customer spend per visit${packFor(spec).key === "medical" ? " (what you collect per patient visit)" : ""}? I'll turn the rent into “customers a day”.`,
+  days: () => "How many days a week will you be open?",
+  musts: () => "Last one: is there anything that's a must-have for you that I haven't asked about? Tell me in your own words.",
+  rooms: (spec) => spec.mode === "home"
+    ? "How many bedrooms and bathrooms do you need?"
+    : `What rooms does your ${packFor(spec).label.toLowerCase()} need, and how many of each? Please include bathrooms.`,
+  baths: () => "And how many bathrooms do you need?",
+  accessibility: () => "Will anyone on your team or among your visitors need step-free or wheelchair access?",
+  parking: () => "How many parking spaces do you need for staff and visitors at the busiest time?",
   size: (spec) => spec.mode === "home"
-    ? { text: "How many bedrooms do you need?", quick: ["1 bedroom", "2 bedrooms", "3 bedrooms", "4 bedrooms"] }
-    : { text: "Roughly how much space? Square feet is great, or tell me how many people work there on a busy day.", quick: [...SIZE_OPTIONS.slice(0, 4).map((o) => o.label), "Not sure yet"] },
-  moveIn: () => ({ text: "When do you need to be in? It decides how much build-out is worth waiting for.", quick: TIMING_OPTIONS.map((o) => o.label) }),
-  budget: (spec) => ({ text: spec.mode === "home" ? "What's your budget? Tell me if that's monthly rent or a purchase price." : "What can you spend on rent per month? (Total, not per square foot.)", quick: spec.mode === "home" ? ["$2,500 / month", "$4,000 / month", "$800k purchase"] : ["$4,000 / month", "$8,000 / month", "Not sure yet"] }),
-  beds: () => ({ text: "How many bedrooms and bathrooms?", quick: ["2 bed / 1 bath", "3 bed / 2 bath", "4 bed / 3 bath"] }),
-  power: () => ({ text: "Will you run heavy equipment that needs three-phase or high-amp power?", quick: ["Yes, three-phase", "Standard power is fine", "Not sure"] }),
-  bays: () => ({ text: "How many drive-in or dock doors do you need?", quick: ["None", "1–2 drive-in doors", "Dock-high doors"] }),
-  sprinklers: () => ({ text: "Will you store goods above 12 feet? That decides whether you need ESFR sprinklers.", quick: ["Yes, high-piled storage", "No, under 12 ft"] }),
+    ? "How many bedrooms do you need?"
+    : "Roughly how much space? Square feet is great, or tell me how many people work there on a busy day.",
+  moveIn: () => "When do you need to be in? It decides how much build-out is worth waiting for.",
+  budget: (spec) => spec.mode === "home" ? "What's your budget? Tell me if that's monthly rent or a purchase price." : "What can you spend on rent per month? (Total, not per square foot.)",
+  beds: () => "How many bedrooms and bathrooms?",
+  power: () => "Will you run heavy equipment that needs three-phase or high-amp power?",
+  bays: () => "How many drive-in or dock doors do you need?",
+  sprinklers: () => "Will you store goods above 12 feet? That decides whether you need ESFR sprinklers.",
+  other: () => "Anything else about the space I should know, like signage, opening hours or who's next door?",
 };
+const ask = (field: Field, spec: Draft): Pick<Question, "field" | "text" | "quick"> => ({ field, text: TEXT[field](spec), quick: [] });
 
 const PACK_FIELD: Record<string, Field> = { size: "size", rooms: "rooms", accessibility: "accessibility", parking: "parking", moveIn: "moveIn", budget: "budget", beds: "beds", power: "power", bays: "bays", sprinklers: "sprinklers" };
 
@@ -82,23 +85,25 @@ const WHY: Partial<Record<Field, string>> = {
   power: "Power upgrades are one of the slowest things to fix.",
 };
 
-const BASICS: Field[] = ["city", "use", "size", "moveIn"];
+const BASICS: Field[] = ["city", "use", "rooms", "size", "moveIn"];
 const BASIC_WHY: Partial<Record<Field, string>> = {
   city: "Every scan I have is in Houston or Los Angeles.",
   use: "It decides which expert checklist I bring: plumbing for a salon, exam-room sinks for a clinic.",
+  rooms: "Rooms and bathrooms decide plumbing, size and what the crew looks for in each scan.",
   size: "A guess is fine. I'll measure the real spaces myself.",
 };
 
-export const basicsDone = (spec: Draft, asked: string[]) => BASICS.every((f) => answered(spec, f, asked));
+const bathsPending = (spec: Draft, asked: string[]) => answered(spec, "rooms", asked) && !answered(spec, "baths", asked);
+export const basicsDone = (spec: Draft, asked: string[]) => BASICS.every((f) => answered(spec, f, asked)) && !bathsPending(spec, asked);
 
 // Basics first (the old survey, asked in chat), then the unanswered question that matters most for this use and
 // splits the remaining spaces the most, then a last sweep for must-haves.
 export function nextQuestion(spec: Draft, pool: Shell[], asked: string[]): Question | null {
   const basic = BASICS.find((f) => !answered(spec, f, asked));
   if (basic) {
-    const t = TEXT[basic](spec);
+    const t = ask(basic, spec);
     const sp = basic === "size" && spec.city ? split("size", pool, spec) : undefined;
-    return { field: basic, ...t, why: BASIC_WHY[basic] ?? "It sets how much construction time is acceptable when I rank spaces.", split: sp };
+    return { ...t, why: BASIC_WHY[basic] ?? "It sets how much construction time is acceptable when I rank spaces.", split: sp };
   }
   const pack = packFor(spec);
   const options = Object.entries(pack.critical).flatMap(([k, crit]) => {
@@ -111,15 +116,38 @@ export function nextQuestion(spec: Draft, pool: Shell[], asked: string[]): Quest
   if (!options.length) {
     // Two money inputs for walk-in businesses, so the report can say "you need about 14 customers a day".
     if (spec.mode === "business") for (const f of ["price", "days"] as Field[]) if (!answered(spec, f, asked))
-      return { field: f, ...TEXT[f](spec), why: f === "price" ? "It's half of the break-even math." : "The other half: it spreads the rent across your open days." };
+      return { ...ask(f, spec), why: f === "price" ? "It's half of the break-even math." : "The other half: it spreads the rent across your open days." };
     if (asked.includes("musts")) return null;
-    return { field: "musts", ...TEXT.musts(spec), why: "So nothing important slips through before the crew goes in.", multi: true };
+    return { ...ask("musts", spec), why: "So nothing important slips through before the crew goes in." };
   }
   options.sort((a, b) => b.score - a.score);
   const best = options[0];
-  const t = TEXT[best.field](spec);
+  const t = ask(best.field, spec);
   const why = best.sp && best.sp[0] !== best.sp[1]
     ? `I'm asking because your answer narrows ${best.sp[1].toLocaleString()} spaces to as few as ${Math.min(best.sp[0], best.sp[1] - best.sp[0]).toLocaleString()}.`
     : WHY[best.field] ?? "It changes what the crew checks for.";
-  return { field: best.field, ...t, why, split: best.sp };
+  return { ...t, why, split: best.sp };
+}
+
+// Rooms and bathrooms come first, so a bathroom count missing from the room answer is asked right away.
+export const interviewQuestion = (spec: Draft, pool: Shell[], asked: string[]): Question | null =>
+  bathsPending(spec, asked) ? { ...ask("baths", spec), why: BASIC_WHY.rooms! } : nextQuestion(spec, pool, asked);
+
+// Optional questions once the essentials are done: one per turn, never a dead end.
+export function deeperQuestion(spec: Draft, asked: string[]): Question | null {
+  const f = (["budget", "parking", "accessibility", "other"] as Field[]).find((x) => !answered(spec, x, asked));
+  return f ? { ...ask(f, spec), why: WHY[f] ?? "Optional, but it sharpens the matches." } : null;
+}
+
+// 0-100 share of the essentials filled; 100 only once the interview is ready.
+export function progress(spec: Draft, asked: string[], ready: boolean): number {
+  if (ready) return 100;
+  const pack = packFor(spec);
+  const specifics = [...Object.keys(pack.critical).map((k) => PACK_FIELD[k]).filter((f): f is Field => !!f && !BASICS.includes(f) && f !== "budget" && f !== "beds"), ...(spec.mode === "business" ? (["price", "days"] as Field[]) : [])];
+  const parts: [number, number][] = [
+    [8, +!!spec.useType], [8, +!!spec.city], [16, +answered(spec, "rooms", asked)], [10, +answered(spec, "baths", asked)],
+    [14, +answered(spec, "size", asked)], [10, +answered(spec, "moveIn", asked)], [10, +asked.includes("musts")],
+    [24, specifics.length ? specifics.filter((f) => answered(spec, f, asked)).length / specifics.length : 1],
+  ];
+  return Math.min(99, Math.round(parts.reduce((t, [w, v]) => t + w * v, 0)));
 }
