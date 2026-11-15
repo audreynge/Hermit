@@ -30,14 +30,3 @@ export const useMoney = (spec: RequirementSpec, report: ShellReport) => usePersi
 
 export type PlacedItem = { id: string; roomId: string; type: string; x: number; y: number; w: number; h: number }; // meters, scan coordinates
 export const useFurnished = (shellId: string) => usePersisted<PlacedItem[]>(`hermit:furnish:${shellId}`, []);
-
-export function Card({ title, answer, children, onMore, more, tone }: { title: string; answer: string; children?: React.ReactNode; onMore?: () => void; more?: string; tone?: "good" | "warn" | "unknown" }) {
-  return (
-    <article className="q-card" data-tone={tone}>
-      <h3>{title}</h3>
-      <p className="q-answer">{answer}</p>
-      {children}
-      {onMore && <button type="button" className="link-btn" onClick={onMore}>{more ?? "See details"} →</button>}
-    </article>
-  );
-}
