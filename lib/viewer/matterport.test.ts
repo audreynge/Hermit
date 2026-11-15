@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { roomStops, tourUrl } from "./matterport";
+import { tourSteps, tourUrl } from "./matterport";
 import type { ShellReport } from "../types";
 
 const report = {
@@ -23,15 +23,11 @@ describe("tourUrl", () => {
   });
 });
 
-describe("roomStops", () => {
-  it("lists the requested rooms that map to a scanned room with a sweep, then other scanned rooms", () => {
-    expect(roomStops(report)).toEqual([
-      { label: "Exam room #1", index: 8 },
-      { label: "Bathroom", index: 30 },
-    ]);
-  });
-
-  it("is empty without a scan", () => {
-    expect(roomStops({ ...report, floorplan: undefined } as ShellReport)).toEqual([]);
+describe("tourSteps", () => {
+  it("walks each requested room at its first sweep, then wraps up", () => {
+    const steps = tourSteps({ ...report, name: "Elm St · suite", unknowns: [] } as unknown as ShellReport);
+    expect(steps.map((s) => [s.room, s.sweep])).toEqual([[undefined, undefined], ["exam room 1", 8], ["exam room 2", undefined], ["storage", undefined], [undefined, undefined]]);
+    expect(steps[2].text).toMatch(/^This is where your exam room 2 would go/);
+    expect(steps[3].text).toMatch(/isn't built here yet/);
   });
 });

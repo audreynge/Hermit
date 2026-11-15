@@ -210,3 +210,27 @@ nav.primary svg { width: 21px; height: 21px; }
 .journey-dot { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: currentColor; color: #fff; font-size: 13px; }
 .journey-dot { color: inherit; }
 /* == end C0 == */
+
+/* == W4a: Matches list + one "View property" viewer == */
+.modal.pv { display: flex; flex-direction: column; height: calc(100dvh - 40px); overflow: hidden; padding: 18px 22px; }
+.modal.pv header { margin-bottom: 2px; }
+.pv-address { margin: 0 0 10px; }
+.pv-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.pv-tour { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.pv-frame { position: relative; flex: 1; min-height: 200px; border-radius: 16px; overflow: hidden; background: var(--sea-wash); }
+.pv-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.pv-guide { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--line-strong); }
+.pv-guide img { width: 56px; flex: none; }
+.pv-guide p { flex: 1; margin: 0; font-size: 18px; line-height: 1.4; }
+.pv-guide-nav { display: flex; align-items: center; gap: 10px; flex: none; }
+.pv-body > .viewer-frame.aerial { flex: 1; height: auto; min-height: 280px; aspect-ratio: auto; }
+.pv-cap { font-size: 13px; margin: 8px 0 0; }
+.space-verdict p { font-size: 16px; }
+@media (max-width: 760px) {
+  .modal.pv { padding: 14px; }
+  .pv-guide { flex-wrap: wrap; gap: 10px; }
+  .pv-guide img { width: 40px; }
+  .pv-guide p { flex-basis: calc(100% - 54px); font-size: 16px; }
+  .pv-guide-nav { width: 100%; justify-content: space-between; }
+}
+/* == end W4a == */

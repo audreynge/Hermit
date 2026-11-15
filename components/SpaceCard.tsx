@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, Mail, MapPin, TriangleAlert } from "lucide-react";
+import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, MapPin, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { accessLine, areaOf, highlights } from "@/lib/chat/present";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
@@ -59,10 +59,10 @@ function facts(r: ShellReport, area: number | undefined, price?: string): string
   return out;
 }
 
-export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEmail, onDetails, onSave, onView, onParcel, extra, emailLabel = "Email manager" }: {
+export function SpaceCard({ report, spec, selected, saved, index, onSelect, onDetails, onSave, onView, onParcel, extra }: {
   report: ShellReport; spec: RequirementSpec; selected: boolean; saved: boolean; index?: number;
-  onSelect: () => void; onEmail: () => void; onDetails: () => void; onSave: () => void; onView: () => void; onParcel?: () => void;
-  extra?: React.ReactNode; emailLabel?: string; // extra: the studio's score, verdict and crew flags
+  onSelect: () => void; onDetails: () => void; onSave: () => void; onView: () => void; onParcel?: () => void;
+  extra?: React.ReactNode; // extra: the studio's verdict and crew flags
 }) {
   const area = areaOf(report);
   const head = headline(report, area);
@@ -93,8 +93,7 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onEm
         })}</ul>
         {extra}
         <div className="space-actions">
-          <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onEmail(); }}><Mail aria-hidden="true" /> {emailLabel}</button>
-          <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>
+          <button type="button" className="btn small primary" onClick={(e) => { e.stopPropagation(); onView(); }}><Box aria-hidden="true" /> View property</button>
           <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onDetails(); }}><FileText aria-hidden="true" /> Full report</button>
           {onParcel && <button type="button" className="btn small" onClick={(e) => { e.stopPropagation(); onParcel(); }}><LandPlot aria-hidden="true" /> Parcel info</button>}
         </div>
