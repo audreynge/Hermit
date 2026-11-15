@@ -7,6 +7,7 @@ import { loadSite } from "@/lib/neighborhood/load";
 import { useCategory } from "@/lib/reason/rules";
 import { loadAerialCount } from "@/lib/vexcel/count";
 import { loadPanoChecks } from "@/lib/vision/pano";
+import { alsoFitsFromEvidence } from "@/lib/reverse";
 import type { TraceEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,8 @@ export default async function ShellPage({ params, searchParams }: { params: Prom
   const key = (c: { roomId: string; feature: string }) => `${c.roomId}|${c.feature.toLowerCase()}`;
   const have = new Set(own.map(key));
   const checks = [...own, ...(sid ? loadPanoChecks(sid).filter((c) => !have.has(key(c))) : [])];
-  const report = { ...found, aerial: found.aerial ?? loadAerialCount(sid ?? found.shellId) ?? undefined, checks: checks.length ? checks : undefined };
+  const alsoFits = found.alsoFits?.length || !found.floorplan || run.spec.mode === "home" ? found.alsoFits : alsoFitsFromEvidence(found.floorplan, checks, run.spec.useType);
+  const report = { ...found, aerial: found.aerial ?? loadAerialCount(sid ?? found.shellId) ?? undefined, checks: checks.length ? checks : undefined, alsoFits };
   // Prefetched neighborhood file when the scan has one; gaps (or the whole file) filled from the cached city layers.
   const site = enrichSite(report.inside?.sid ? loadSite(report.inside.sid) : null, report.above?.lat, report.above?.lon, run.spec.city);
   const challenge = run.events.find((e): e is Extract<TraceEvent, { type: "challenge" }> => e.type === "challenge" && e.shellId === id) ?? null;

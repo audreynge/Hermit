@@ -12,7 +12,8 @@ import { countLine, missingOf, roomCounts, roomNoun, shortfalls } from "../reaso
 import { fitRows, fitShort, openingWeeks, roomList, summaryLine } from "../uses/rooms";
 import type { AerialCount, Evidence, FitResult, PanoCheck, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
-import { alsoFits } from "../reverse";
+import { alsoFits, alsoFitsFromEvidence } from "../reverse";
+import { loadPanoChecks } from "../vision/pano";
 import { mustHaves } from "./verify";
 
 export type Evaluation = {
@@ -230,7 +231,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     buildout, conflicts: exclusive.conflicts,
     ...(e.aerial ? { aerial: e.aerial } : {}),
     ...(e.checks?.length ? { checks: e.checks } : {}),
-    alsoFits: graph && spec.mode !== "home" ? alsoFits(shell, graph, spec.useType) : [],
+    alsoFits: graph && spec.mode !== "home" ? alsoFitsFor(shell, graph, spec.useType, e.checks ?? []) : [],
   };
 }
 
@@ -302,4 +303,10 @@ function evidenceSweep(e: Evaluation): string | undefined {
   if (seen) return seen.panoId;
   const first = e.fit.assignment.find((a) => a.roomId);
   return g.rooms.find((r) => r.id === first?.roomId)?.panoId ?? g.panos?.[0]?.id;
+}
+
+// Pack fit first; when the scan's room labels are too generic for it, fall back to measured rooms plus photo checks.
+function alsoFitsFor(shell: Shell, graph: RoomGraph, useType: string, own: PanoCheck[]) {
+  const packs = alsoFits(shell, graph, useType);
+  return packs.length ? packs : alsoFitsFromEvidence(graph, [...own, ...loadPanoChecks(shell.sid ?? shell.id)], useType);
 }

@@ -72,3 +72,36 @@ function builtLine(rooms: RoomReq[], f: ReturnType<typeof fit>, g: RoomGraph): s
   if (!parts.length || total < 2 || !notRestrooms) return null;
   return `Its ${list(parts)} ${total > 1 ? "are" : "is"} already built.`;
 }
+
+// Evidence fallback for "Also fits". Most scans label small rooms "other", so the pack fit above rarely passes.
+// This reads only what the scan measured and what the photo checks saw: private rooms of the right size, sinks
+// seen in them, restrooms and open floor. Every claim in `why` is a count of those, nothing more.
+const PRIVATE = (sf: number) => sf >= 60 && sf <= 260;
+const KINDS: { use: string; label: string; current: RegExp; test: (n: Counts) => string | null }[] = [
+  { use: "dental", label: "Dental office", current: /dental|dentist/i,
+    test: (n) => (n.sinkRooms >= 2 && n.restrooms >= 1 ? `${n.sinkRooms} private rooms with sinks seen in the scan photos, and a restroom.` : null) },
+  { use: "medical", label: "Medical clinic", current: /clinic|medical|doctor|pediatric|exam/i,
+    test: (n) => (n.sinkRooms >= 2 && n.restrooms >= 1 ? `${n.sinkRooms} private rooms with sinks seen in the scan photos, and a restroom.` : null) },
+  { use: "therapy", label: "Therapy or counseling practice", current: /therap|counsel|psych/i,
+    test: (n) => (n.privateRooms >= 3 && n.restrooms >= 1 ? `${n.privateRooms} private rooms off a hallway and a restroom.` : null) },
+  { use: "office", label: "Small office", current: /office|agency|cowork/i,
+    test: (n) => (n.privateRooms >= 3 && n.restrooms >= 1 ? `${n.privateRooms} private offices and a restroom.` : null) },
+];
+type Counts = { privateRooms: number; sinkRooms: number; restrooms: number };
+
+export function alsoFitsFromEvidence(graph: RoomGraph, checks: { roomId: string; feature: string; result: string }[], currentUseType: string): AlsoFit[] {
+  const sinkSeen = new Set(checks.filter((c) => c.feature === "sink" && c.result === "seen").map((c) => c.roomId));
+  const priv = graph.rooms.filter((r) => (r.label === "office" || r.label === "other") && PRIVATE(r.areaSqft) && r.polygon.length >= 3);
+  const n: Counts = {
+    privateRooms: priv.length,
+    sinkRooms: priv.filter((r) => sinkSeen.has(r.id)).length,
+    restrooms: graph.rooms.filter((r) => r.label === "bathroom").length || (checks.some((c) => c.feature === "toilet" && c.result === "seen") ? 1 : 0),
+  };
+  const out: AlsoFit[] = [];
+  for (const k of KINDS) {
+    if (k.current.test(currentUseType)) continue;
+    const why = k.test(n);
+    if (why) out.push({ use: k.use, label: k.label, why: `Its ${why.charAt(0).toLowerCase()}${why.slice(1)}` });
+  }
+  return out.slice(0, 2);
+}

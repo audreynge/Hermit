@@ -500,7 +500,8 @@ export class Run {
   private inspectMetadata(id: string, e: Evaluation | undefined, question: string, words: Set<string>) {
     let outcome: string;
     let result: PanoCheck["result"] = "unclear";
-    if (!e?.graph) outcome = "unresolved: no cached scan for this candidate";
+    const name = spaceName(e?.shell ?? this.shell(id)?.shell ?? { name: id, address: "" });
+    if (!e?.graph) outcome = `Couldn't look closer at ${name}: it has no 3D scan, so this is a question for the landlord.`;
     else {
       const fixtures = FIXTURE_WORDS.filter((f) => words.has(f));
       const roomTypes = ROOM_WORDS.filter((r) => words.has(r));
@@ -513,15 +514,16 @@ export class Run {
       const sentence = sentences.find((x) => fixtures.some((f) => has(x, f)) && roomTypes.some((r) => has(x, r)))
         ?? (roomTypes.length ? undefined : sentences.find((x) => [...fixtures, ...roomTypes].some((w) => has(x, w))));
       if (objs.length || rooms.length) result = "seen";
-      outcome = !fixtures.length && !roomTypes.length ? "unresolved: question names no fixture or room type Hermit can look up"
-        : objs.length ? `observed: ${objs.map((o) => `${o.label} in room ${o.roomId ?? "?"} (conf ${o.confidence.toFixed(2)})`).join("; ")}`
-        : rooms.length ? `observed: room tags ${rooms.map((r) => r.rawTags.join("/")).join("; ")}`
-        : sentence ? `described, not tagged: Matterport's scan description says "${sentence.trim().slice(0, 160)}" (AI-written; ask to confirm)`
-        : `not observed in ${e.graph.objects.length} object annotations / ${e.graph.rooms.length} room tags / scan description; treat as unknown`;
+      const what = [...fixtures, ...roomTypes].join(" or ") || "that";
+      outcome = !fixtures.length && !roomTypes.length ? `Looked closer at ${name}, but the question didn't name something a scan can show, so it stays a question for the landlord.`
+        : objs.length ? `Looked closer at ${name}: the scan marks ${objs.map((o) => o.label).join(", ")}.`
+        : rooms.length ? `Looked closer at ${name}: the scan labels a ${rooms.map((r) => r.label).join(" and a ")}.`
+        : sentence ? `Looked closer at ${name}: the scan's written description mentions it ("${sentence.trim().slice(0, 140)}"), but no photo confirms it, so ask.`
+        : `Looked closer at ${name}: nothing in the scan shows ${what}, so it's a question for the landlord.`;
     }
     const evidence: Evidence[] = e?.graph ? [{ source: "matterport", ref: `${e.graph.sid} objectAnnotations + generatedDescription`, confidence: 0.5 }] : [];
     e?.escalations.push({ question, outcome, result, evidence });
-    if (e && !outcome.startsWith("observed")) { e.lines.push({ factor: "Closer look unresolved", earned: outcome.startsWith("described") ? -1 : -3, max: 0, note: question, source: "inspect_view" }); rescore(e); }
+    if (e && result !== "seen") { e.lines.push({ factor: "Closer look unresolved", earned: outcome.includes("written description") ? -1 : -3, max: 0, note: question, source: "inspect_view" }); rescore(e); }
     this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome, result, evidence });
     return { result: { outcome, result }, summary: outcome };
   }
