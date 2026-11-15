@@ -23,7 +23,7 @@ export function Hero({ shells, total }: { shells: HeroShell[]; total: number }) 
             <span className="muted">Try:</span>
             {EXAMPLES.map((e) => <Link key={e} className="chip" href={`/studio?q=${encodeURIComponent(e)}`}>{e}</Link>)}
           </div>
-          <p className="hero-demo"><Link href="/studio?replay=demo"><PlayCircle aria-hidden="true" /> Watch a recorded run</Link> · <Link href="/address">Check an address you already have</Link></p>
+          <p className="hero-demo"><Link href="/studio?replay=demo"><PlayCircle aria-hidden="true" /> Watch a recorded run</Link></p>
         </div>
       </section>
 

@@ -58,7 +58,7 @@ main { padding: 18px 28px 80px; max-width: 1480px; }
 .msg.hermit { display: flex; gap: 10px; align-items: flex-start; }
 .msg.user { flex-direction: row-reverse; display: flex; }
 .avatar { width: 40px; height: 40px; }
-.avatar.bot img { width: 46px; margin-left: 4px; margin-top: 4px; }
+.avatar.bot img { width: 32px; margin: 0; }
 .bubble { padding: 12px 16px; font-size: 16px; border-radius: 18px; background: var(--sea-tint); }
 .msg.user .bubble { background: var(--coral-wash); }
 .why { font-size: 13px; color: var(--sea-ink); font-weight: 700; padding-left: 6px; }
