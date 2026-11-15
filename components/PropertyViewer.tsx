@@ -46,7 +46,7 @@ export function PropertyViewer({ report, use = "", chairIn, onClose, initial = "
               <div className="pv-frame">
                 <iframe key={sweep ?? "start"} title={`3D tour of ${report.name.split(" · ")[0]}`} src={tourUrl(sid, sweep)} allow="xr-spatial-tracking; fullscreen" allowFullScreen />
               </div>
-            ) : <FurnishTour report={report} use={use} chairIn={chairIn} stop={sweep} stops={[]} onFail={fail} />}
+            ) : <FurnishTour report={report} use={use} chairIn={chairIn} stop={sweep} onFail={fail} />}
             <div className="pv-guide" role="region" aria-label="Hermit's guided tour">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/hermit-logo.svg" alt="" />

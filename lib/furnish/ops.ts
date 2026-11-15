@@ -57,7 +57,7 @@ export const FurnishOp = z.discriminatedUnion("op", [
 export type FurnishOp = z.infer<typeof FurnishOp>;
 export type FurnishResult = { value: Placed[]; applied: FurnishOp[]; rejected: Rejected[]; selected?: string };
 
-const toPlan = (v: Vec): Pt => ({ x: v.x, y: -v.z });
+export const toPlan = (v: Vec): Pt => ({ x: v.x, y: -v.z });
 const toWorld = (p: Pt, y: number): Vec => ({ x: p.x, y, z: -p.y });
 const yawFacing = (dx: number, dz: number) => ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360;
 const unit = (x: number, z: number) => { const l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; };
