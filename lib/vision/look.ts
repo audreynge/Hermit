@@ -13,7 +13,11 @@ import { NO_PHOTO_NOTE, UNMAPPABLE_NOTE, VISION_SCHEMA, WALL_FACES, chooseMappin
 const GRAPH = "https://api.matterport.com/api/models/graph";
 const GEMINI = "https://generativelanguage.googleapis.com/v1beta/models";
 const PANO_QUERY = `query($id: ID!) { model(id: $id) { panoLocations { id position { x y z } skyboxes { resolution status children } } } }`;
-const visionModel = () => process.env.GEMINI_VISION_MODEL?.trim() || "gemini-3.8-flash";
+// Vision models in order of preference. Each has its own daily quota, so a used-up quota moves to the next one.
+const visionModels = () => (process.env.GEMINI_VISION_MODEL?.trim() ? [process.env.GEMINI_VISION_MODEL.trim()] : ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]);
+const spentToday = new Set<string>();
+/** Tests only: forget which models ran out of quota. */
+export const resetVisionQuota = () => spentToday.clear();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -102,14 +106,28 @@ async function download(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function askGemini(prompt: string, images: Buffer[]): Promise<string> {
+async function askGemini(prompt: string, images: Buffer[]): Promise<{ text: string; model: string }> {
+  let last: unknown;
+  for (const model of visionModels().filter((m) => !spentToday.has(m))) {
+    try {
+      return { text: await askModel(model, prompt, images), model };
+    } catch (e) {
+      if (!(e instanceof QuotaExhaustedError)) throw e;
+      spentToday.add(model); // this model's daily quota is gone; try the next
+      last = e;
+    }
+  }
+  throw last ?? new QuotaExhaustedError("every vision model's daily quota is used up");
+}
+
+async function askModel(model: string, prompt: string, images: Buffer[]): Promise<string> {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new Error("GEMINI_API_KEY not set");
   const parts = [
     ...images.flatMap((b, i) => [{ text: `Photo ${i}:` }, { inlineData: { mimeType: "image/jpeg", data: b.toString("base64") } }]),
     { text: prompt },
   ];
-  const res = await fetchRetry(`${GEMINI}/${visionModel()}:generateContent`, {
+  const res = await fetchRetry(`${GEMINI}/${model}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -144,8 +162,7 @@ export async function checkRoom(sid: string, roomId: string, features: string[])
   const room = g?.rooms.find((r) => r.id === roomId);
   if (!g || !room) throw new Error(`${sid}: no room graph or room ${roomId}`);
   const retrieved = new Date().toISOString();
-  const model = visionModel();
-  const base = { sid, roomId, model, retrieved };
+  const base = { sid, roomId, model: visionModels()[0], retrieved };
   const unclearAll = (note: string) => {
     const out = features.map((feature): PanoCheck => ({ ...base, feature, result: "unclear", confidence: 0.3, note }));
     saveChecks(sid, out);
@@ -171,7 +188,8 @@ export async function checkRoom(sid: string, roomId: string, features: string[])
   }
   const small = await Promise.all(photos.map((ph) => sharp(ph.full).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()));
 
-  const text = await askGemini(visionPrompt(features, room.rawTags?.[0] ?? room.label, photos.length), small);
+  const { text, model } = await askGemini(visionPrompt(features, room.rawTags?.[0] ?? room.label, photos.length), small);
+  base.model = model;
   const decided = parseVision(text, features, photos.length);
 
   const dir = path.join(dataDir(), "panos", sid);

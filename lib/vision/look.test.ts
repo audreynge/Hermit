@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QuotaExhaustedError, checkRoom, panosByRoom } from "./look";
+import { QuotaExhaustedError, checkRoom, panosByRoom, resetVisionQuota } from "./look";
 import { loadPanoCheck, loadPanoChecks } from "./pano";
 
 const sq = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -95,6 +95,8 @@ describe("checkRoom", () => {
   });
 });
 
+const daily = () => new Response(JSON.stringify({ error: { code: 429, message: "You exceeded your current quota", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }), { status: 429 });
+
 describe("checkRoom robustness", () => {
   // Matterport hands out a new URL version on every query; `expired` versions answer 410. Gemini answers come from a list.
   function stub({ expired = [] as number[], gemini = [] as Response[] }) {
@@ -146,13 +148,26 @@ describe("checkRoom robustness", () => {
     expect(calls.filter((u) => u.includes("generativelanguage"))).toHaveLength(2);
   });
 
-  it("stops on a daily-quota 429 without retrying or writing", async () => {
+  it("moves to the next vision model when one model's daily quota is used up", async () => {
+    resetVisionQuota();
     writeGraph("sidDay");
-    const daily = new Response(JSON.stringify({ error: { code: 429, message: "You exceeded your current quota", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }), { status: 429 });
-    const calls = stub({ gemini: [daily, ok(answer)] });
-    await expect(checkRoom("sidDay", "exam1", ["sink"])).rejects.toBeInstanceOf(QuotaExhaustedError);
-    expect(calls.filter((u) => u.includes("generativelanguage"))).toHaveLength(1);
-    expect(loadPanoChecks("sidDay")).toEqual([]);
+    const calls = stub({ gemini: [daily(), ok(answer)] });
+    const out = await checkRoom("sidDay", "exam1", ["sink"]);
+    const gem = calls.filter((u) => u.includes("generativelanguage"));
+    expect(gem).toHaveLength(2);
+    expect(gem[0]).toContain("gemini-3.8-flash");
+    expect(gem[1]).toContain("gemini-3.6-flash");
+    expect(out[0].model).toBe("gemini-3.6-flash");
+    resetVisionQuota();
+  });
+
+  it("stops without writing when every vision model's daily quota is used up", async () => {
+    resetVisionQuota();
+    writeGraph("sidDay2");
+    stub({ gemini: [daily(), daily(), daily(), daily()] });
+    await expect(checkRoom("sidDay2", "exam1", ["sink"])).rejects.toBeInstanceOf(QuotaExhaustedError);
+    expect(loadPanoChecks("sidDay2")).toEqual([]);
+    resetVisionQuota();
   });
 
   it("throws on an empty model answer instead of saving unclear", async () => {
