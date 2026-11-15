@@ -1,6 +1,10 @@
 import type { FitResult, RequirementSpec, Room, RoomGraph } from "../types";
 import { minCostAssignment } from "./hungarian";
 import { IMPLIED_FIXTURES, labelCost, normalizeRoomLabel } from "./labels";
+
+// Built = same room type. A request with no canonical type ("exam room") is built only by a room tagged with that exact name.
+const sameType = (req: string, observed: string) =>
+  normalizeRoomLabel([req]) === "other" ? req.toLowerCase() === observed.toLowerCase() : labelCost(req, observed) === 0;
 import { packFor } from "../uses/packs";
 const SCAN_MIN_SLACK = 0.7;
 
@@ -145,7 +149,7 @@ export function roomCounts(spec: RequirementSpec, f: FitResult, g: RoomGraph | n
     if (!g || !rows.length) c.unknown += r.count;
     else for (const a of rows) {
       const room = a.roomId ? g.rooms.find((x) => x.id === a.roomId) : undefined;
-      if (room && labelCost(r.label, room.label) === 0) c.have++;
+      if (room && sameType(r.label, room.label)) c.have++;
       else if (room) c.convert.push(ROOM_WORDS[room.label] ?? room.label);
       else if (f.unknowns.some((u) => u.startsWith(`${a.req}:`))) c.unknown++;
     }
@@ -165,15 +169,26 @@ export const shortfalls = (spec: Pick<RequirementSpec, "mode">, counts: RoomCoun
   counts.filter((c) => missingOf(c) > 0).map((c) => `Has ${c.have || "no"} ${roomNoun(spec, c, c.have || 2)}${c.convert.length ? ` (plus ${c.convert.length} to convert)` : ""}; you need ${c.need}`);
 
 const ORDINAL = ["first", "second", "third", "fourth", "fifth", "sixth"];
+const plural = (w: string) => (/s$/.test(w) ? w : `${w}s`);
 
-// "1 of 2 bedrooms already built; the living room could become the second"
-export function countLine(spec: Pick<RequirementSpec, "mode">, counts: RoomCount[]): string {
+// "the living room", or "3 offices and the open area", for rooms that could be converted.
+function convertPhrase(labels: string[]) {
+  const n = new Map<string, number>();
+  for (const l of labels) n.set(l, (n.get(l) ?? 0) + 1);
+  return [...n].map(([l, k]) => (k === 1 ? `the ${l}` : `${k} ${plural(l)}`)).join(" and ");
+}
+
+// "1 of 2 bedrooms already built; the living room could become the second". Never a "0 of N" line for an unconfirmed count.
+export function countLine(spec: Pick<RequirementSpec, "mode">, counts: RoomCount[], scanned = true): string {
   if (!counts.length) return "";
-  const parts = counts.map((c) => `${c.have} of ${c.need} ${roomNoun(spec, c, c.need)}${c.unknown ? ` (${c.unknown} not confirmed)` : ""}`);
+  const blind = (c: RoomCount) => !c.have && !c.convert.length && c.unknown === c.need;
+  if (!scanned || counts.every(blind)) return `room counts not confirmed (${scanned ? "the scan's room labels are unclear" : "no scan"})`;
+  const built = counts.filter((c) => !blind(c)).map((c) => `${c.have} of ${c.need} ${roomNoun(spec, c, c.need)}${c.unknown ? ` (${c.unknown} not confirmed)` : ""}`);
+  const unsure = counts.filter(blind).map((c) => `${c.need} ${roomNoun(spec, c, c.need)} not confirmed`);
   const swaps = counts.filter((c) => c.convert.length).map((c) => c.convert.length === 1
     ? `the ${c.convert[0]} could become the ${ORDINAL[c.have] ?? "next"}${c.need - c.have > 1 ? ` ${roomNoun(spec, c, 1)}` : ""}`
-    : `the ${c.convert.join(", ")} could become ${roomNoun(spec, c, 2)}`);
-  return `${parts.join(", ")} already built${swaps.length ? `; ${swaps.join("; ")}` : ""}`;
+    : `${convertPhrase(c.convert)} could become ${roomNoun(spec, c, 2)}`);
+  return [`${built.join(", ")} already built`, ...unsure, ...swaps].join("; ");
 }
 
 // Missing a bathroom or 2+ primary rooms is a drop; anything short still ranks below spaces that meet every count.

@@ -167,7 +167,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
 
   const matched = fit.assignment.filter((a) => a.roomId).length;
   const fails = rules.filter((r) => r.status === "fail");
-  const unconfirmed = counts.some((c) => c.unknown);
+  const unconfirmed = counts.some((c) => c.unknown || c.convert.length);
   const verdict = short.length ? "Short on rooms" : fit.hardFails.length || fails.length ? "Conditional fit"
     : e.finalScore < 50 ? "Long shot" : unconfirmed ? "Rooms to confirm" : e.finalScore >= 70 ? "Likely fits" : "Workable with changes";
   const items = work.items.length;

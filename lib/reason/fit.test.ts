@@ -99,6 +99,19 @@ describe("fit", () => {
     expect(severe(counts)).toBe(false);
   });
 
+  it("never reads unlabeled rooms as built exam rooms", () => {
+    const s = spec([{ label: "exam room", count: 3, hard: false }, { label: "restroom", count: 1, hard: false }]);
+    const g = graph([room("a", "other", 120), room("b", "other", 120), room("c", "office", 120), room("d", "office", 110), room("w", "bathroom", 50)]);
+    const counts = roomCounts(s, fit(s, g), g);
+    expect(counts[0].have).toBe(0);
+    expect(countLine(s, counts)).toMatch(/^0 of 3 exam rooms, 1 of 1 restroom already built; .*could become exam rooms$/);
+    expect(countLine(s, counts)).not.toMatch(/office, office/);
+    expect(countTier(counts)).toBe(1);
+    const tagged = graph([room("a", "exam room", 120), room("w", "bathroom", 50)]);
+    expect(roomCounts(s, fit(s, tagged), tagged)[0].have).toBe(1);
+    expect(countLine(s, roomCounts(s, fit(s, tagged), null), false)).toBe("room counts not confirmed (no scan)");
+  });
+
   it("sums separate bathroom lines and skips zero counts", () => {
     const s = spec([{ label: "bathroom", count: 1, hard: false }, { label: "powder room", count: 1, hard: false }, { label: "exam room", count: 0 as never, hard: false }]);
     const g = graph([room("w", "bathroom", 50), room("p", "bathroom", 30)]);

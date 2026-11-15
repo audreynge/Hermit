@@ -55,7 +55,7 @@ export const auditInput = (spec: RequirementSpec, reports: ShellReport[]) => JSO
   requiredRoomCounts: needLine(spec, roomCounts(spec, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, null)),
   reports: reports.map((r) => ({
     shellId: r.shellId, verdict: r.verdict, summary: r.summary, badge: r.badge, hardFails: r.fit.hardFails,
-    roomCounts: r.floorplan ? countLine(spec, roomCounts(spec, r.fit, r.floorplan ?? null)) : "no scan: unconfirmed", shortRooms: r.floorplan ? shortfalls(spec, roomCounts(spec, r.fit, r.floorplan ?? null)) : [],
+    roomCounts: countLine(spec, roomCounts(spec, r.fit, r.floorplan ?? null), !!r.floorplan), shortRooms: r.floorplan ? shortfalls(spec, roomCounts(spec, r.fit, r.floorplan ?? null)) : [],
     rules: r.rules.filter((h) => !h.rule.startsWith("reg_")).map((h) => ({ rule: h.rule, status: h.status, detail: h.detail, evidence: h.evidence.map((e) => `${e.source}: ${e.ref}`) })),
     unknowns: r.unknowns.map((u) => u.question),
   })),

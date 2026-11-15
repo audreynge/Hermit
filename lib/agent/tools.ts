@@ -305,7 +305,7 @@ export class Run {
     const counts = this.counts(e);
     return {
       id: e.shell.id, name: displayName(e.shell.name), dropped: this.dropped.has(e.shell.id), score: e.finalScore, fit: e.graph ? e.fit.score : null, scan: !!e.graph,
-      rooms: e.graph ? countLine(this.spec, counts) : "no scan: room counts unconfirmed", missing: shortfalls(this.spec, counts), wouldDrop: severe(counts),
+      rooms: countLine(this.spec, counts, !!e.graph), missing: shortfalls(this.spec, counts), wouldDrop: severe(counts),
       hardFails: e.fit.hardFails, roomUnknowns: e.fit.unknowns, ruleFails: e.rules.filter((r) => r.status === "fail").map((r) => r.rule),
       unknowns: e.rules.filter((r) => r.status === "unknown").map((r) => r.rule),
       unverifiedFixtures: unverifiedFixtures(this.spec, e),
@@ -413,13 +413,14 @@ export class Run {
       this.emit({ type: "tool", id: rid("ev"), tool: "research_regulations", args: {}, resultId: rid("research_regulations"), summary: r.summary, ms: Date.now() - t0 });
     }
     // Guardrail: a specialist with veto power that the user's needs call for reviews every finalist, whatever the planner chose.
-    for (const agent of ["code", "access"] as const) {
+    const guard = (list: string[]) => { for (const agent of ["code", "access"] as const) {
       if (!needsAgent(agent, this.userSpec).needed) continue;
-      const missed = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id) && !this.evaluated.get(id)!.verdicts.some((v) => v.agent === agent));
+      const missed = list.filter((id) => this.evaluated.has(id) && !this.dropped.has(id) && !this.evaluated.get(id)!.verdicts.some((v) => v.agent === agent));
       if (!missed.length) continue;
       this.emit({ type: "handoff", id: rid("ev"), to: agent, shellIds: missed, why: `Hermit's rule: ${AGENTS[agent].name} reviews every finalist before a report goes out` });
       for (const id of missed) this.verdict(consult(agent, this.spec, this.evaluated.get(id)!), this.evaluated.get(id)!);
-    }
+    } };
+    guard(ids);
     this.enforceCounts();
     // The planner picks which spaces to report; rank follows room counts, then the evidence score.
     const picked = ids.filter((id) => this.evaluated.has(id) && !this.dropped.has(id));
@@ -427,7 +428,8 @@ export class Run {
     if (picked.length < 3) picked.push(...[...this.evaluated.values()]
       .filter((e) => !this.dropped.has(e.shell.id) && !picked.includes(e.shell.id) && severe(this.counts(e)))
       .sort(this.byRoomFit).slice(0, 3 - picked.length).map((e) => e.shell.id));
-    const chosen = picked.sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
+    guard(picked);
+    const chosen = picked.filter((id) => !this.dropped.has(id)).sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
     if (ids.length && !chosen.length && !ids.some((id) => this.vetoes.has(id))) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped/vetoed); call evaluate_candidates first`);
     for (const id of chosen) {
       const e = this.evaluated.get(id)!;
