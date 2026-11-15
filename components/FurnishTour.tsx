@@ -3,13 +3,14 @@
 // Drag items to move them; drag cards from the tray into the room to place them. Falls back (onFail) to the plain
 // iframe tour when the SDK can't start.
 import type { MpSdk } from "@matterport/webcomponent";
-import { Box, ChevronLeft, ChevronRight, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Ruler, RotateCcw, RotateCw, Search, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { Box, ChevronLeft, ChevronRight, FlipVertical2, Footprints, Info, Layers, Loader, LocateFixed, Map as MapIcon, Palette, RefreshCw, Rotate3d, RotateCwSquare, Ruler, RotateCcw, RotateCw, Search, Sofa, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { hermitContext, noteToHermit } from "@/lib/client/session";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
-import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { migrate } from "@/lib/furnish/orient";
+import { applyFurnishOps, dimensionLines, dims, dimsAs, fromMeasurement, hitItem, roomAt, settle, toPlan, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
 import { planRooms } from "@/lib/furnish/layout";
 import { dropBlocked } from "@/lib/furnish/probe";
 import { pointInPolygon } from "@/lib/geometry/polygon";
@@ -62,7 +63,7 @@ const countNames = (ops: object[]) => {
   for (const o of ops) { const n = (o as { name?: string }).name; if (n) c.set(n, (c.get(n) ?? 0) + 1); }
   return [...c].map(([n, k]) => (k > 1 ? `${k} × ${n}` : n)).join(", ");
 };
-const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable);
 
 export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { report: ShellReport; use: string; chairIn?: number; stop?: number; onFail: () => void; api?: React.MutableRefObject<FurnishApi | null> }) {
   const sid = report.inside!.sid;
@@ -79,7 +80,12 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   const lookingUp = useRef(new Set<string>());
   const [ready, setReady] = useState(false);
   const [settled, setSettled] = useState(false); // the start pano is in: floor height and the current room are known
-  const [items, setItems] = useState<Placed[]>(() => load<Placed[]>(`hermit:furnish:${sid}`, "local") ?? []);
+  // Saved per scan in this browser, read after mount (the server renders the tour with nothing placed, so reading it
+  // during the first render broke hydration on a reload); migrate() gives saves from before tipping pitch and roll 0.
+  const saveKey = `hermit:furnish:${sid}`;
+  const [items, setItems] = useState<Placed[]>([]);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null); // saving starts once the saved list is in
+  useEffect(() => { setItems(migrate<Placed>(load<unknown>(saveKey, "local"))); setLoadedKey(saveKey); }, [saveKey]);
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [candidates, setCandidates] = useState<Record<string, Model[]>>({});
   const [selected, setSelected] = useState<string | undefined>();
@@ -125,17 +131,18 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     return { camera: cam.pos, forward: cam.forward, floorY: floorY.current, point, ahead, room, rooms, selected };
   }, []);
   // Gives an item a model (and optionally a real size): the rendered size comes from the model's measured proportions,
-  // and the item is re-seated so its new footprint stays inside its room.
+  // and the item is re-seated so its new footprint (as tipped) stays inside its room. The tip is kept (a fallback model
+  // after a failed load keeps the user's flip); picking another model in Search clears it (see useModel).
   const withModel = useCallback((p: Placed, model: Model | null, size: Size = p.size, approxSize = p.approxSize): Placed => {
     const fitted = model?.bounds ? fitModel(model.bounds, size, p.planned)?.fitted : undefined;
-    return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, fitted ?? size, p.rotY, makeView()) };
+    return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, dimsAs(p, fitted ?? size), p.rotY, makeView()) };
   }, [makeView]);
 
   // A model failed to load: try the item's next candidate, then settle on the box.
   const onLoad = useCallback((id: string, s: LoadState, fitted?: Size) => {
     if (s === "ready") {
       // Measured in the browser (no server bounds): record the rendered size so grabbing and walls use it.
-      if (fitted) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, fitted, pos: settle(x.pos, fitted, x.rotY, makeView()) } : x)));
+      if (fitted) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, fitted, pos: settle(x.pos, dimsAs(x, fitted), x.rotY, makeView()) } : x)));
       setStatus((m) => ({ ...m, [id]: m[id] === "none" || m[id] === "failed" ? m[id] : "ready" }));
       return;
     }
@@ -189,7 +196,7 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     return () => { dead = true; clearTimeout(timeout); scene.current?.destroy(); scene.current = null; viewer.current?.remove(); };
   }, [sid, report.floorplan, onFail, onLoad]);
 
-  useEffect(() => { scene.current?.sync(items, selected); save(`hermit:furnish:${sid}`, items, "local"); }, [items, selected, sid, ready]);
+  useEffect(() => { scene.current?.sync(items, selected); if (loadedKey === saveKey) save(saveKey, items, "local"); }, [items, selected, saveKey, loadedKey, ready]);
   useEffect(() => { setPopover(null); }, [selected]);
   useEffect(() => {
     if (!toast || (undoText && toast !== undoText)) setUndoText(null);
@@ -404,14 +411,18 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
     };
   }, [ready, apply, placeCard, makeView]);
 
-  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray; Ctrl/Cmd+Z undoes.
+  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; F flips upright; Delete removes; Ctrl/Cmd+Z undoes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); setToast(undo()); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return; // leave the browser's own shortcuts (Ctrl+R, Ctrl+F) alone
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
+      // F only while the tour (or nothing) has focus: not when another control on the page does.
+      const t = e.target, inTour = !(t instanceof Node) || t === document.body || !!host.current?.closest(".furnish-tour")?.contains(t);
+      if ((e.key === "f" || e.key === "F") && inTour) { e.preventDefault(); e.stopPropagation(); apply([{ op: "tip", id: p.id, axis: "x", degrees: 180 }]); }
       if (e.key === "r" || e.key === "R") { e.preventDefault(); apply([{ op: "rotate", id: p.id, degrees: e.shiftKey ? -15 : 15 }], undefined, undefined, undefined, p.id); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); apply([{ op: "remove", id: p.id }]); }
       const a = ({ ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] } as Record<string, [number, number]>)[e.key];
@@ -637,7 +648,8 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
   const target = items.find((p) => p.id === replacing);
   // In "replacing" mode a card swaps the item's model; otherwise it adds a new item.
   function useModel(m: Model) {
-    if (target) { setItems((cur) => cur.map((x) => (x.id === target.id ? withModel(x, m) : x))); setStatus((s) => ({ ...s, [target.id]: "loading" })); }
+    // A model the user picks has its own way up: a tip made for the old one doesn't carry over.
+    if (target) { setItems((cur) => cur.map((x) => (x.id === target.id ? withModel({ ...x, pitch: 0, roll: 0 }, m) : x))); setStatus((s) => ({ ...s, [target.id]: "loading" })); }
     else void placeCard({ name: query.trim() || m.title, terms: [query.trim() || m.title], model: m });
   }
   async function bringHere(p: Placed) {
@@ -692,6 +704,10 @@ export function FurnishTour({ report, use, chairIn, stop, onFail, api }: { repor
             {selStatus && STATUS_TEXT[selStatus] && <span className="badge" data-status={selStatus}>{STATUS_TEXT[selStatus]}</span>}
             <button type="button" className="icon-btn" aria-label="Rotate left 15 degrees" onClick={() => apply([{ op: "rotate", id: sel.id, degrees: -15 }])}><RotateCcw aria-hidden="true" /></button>
             <button type="button" className="icon-btn" aria-label="Rotate right 15 degrees" onClick={() => apply([{ op: "rotate", id: sel.id, degrees: 15 }])}><RotateCw aria-hidden="true" /></button>
+            {/* For models that load upside down or on their side: quarter-turn tips, re-seated on the floor. */}
+            <button type="button" className="btn small" aria-keyshortcuts="F" title="Flip upright (F): turn it over, 180°" onClick={() => apply([{ op: "tip", id: sel.id, axis: "x", degrees: 180 }])}><FlipVertical2 aria-hidden="true" /> Flip upright</button>
+            <button type="button" className="icon-btn" aria-label="Tip forward or back, a quarter turn" title="Tip forward or back (90°)" onClick={() => apply([{ op: "tip", id: sel.id, axis: "x", degrees: 90 }])}><Rotate3d aria-hidden="true" /></button>
+            <button type="button" className="icon-btn" aria-label="Tip onto its side, a quarter turn" title="Tip onto its side (90°)" onClick={() => apply([{ op: "tip", id: sel.id, axis: "z", degrees: 90 }])}><RotateCwSquare aria-hidden="true" /></button>
             <div className="pop-wrap">
               <button type="button" className="icon-btn" aria-label="Color" aria-expanded={popover === "color"} onClick={() => setPopover(popover === "color" ? null : "color")}><Palette aria-hidden="true" /></button>
               {popover === "color" && (

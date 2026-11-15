@@ -76,9 +76,11 @@ describe("deterministic agent", () => {
   it("drops the search leader when its scan has no restroom, changing the top pick", async () => {
     const ev = await run();
     const drop = ev.find((e) => e.type === "drop" && e.shellId === "A") as Extract<TraceEvent, { type: "drop" }> | undefined;
-    expect(drop?.reason).toBe("Has no restrooms; you need 1");
+    expect(drop?.reason).toBe("Suite A, A Main St: has no restrooms; you need 1.");
     expect(drop?.evidence[0].source).toBe("matterport");
-    expect(ev.some((e) => e.type === "rerank")).toBe(true);
+    const rerank = ev.find((e) => e.type === "rerank") as Extract<TraceEvent, { type: "rerank" }>;
+    expect(rerank.reason).toMatch(/^Changed the top pick: Suite A, A Main St was dropped \(has no restrooms; you need 1\)\.$/);
+    expect(rerank.evidence?.[0].source).toBe("matterport");
     const report = ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
     expect(report.reports[0].shellId).not.toBe("A");
   });
@@ -88,7 +90,7 @@ describe("deterministic agent", () => {
     const esc = ev.filter((e) => e.type === "escalate") as Extract<TraceEvent, { type: "escalate" }>[];
     expect(esc.length).toBeGreaterThan(0);
     expect(esc.length).toBeLessThanOrEqual(4);
-    expect(esc[0].question).toBe("Does the exam room have a sink?");
+    expect(esc[0].question).toBe("Is there a sink in the exam rooms?");
   });
 
   it("drops a recorded must-have failure (even a fixable one) and batches drops into one call", async () => {
@@ -226,10 +228,11 @@ describe("required room counts", () => {
     const ids = ["P", "Q", "R", "S"];
     const ev = await go({ P: two("P", 1), Q: two("Q", 2), R: two("R", 2), S: two("S", 2) }, [shell("P", { buildingClass: "A" }), ...ids.slice(1).map((id) => shell(id))]);
     const drop = ev.find((e) => e.type === "drop" && e.shellId === "P") as Extract<TraceEvent, { type: "drop" }> | undefined;
-    expect(drop?.reason).toBe("Has 1 restroom; you need 2");
+    expect(drop?.reason).toBe("Suite P, P Main St: has 1 restroom; you need 2.");
     const reports = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
     expect(reports.map((r) => r.shellId)).not.toContain("P");
-    expect(reports[0].summary).toMatch(/^3 of 3 exam rooms, 2 of 2 restrooms already built/);
+    expect(reports[0].summary).toMatch(/^\d+ of \d+ rooms already built\./);
+    expect(reports[0].summary).not.toMatch(/Missing/);
     expect(reports[0].reasons[0]).toBe("3 of 3 exam rooms, 2 of 2 restrooms already built");
   });
 
@@ -241,7 +244,7 @@ describe("required room counts", () => {
     expect(reports[0].verdict).not.toBe("Short on rooms");
     const p = reports.find((r) => r.shellId === "P")!;
     expect(p.verdict).toBe("Short on rooms");
-    expect(p.summary).toMatch(/1 of 2 restrooms already built.*Missing: Has 1 restroom; you need 2\./);
+    expect(p.summary).toMatch(/rooms already built\. Missing: Has 1 restroom; you need 2\./);
     expect(p.unknowns[0].question).toMatch(/shows 1 restroom and I need 2/);
     expect(reports.find((r) => r.shellId === "R")!.summary).toMatch(/Missing: Has 1 exam room; you need 3/);
   });

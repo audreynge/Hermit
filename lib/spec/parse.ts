@@ -20,7 +20,7 @@ const ROOM_WORDS: [RegExp, string, boolean][] = [
 ];
 const FIXTURES = ["sink", "toilet", "shower", "hood", "drain"];
 export const USE_NOUN = /\b([a-z]+\s)?(clinic|office|salon|studio|warehouse|restaurant|cafe|shop|store|gym|bakery|lab|showroom|practice|spa|brewery|distribution center|daycare|boutique)\b/;
-const NOT_QUALIFIER = new Set(["sf", "ft", "a", "an", "the", "small", "new", "need", "my", "our", "big", "large", "feet", "for"]);
+const NOT_QUALIFIER = new Set(["sf", "ft", "a", "an", "the", "small", "new", "need", "my", "our", "big", "large", "feet", "for", "own", "first", "little", "dream", "very", "tiny", "nice"]);
 
 export function parseText(text: string, d: Defaults = {}): RequirementSpec {
   const t = text.toLowerCase();

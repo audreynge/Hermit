@@ -57,7 +57,7 @@ export function fallbackReply(q: string, f: Facts): string {
     if (f.budgetMonthly && f.monthlyRent !== null) parts.push(`Your budget is ${$(f.budgetMonthly)} a month, so rent is ${f.monthlyRent <= f.budgetMonthly ? "within" : "over"} it.`);
     return parts.join(" ");
   }
-  if (/week|time|long|open|ready|when/.test(t)) return `About ${f.weeksToOpen[0]} to ${f.weeksToOpen[1]} weeks of permits and build-out before you can open.`;
+  if (/week|time|long|open|ready|when/.test(t)) return `About ${f.weeksToOpen[0]} to ${f.weeksToOpen[1]} weeks to open, including signing the lease.`;
   if (/room|space|fit|bed|bath|kitchen|office/.test(t)) return f.rooms.length ? `Your rooms: ${f.rooms.join("; ")}.` : unk("Room fit");
   if (/park/.test(t)) {
     const p = f.rules.filter((x) => /park/i.test(x)).concat(f.unknowns.filter((x) => /park/i.test(x)));

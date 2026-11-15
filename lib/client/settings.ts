@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 
-export type Settings = { theme: "system" | "light" | "dark"; text: "normal" | "large"; motion: "full" | "reduced"; tech: boolean };
-export const DEFAULT_SETTINGS: Settings = { theme: "light", text: "normal", motion: "full", tech: false };
+export type Settings = { theme: "system" | "light" | "dark"; text: "normal" | "large"; motion: "full" | "reduced"; readAloud: boolean };
+export const DEFAULT_SETTINGS: Settings = { theme: "light", text: "normal", motion: "full", readAloud: false };
 const KEY = "hermit:settings";
 const EVENT = "hermit-settings";
 

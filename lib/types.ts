@@ -257,6 +257,43 @@ export type ShellReport = {
   defurnished?: boolean;
   buildout?: { item: string; status: "seen" | "mentioned" | "unverified"; evidence: string; question: string }[];
   conflicts?: { name: string; what: string; meters: number; where: string }[];
+  aerial?: AerialCount; // counted from the Vexcel ortho (lib/vexcel/count.ts)
+  checks?: PanoCheck[]; // "Hermit looked closer" results from scan photos (lib/vision/pano.ts)
+  alsoFits?: { use: string; label: string; why: string }[]; // other uses this space is already built for (lib/reverse.ts)
+};
+
+// Counted on a cached Vexcel orthophoto by a vision model. Never invented: if two runs disagree, confidence is low
+// and the UI says "couldn't count". `scope` says whether the count is clipped to the lot or just around the building.
+export type AerialCount = {
+  sid: string;
+  provider: "vexcel" | "esri";
+  captured?: string; // image capture date if the provider returns one
+  gsdCm?: number; // ground sample distance
+  scope: "lot" | "around-building";
+  stalls: { n: number | null; lo: number | null; hi: number | null; accessible?: number | null; confidence: number };
+  rooftopUnits: { n: number | null; confidence: number };
+  garageLikely: boolean;
+  boxes: { label: "rooftop_unit" | "parking_area" | "stall"; box: [number, number, number, number] }[]; // [ymin,xmin,ymax,xmax], 0-1000
+  image: string; // path relative to data/processed, e.g. "aerial/<sid>.jpg"
+  model: string;
+  source: string; // human-readable citation
+  retrieved: string; // ISO date
+  runs?: { stalls: number | null; rooftopUnits: number | null }[]; // each vision run's counts (2, or 3 with a tie-break), for audit
+};
+
+// "Hermit looked closer": a vision model looked at real Matterport panorama photos of one room for one feature.
+export type PanoCheck = {
+  sid: string;
+  roomId: string;
+  feature: string; // e.g. "sink", "exam table", "toilet", "lab counter"
+  result: "seen" | "not_seen" | "unclear";
+  panoId?: string;
+  face?: number; // cube face index of the best photo
+  image?: string; // cropped photo path relative to data/processed, e.g. "panos/<sid>/<roomId>-sink.jpg"
+  confidence: number;
+  note: string; // one plain sentence, e.g. "A sink with a cabinet along the left wall."
+  model: string;
+  retrieved: string;
 };
 
 // Verifier pass over a finished report: "demoted" = a must-have fails on record; "flagged" = an unsourced or unverified claim.
@@ -275,8 +312,8 @@ export type TraceEvent =
   | { type: "plan"; id: string; text: string }
   | { type: "tool"; id: string; tool: string; args: unknown; resultId: string; summary: string; ms: number }
   | { type: "drop"; id: string; shellId: string; reason: string; evidence: Evidence[] }
-  | { type: "escalate"; id: string; shellId: string; question: string; outcome: string }
-  | { type: "rerank"; id: string; order: string[]; reason: string }
+  | { type: "escalate"; id: string; shellId: string; question: string; outcome: string; result?: PanoCheck["result"]; evidence?: Evidence[] }
+  | { type: "rerank"; id: string; order: string[]; reason: string; evidence?: Evidence[] }
   | { type: "funnel"; id: string; stages: FunnelStage[] }
   | { type: "handoff"; id: string; to: string; shellIds: string[]; why: string; skipped?: boolean }
   | { type: "verdict"; id: string; verdict: CrewVerdict }

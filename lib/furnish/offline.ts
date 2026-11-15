@@ -1,5 +1,5 @@
 // Deterministic furnishing parser, used when Gemini is unavailable or out of quota.
-// shortcut: regex intents only (add, remove, move, rotate, recolor, swap, furnish, clear, undo); anything else asks the user to rephrase.
+// shortcut: regex intents only (add, remove, move, rotate, tip, recolor, swap, furnish, clear, undo); anything else asks the user to rephrase.
 import { COLORS, MATERIAL_NAMES, normName } from "./catalog";
 import type { Anchor, FurnishOp, Placed } from "./ops";
 
@@ -15,6 +15,23 @@ export function wholeScope(text: string): boolean {
 }
 
 export type Parsed = { ops: FurnishOp[] } | { ask: string };
+
+// Tipping, not spinning: a model that loaded upside down or on its side. "Turn it around" / "flip it around" stay a spin.
+const OBJ = String.raw`(?:it|this|that|this one|that one|the [a-z][a-z ]*?)`;
+const FLIP = new RegExp(String.raw`\bupside[- ]?down\b|\b(?:flip|turn|set|stand|put|get)\s+${OBJ}\s+(?:back\s+)?(?:upright|right[- ]side up|(?:the )?right way up)\b|\bstand\s+${OBJ}\s+(?:back\s+)?up\b|\bflip\s+${OBJ}(?:\s+over)?\s*(?:$|[.!?,]|please\b)`);
+const TIP_SIDE = new RegExp(String.raw`\b(?:tip|lay|put|turn|roll|set)\s+${OBJ}\s+(?:over\s+)?on(?:to)? (?:its|the) side\b|\b(?:tip|roll)\s+${OBJ}\s+sideways\b`);
+const TIP_FWD = new RegExp(String.raw`\btip\s+${OBJ}\s+(?:over\s+)?(forward|forwards|back|backward|backwards|over)\b|\blay\s+${OBJ}\s+(?:down|flat|on its (back|front))\b`);
+/** Wording that means flip the item upright (180° about its width axis), not a spin: "it's upside down", "flip it upright", "stand it up". */
+export const flipWording = (text: string) => tipOf(` ${text.toLowerCase().replace(/\s+/g, " ").trim()} `)?.degrees === 180;
+/** The tip a message asks for, if any. */
+function tipOf(t: string): { axis: "x" | "z"; degrees: number } | null {
+  if (/\baround\b/.test(t)) return null; // "flip it around" spins
+  if (FLIP.test(t)) return { axis: "x", degrees: 180 };
+  if (TIP_SIDE.test(t)) return { axis: "z", degrees: /\bleft\b/.test(t) ? -90 : 90 };
+  const f = t.match(TIP_FWD);
+  if (f) return { axis: "x", degrees: /^back/.test(f[1] ?? "") || f[2] === "back" ? -90 : 90 };
+  return null;
+}
 
 const NUM: Record<string, number> = { a: 1, an: 1, one: 1, another: 1, two: 2, three: 3, four: 4, five: 5, six: 6, couple: 2, pair: 2 };
 const COLOR_RE = new RegExp(`\\b(${Object.keys(COLORS).sort((a, b) => b.length - a.length).join("|")}|#[0-9a-f]{6})\\b`, "i");
@@ -85,6 +102,8 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
   }
   // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
   if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) return { ops: [furnishOp(t)] };
+  const tip = tipOf(t);
+  if (tip) return needTarget((id) => ({ op: "tip", id, ...tip }));
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));
 
   const swap = t.match(/\b(?:swap|replace|switch|exchange)\b.*?\b(?:with|for|to)\s+(?:a|an|the)?\s*([a-z0-9 '-]+)/);

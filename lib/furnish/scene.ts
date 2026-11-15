@@ -5,6 +5,7 @@ import type * as THREE from "three";
 import { MATERIALS, type Size } from "./catalog";
 import { fitModel } from "./fit";
 import type { Placed, Vec } from "./ops";
+import { pose } from "./orient";
 import { classify, samplePoints, type Footprint, type ProbeResult, type Sample } from "./probe";
 
 export type LoadState = "ready" | "failed";
@@ -14,6 +15,7 @@ type Entry = {
   key: string; obj: MpSdk.Scene.IObject; node: MpSdk.Scene.INode; box: MpSdk.Scene.IComponent;
   mobj?: MpSdk.Scene.IObject; mnode?: MpSdk.Scene.INode; model?: MpSdk.Scene.IComponent; started?: number;
   root?: THREE.Object3D; paint?: string; done?: LoadState;
+  fitted?: Size; // the loaded model's rendered size, for seating it when tipped
 };
 type Mesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 const SELECT_GLOW = 0x2a1208; // faint warm glow on the selected item
@@ -88,6 +90,7 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
     root.rotation.set(f.rotation.x, f.rotation.y, f.rotation.z, "XYZ");
     root.scale.setScalar(f.scale);
     e.root = root;
+    e.fitted = f.fitted;
     (e.box.outputs.objectRoot as THREE.Object3D).visible = false;
     e.paint = undefined;
     settle(id, e, "ready", measuredHere ? f.fitted : undefined);
@@ -135,8 +138,15 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
   }
   const stop = (e: Entry) => { e.obj.stop(); e.mobj?.stop(); };
 
-  const place = (e: Entry, pos: Vec, rotY: number) => {
-    for (const n of [e.node, e.mnode]) { if (!n) continue; n.position.set(pos.x, pos.y, pos.z); n.obj3D.rotation.y = (rotY * Math.PI) / 180; }
+  // Yaw, then the item's tip (pitch about its width axis, roll about its depth axis), lifted so each node's tipped box
+  // (the placeholder at the item's size, the model at its fitted size) has its bottom-center on the item's spot.
+  const place = (e: Entry, p: Placed, pos: Vec, rotY: number) => {
+    for (const [n, size] of [[e.node, p.size], [e.mnode, e.fitted ?? p.fitted ?? p.size]] as const) {
+      if (!n) continue;
+      const t = pose(size, p, pos, rotY);
+      n.position.set(t.position.x, t.position.y, t.position.z);
+      n.obj3D.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z, "YXZ");
+    }
   };
   let latest: { items: Placed[]; selected?: string } = { items: [] };
   let busy: Promise<void> = Promise.resolve();
@@ -152,8 +162,8 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
         let e = entries.get(p.id);
         if (!e) { e = await build(p); entries.set(p.id, e); }
         if (p.model && !e.model && loading < MAX_LOADING) { await startModel(e, p); loading++; }
-        if (dragging !== p.id) place(e, p.pos, p.rotY);
-        fit(p.id, e, p);
+        fit(p.id, e, p); // first: a model fitted this pass is seated by its own size
+        if (dragging !== p.id) place(e, p, p.pos, p.rotY);
         paint(e, p, p.id === selected);
       }
     }).catch((err) => console.warn("[hermit] furnish scene sync failed", err));
@@ -217,8 +227,8 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
     /** Moves an item's node without touching state, for live dragging; drag(null) ends it. */
     drag(id: string | null, pos?: Vec, rotY?: number) {
       dragging = id;
-      const e = id ? entries.get(id) : undefined;
-      if (e && pos) place(e, pos, rotY ?? 0);
+      const e = id ? entries.get(id) : undefined, p = latest.items.find((x) => x.id === id);
+      if (e && p && pos) place(e, p, pos, rotY ?? 0);
     },
     destroy() { clearInterval(timer); for (const e of entries.values()) stop(e); entries.clear(); lights.stop(); },
   };

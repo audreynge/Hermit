@@ -58,13 +58,19 @@ export async function GET(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
-      controller.enqueue(enc.encode(sse({ type: "run", id: "run", runId: run.id, replay: true, spec: run.spec })));
-      for (const e of run.events) {
-        if (e.type === "run") continue;
-        await new Promise((r) => setTimeout(r, e.type === "tool" ? 180 : 90));
-        controller.enqueue(enc.encode(sse(e.type === "done" ? { ...e, planner: "replay" } : e)));
+      // Replays read only the recorded events (no provider calls), so they play the same with no network. The done
+      // event keeps the run's original planner; the run event's replay: true is what marks it as a recording.
+      try {
+        controller.enqueue(enc.encode(sse({ type: "run", id: "run", runId: run.id, replay: true, spec: run.spec })));
+        for (const e of run.events) {
+          if (e.type === "run") continue;
+          await new Promise((r) => setTimeout(r, e.type === "tool" ? 180 : 90));
+          controller.enqueue(enc.encode(sse(e)));
+        }
+        controller.close();
+      } catch {
+        // client went away mid-replay
       }
-      controller.close();
     },
   });
   return new Response(stream, { headers });

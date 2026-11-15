@@ -12,9 +12,12 @@ import { seedRooms } from "../uses/packs";
 import { concerns, weight } from "../crew/skeptic";
 import { competitorCount, transitCount } from "../neighborhood/summarize";
 import { useCategory } from "../reason/rules";
+import { loadAerialCount } from "../vexcel/count";
+import { loadPanoCheck } from "../vision/pano";
 import type { SiteFile } from "../neighborhood/types";
-import type { Evidence, RequirementSpec, RoomGraph, RoomReq, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
-import { buildReport, displayName, scoreLines, total, type Evaluation } from "./report";
+import type { AerialCount, Evidence, PanoCheck, RequirementSpec, RoomGraph, RoomReq, RuleHit, Shell, ShellReport, Similarity, TraceEvent } from "../types";
+import { an } from "../text";
+import { buildReport, displayName, scoreLines, spaceName, total, type Evaluation } from "./report";
 import { auditInput, checkReport, mustHaves, type Auditor } from "./verify";
 
 export type AgentDeps = {
@@ -23,11 +26,31 @@ export type AgentDeps = {
   site?: (sid: string) => SiteFile | null;
   zoning?: (lat: number, lon: number) => Promise<ParcelZone | null>;
   research?: (q: RegQuery) => Promise<{ findings: Finding[]; fromCache: boolean }>;
+  aerial?: (sid: string) => AerialCount | null; // default: lib/vexcel/count.ts (null = not counted)
+  panoCheck?: (sid: string, roomId: string, feature: string) => PanoCheck | null; // default: lib/vision/pano.ts cache
+  look?: ((sid: string, roomId: string, features: string[]) => Promise<PanoCheck[]>) | null; // live photo check; default lib/vision/look.ts when keys are set
 };
-export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, ms: 40_000, researchMs: 20_000, auditMs: 12_000 };
+export const BUDGET = { toolCalls: 25, roomGraphs: 8, inspections: 4, liveLooks: 2, lookMs: 20_000, ms: 40_000, researchMs: 20_000, auditMs: 12_000 };
 
 let seq = 0;
 const rid = (p: string) => `${p}_${(++seq).toString(36)}`;
+
+// The live photo check needs Matterport and Gemini keys; tests and keyless runs only read the cache.
+const liveLook = (): AgentDeps["look"] =>
+  process.env.VITEST || !process.env.GEMINI_API_KEY?.trim() || !process.env.MATTERPORTAPIKEY?.trim() || !process.env.MATTERPORTAPITOKEN?.trim()
+    ? null
+    : async (sid, roomId, features) => (await import("../vision/look")).checkRoom(sid, roomId, features);
+
+const lowerFirst = (s: string) => (/^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+const plural = (w: string) => (/s$/.test(w) ? w : `${w}s`);
+const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+// "exam rooms #1 and #2", "exam room #1 and the restroom"
+function roomList(keys: string[]) {
+  const by = new Map<string, string[]>();
+  for (const k of keys) { const m = k.match(/^(.*) (#\d+)$/); const base = m ? m[1] : k; (by.get(base) ?? by.set(base, []).get(base)!).push(m ? m[2] : ""); }
+  return list([...by].map(([base, nums]) => (nums.length > 1 && nums.every(Boolean) ? `${plural(base)} ${list(nums)}` : nums.map((n) => (n ? `${base} ${n}` : base)).join(" and "))));
+}
+const BASE_FACTORS = new Set(["Built for your use", "Rooms already built", "Size", "Layout and adjacency", "Code and site screens", "Hard fail cap", "Missing rooms you need"]);
 
 const CONSULTABLE = ["code", "access", "systems", "surveyor"] as const;
 export const ToolInputs = {
@@ -44,32 +67,40 @@ export const ToolInputs = {
 export type ToolName = keyof typeof ToolInputs;
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first. (Scout.)",
+  search_shells: "Retrieve every candidate space that passes the RequirementSpec's hard filters from the local index, ranked (city, mode, size, prior use, scan evidence). Call first, once; a repeat returns the same cached result. (Scout.)",
   match_layout: "Only when the spec has a drawn layout: compare it (room program, adjacency, total size, footprint shape) against every scanned candidate in the city and re-rank the candidate list by layout similarity. Call right after search_shells.",
-  screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking, power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate whose record fails a user must-have is dropped automatically (dropped: true).",
-  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Each row gives required room counts (rooms) and what's short (missing). Must-have failures are dropped automatically (dropped: true). Rows with wouldDrop: true (a missing bathroom or 2+ missing primary rooms) are dropped at submit_reports unless fewer than 3 candidates would remain, in which case they are reported last.",
-  consult_specialist: "Hand evaluated candidates to one specialist: code (zoning/parking/fire/power), access (corridor widths, floors, stairs; only useful if the user needs step-free access), systems (HVAC/power, hidden infrastructure), surveyor (aerial site check). A specialist veto removes the candidate.",
-  inspect_view: "Check cached scan metadata (room tags, Matterport object annotations) for one candidate to answer a narrow question such as whether a sink exists. At most 4 per run.",
+  screen_sites: "Cheap record-only screen of up to 20 candidates: zoning, parking (CoStar record plus stalls counted on the Vexcel aerial), power, sprinklers, bays, availability. Returns per-candidate pass/fail/unknown flags. A candidate that fails a user must-have is dropped automatically (dropped: true).",
+  evaluate_candidates: "Composite evaluation of up to 8 candidates: loads the Matterport room graph, runs room assignment (Hungarian), rule checks, the Inspector's verdict and work/cost estimates. At most 8 room graphs per run. Each row gives required room counts (rooms), what's short (missing) and fixtures you need that the scan hasn't confirmed (unverifiedFixtures). Must-have failures are dropped automatically (dropped: true). Rows with wouldDrop: true (a missing bathroom or 2+ missing primary rooms) are dropped at submit_reports unless fewer than 3 candidates would remain, in which case they are reported last. Ruled-out ids are refused.",
+  consult_specialist: "Hand evaluated candidates to one specialist: code (zoning/parking/fire/power), access (corridor widths, floors, stairs; only useful if the user needs step-free access), systems (HVAC/power, hidden infrastructure), surveyor (Vexcel aerial: parking stalls and rooftop units counted around the building). A specialist veto removes the candidate.",
+  inspect_view: "Look closer at one evaluated candidate: a vision model checks real Matterport panorama photos of the rooms you need for one fixture (e.g. 'Is there a sink in the exam rooms?'). Answers seen / not seen / couldn't tell, with the photo. Use it when an unverifiedFixtures entry could change the ranking. At most 4 per run (2 may be fresh photo checks).",
   drop_candidate: "Remove one or more candidates from consideration, each with the evidence-based reason that rules it out. Batch all drops from one review into a single call.",
   submit_reports: "Finish: produce Shell Reports for up to 5 evaluated, non-vetoed candidates. Rank is set in code: spaces with every required room count come first, then by evidence score. An independent verifier then re-checks every report against the must-haves and sources.",
   research_regulations: "Look up the city, county, state and federal rules (zoning, business and professional licenses, occupancy, health, parking, accessibility, fire, signage) that apply to this use in this city, from official sources only. Call once per search; results are attached to every report.",
 };
 
+type Target = { req: string; roomId: string };
+
 export class Run {
   calls = 0;
   graphReads = 0;
   inspections = 0;
+  liveLooks = 0;
   started = Date.now();
   candidates: Candidate[] = [];
   screened = new Map<string, { shell: Shell; flags: ReturnType<typeof checkRules> }>();
   evaluated = new Map<string, Evaluation>();
   dropped = new Set<string>();
+  dropReasons = new Map<string, { reason: string; evidence: Evidence[] }>();
   similarity = new Map<string, Similarity>();
   reports: ShellReport[] | null = null;
   audit: Auditor | null = null; // independent LLM verifier, set by the planner when a provider is available
   regulations: Finding[] = [];
   researched = false;
   private researchJob: Promise<{ findings: Finding[]; fromCache: boolean; timedOut?: boolean }> | null = null;
+  private searchResult: { result: object; summary: string } | null = null;
+  private aerials = new Map<string, AerialCount | null>();
+  private photoChecks = new Map<string, PanoCheck[]>(); // every photo check known per shell (cached or live)
+  private lookErrors: string[] = []; // live photo-check failures, for the tool result only (never shown as an outcome)
   get canResearch() { return !!this.deps.research; }
   consulted = new Set<AgentId>();
   vetoes = new Map<string, Verdict>();
@@ -79,6 +110,7 @@ export class Run {
   constructor(public userSpec: RequirementSpec, public emit: (e: TraceEvent) => void, private deps: AgentDeps) {
     // Rooms the user never described come from the use pack, so a missing sink or restroom counts as work.
     this.spec = { ...userSpec, rooms: withRecordCounts(userSpec, seedRooms(userSpec)) };
+    if (deps.look === undefined) this.deps = { ...deps, look: liveLook() };
   }
 
   counts(e: Evaluation) {
@@ -133,16 +165,22 @@ export class Run {
   }
 
   private search() {
+    // search_shells takes no arguments, so a repeat is always the same search: hand back the first answer.
+    if (this.searchResult) return {
+      result: { ...this.searchResult.result, note: "Same search as before, so this is the cached result. Move on: screen_sites, evaluate_candidates or inspect_view." },
+      summary: "repeat search: returned the cached result",
+    };
     this.startResearch();
     const out = searchShells(this.spec, this.deps.shells(this.spec));
     this.candidates = out.results;
     this.emit({ type: "funnel", id: rid("ev"), stages: out.stages });
     this.scoutAreas(out.results.map((c) => c.shell));
     const pathText = out.stages.map((s) => `${s.count.toLocaleString()} ${s.label}`).join(" → ");
-    return {
+    this.searchResult = {
       result: { considered: out.considered, rejected: out.rejected, stages: out.stages.map((s) => ({ label: s.label, count: s.count })), top: out.results.map((c) => ({ id: c.shell.id, name: displayName(c.shell.name), score: c.score, reasons: c.reasons, scan: !!c.shell.sid })) },
       summary: `${pathText}; ${out.results.length} kept`,
     };
+    return this.searchResult;
   }
 
   private matchLayout() {
@@ -185,6 +223,24 @@ export class Run {
     return this.candidates.find((c) => c.shell.id === id);
   }
 
+  private nameOf(id: string) {
+    const s = this.evaluated.get(id)?.shell ?? this.shell(id)?.shell;
+    return s ? spaceName(s) : id;
+  }
+
+  private aerialOf(s: Shell) {
+    if (!s.sid) return null;
+    if (!this.aerials.has(s.sid)) this.aerials.set(s.sid, (this.deps.aerial ?? loadAerialCount)(s.sid));
+    return this.aerials.get(s.sid) ?? null;
+  }
+
+  // A planner asking about a space that's already out gets told so, with the reason, instead of a silent skip.
+  private refusal(id: string) {
+    if (!this.dropped.has(id)) return null;
+    const veto = this.vetoes.get(id);
+    return `${this.nameOf(id)} was already ruled out${veto ? ` by ${AGENTS[veto.agent].name}` : ""}: ${lowerFirst(veto?.headline ?? this.dropReasons.get(id)?.reason.replace(/^[^:]*: /, "") ?? "dropped earlier").replace(/\.$/, "")}. Pick a candidate that is still in.`;
+  }
+
   private async research() {
     if (!this.deps.research) return { result: { findings: [] }, summary: "no regulation source configured" };
     this.startResearch();
@@ -200,28 +256,30 @@ export class Run {
   }
 
   private screen(ids: string[]) {
+    const refused = ids.flatMap((id) => { const r = this.refusal(id); return r ? [{ id, reason: r }] : []; });
     const rows = ids.flatMap((id) => {
       const c = this.shell(id);
       if (!c || this.dropped.has(id)) return [];
-      const flags = checkRules(this.spec, c.shell);
+      const flags = checkRules(this.spec, c.shell, undefined, { aerial: this.aerialOf(c.shell) });
       this.screened.set(id, { shell: c.shell, flags });
       return [{ id, dropped: this.enforce(id, flags), fails: flags.filter((f) => f.status === "fail").map((f) => `${f.rule}: ${f.detail}`), unknown: flags.filter((f) => f.status === "unknown").map((f) => f.rule) }];
     });
     const failing = rows.filter((r) => r.fails.length).length;
     const auto = rows.filter((r) => r.dropped).length;
-    return { result: { rows }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict${auto ? `; ${auto} dropped for a failed must-have` : ""}` };
+    return { result: { rows, ...(refused.length ? { refused } : {}) }, summary: `screened ${rows.length} site records; ${failing} with a recorded hard conflict${auto ? `; ${auto} dropped for a failed must-have` : ""}` };
   }
 
   private async evaluate(ids: string[]) {
     const zones = new Map<string, ParcelZone | null>();
     if (this.deps.zoning) await Promise.all(ids.map(async (id) => {
       const s = this.shell(id)?.shell;
-      if (s?.city === "los_angeles" && s.lat != null && s.lon != null) zones.set(id, await this.deps.zoning!(s.lat, s.lon).catch(() => null));
+      if (!this.dropped.has(id) && s?.city === "los_angeles" && s.lat != null && s.lon != null) zones.set(id, await this.deps.zoning!(s.lat, s.lon).catch(() => null));
     }));
     return this.evaluateWith(ids, zones);
   }
 
   private evaluateWith(ids: string[], zones: Map<string, ParcelZone | null>) {
+    const refused = ids.flatMap((id) => { const r = this.refusal(id); return r ? [{ id, reason: r }] : []; });
     const fresh: Evaluation[] = [];
     const seen = ids.flatMap((id) => {
       const c = this.shell(id);
@@ -232,12 +290,13 @@ export class Run {
         this.graphReads++;
         graph = this.deps.graph(c.shell.sid);
       }
+      const aerial = this.aerialOf(c.shell);
       const fit = graph ? fitRooms(this.spec, graph) : { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] };
-      const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null });
+      const rules = checkRules(this.spec, c.shell, graph ?? undefined, { parcelZone: zones.get(id) ?? null, aerial });
       const work = estimateWork(this.spec, c.shell, fit, rules);
       const similarity = this.similarity.get(id);
       const lines = scoreLines(this.spec, c.shell, graph, fit, rules);
-      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, lines, finalScore: 0, escalations: [], verdicts: [], similarity };
+      const e: Evaluation = { shell: c.shell, searchScore: c.score, searchReasons: c.reasons, graph, fit, rules, work, lines, finalScore: 0, escalations: [], verdicts: [], similarity, aerial };
       rescore(e);
       this.evaluated.set(id, e);
       // Must-haves and a far-too-small measured area drop here; required room counts are enforced at submit, after every veto.
@@ -246,7 +305,8 @@ export class Run {
     });
     for (const e of fresh) if (!this.dropped.has(e.shell.id)) this.verdict(consult("inspector", this.spec, e), e);
     const rows = seen.map((e) => this.row(e));
-    return { result: { rows }, summary: `Inspector walked ${rows.filter((r) => r.scan).length} scans (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})` };
+    if (!rows.length && refused.length) return { result: { error: "every id you sent was already ruled out", refused }, summary: `refused ${refused.length}: already ruled out` };
+    return { result: { rows, ...(refused.length ? { refused } : {}) }, summary: `Inspector walked ${rows.filter((r) => r.scan).length} scans (room graphs read: ${this.graphReads}/${BUDGET.roomGraphs})${refused.length ? `; refused ${refused.length} already ruled out` : ""}` };
   }
 
   evaluateQuietly(ids: string[]) {
@@ -258,9 +318,10 @@ export class Run {
     this.emit({ type: "verdict", id: rid("ev"), verdict: v });
     if (v.status === "veto" && !this.dropped.has(e.shell.id)) {
       const evidence = v.claims.flatMap((c) => c.evidence).slice(0, 4);
+      const name = spaceName(e.shell);
       this.dropped.add(e.shell.id);
       this.vetoes.set(e.shell.id, v);
-      this.emit({ type: "veto", id: rid("ev"), agent: v.agent, shellId: e.shell.id, name: displayName(e.shell.name), reason: v.headline, evidence });
+      this.emit({ type: "veto", id: rid("ev"), agent: v.agent, shellId: e.shell.id, name: displayName(e.shell.name), reason: `${name}: ${lowerFirst(v.headline)}`, evidence });
     }
   }
 
@@ -314,33 +375,157 @@ export class Run {
     };
   }
 
-  private inspect(id: string, question: string) {
+  // Re-run the room fit with every fixture Hermit saw in the scan photos, so a room with a visible sink can take the
+  // exam-room slot. Score lines added by specialists (access flags, closer-look notes) are kept.
+  private refit(e: Evaluation) {
+    if (!e.graph) return;
+    const extras = e.lines.filter((l) => !BASE_FACTORS.has(l.factor));
+    e.fit = fitRooms(this.spec, seenGraph(e));
+    e.work = estimateWork(this.spec, e.shell, e.fit, e.rules);
+    e.lines = [...scoreLines(this.spec, e.shell, e.graph, e.fit, e.rules), ...extras];
+    rescore(e);
+  }
+
+  // Rooms (by requirement key) that the question is about and that need this fixture.
+  private targets(e: Evaluation, feature: string, rooms: string[]): Target[] {
+    const reqOf = (key: string) => this.spec.rooms.find((r) => key === r.label || key.startsWith(`${r.label} #`));
+    const named = (key: string) => { const r = reqOf(key); return !rooms.length || (r ? rooms.some((w) => r.label.toLowerCase().includes(w) || normalizeRoomLabel([r.label]) === normalizeRoomLabel([w])) : false); };
+    const rows = e.fit.assignment.filter((a) => a.roomId && named(a.req));
+    const needing = rows.filter((a) => reqOf(a.req)?.fixtures?.some((f) => f.toLowerCase() === feature));
+    return (needing.length ? needing : rooms.length ? rows : []).map((a) => ({ req: a.req, roomId: a.roomId! }));
+  }
+
+  private checkOf(id: string, roomId: string, feature: string) {
+    return this.photoChecks.get(id)?.find((c) => c.roomId === roomId && c.feature.toLowerCase() === feature) ?? null;
+  }
+
+  private addChecks(id: string, checks: PanoCheck[]) {
+    const have = this.photoChecks.get(id) ?? [];
+    const key = (c: PanoCheck) => `${c.roomId}|${c.feature.toLowerCase()}`;
+    const fresh = new Map(checks.map((c) => [key(c), c]));
+    this.photoChecks.set(id, [...have.filter((c) => !fresh.has(key(c))), ...fresh.values()]);
+  }
+
+  private async lookLive(sid: string, roomId: string, features: string[]): Promise<PanoCheck[] | string> {
+    const look = this.deps.look;
+    if (!look) return "no saved photo check for it";
+    if (this.liveLooks >= BUDGET.liveLooks) return this.lookErrors.length ? "the photo check couldn't run" : "this search's fresh photo checks were used up";
+    this.liveLooks++;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        look(sid, roomId, features),
+        new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error(`no answer in ${BUDGET.lookMs / 1000}s`)), BUDGET.lookMs); }),
+      ]);
+    } catch (err) {
+      // A provider failure (no credits, timeout) won't fix itself mid-run: stop asking and use the cache only.
+      this.liveLooks = BUDGET.liveLooks;
+      this.lookErrors.push(err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160));
+      if (this.lookErrors.length === 1) this.emit({ type: "error", id: rid("ev"), message: `Live photo check unavailable (${this.lookErrors[0].split(":")[0]}); Hermit uses saved photo checks only for the rest of this search.` });
+      return "the photo check couldn't run";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // "Hermit looked closer": a vision model's answer on real scan photos of the rooms the question is about.
+  // Cached answers first; at most BUDGET.liveLooks fresh ones per run. seen resolves the fixture, not_seen leaves the
+  // "Add … to …" work item, couldn't tell becomes a question for the landlord.
+  private async inspect(id: string, question: string) {
+    const refused = this.refusal(id);
+    if (refused) return { result: { error: refused }, summary: `refused: ${this.nameOf(id)} was already ruled out` };
     const e = this.evaluated.get(id);
     if (this.inspections >= BUDGET.inspections) return { result: { error: "inspection budget exhausted" }, summary: "skipped: inspection budget exhausted" };
     this.inspections++;
+    const words = new Set((question.toLowerCase().match(/[a-z]+/g) ?? []).map((w) => w.replace(/s$/, "")));
+    const q = question.toLowerCase();
+    const specFixtures = [...new Set(this.spec.rooms.flatMap((r) => r.fixtures ?? []).map((f) => f.toLowerCase()))];
+    const feature = specFixtures.find((f) => q.includes(f)) ?? FIXTURE_WORDS.find((f) => words.has(f));
+    const rooms = [...new Set([...this.spec.rooms.map((r) => r.label.toLowerCase()).filter((l) => q.includes(l)), ...ROOM_WORDS.filter((r) => words.has(r))])];
+    const name = spaceName(e?.shell ?? this.shell(id)?.shell ?? { name: id, address: "" });
+    const sid = e?.graph?.sid;
+    const targets = e && sid && feature ? this.targets(e, feature, rooms) : [];
+    if (!e || !sid || !feature || !targets.length) return this.inspectMetadata(id, e, question, words);
+
+    // Every cached answer for this fixture in the scan, then fresh photo checks for target rooms nobody looked at yet.
+    const cached = e.graph!.rooms.flatMap((r) => { const c = (this.deps.panoCheck ?? loadPanoCheck)(sid, r.id, feature); return c ? [c] : []; });
+    this.addChecks(id, cached);
+    const notes: string[] = [];
+    for (const t of targets) {
+      if (this.checkOf(id, t.roomId, feature)) continue;
+      const fixtures = this.spec.rooms.find((r) => t.req === r.label || t.req.startsWith(`${r.label} #`))?.fixtures ?? [feature];
+      const live = await this.lookLive(sid, t.roomId, [...new Set([feature, ...fixtures.map((f) => f.toLowerCase())])]);
+      if (typeof live === "string") { notes.push(live); break; }
+      this.addChecks(id, live);
+    }
+    e.seen = (this.photoChecks.get(id) ?? []).filter((c) => c.result === "seen");
+    this.refit(e);
+    const after = this.targets(e, feature, rooms);
+    const results = after.map((t) => ({ ...t, check: this.checkOf(id, t.roomId, feature) }));
+    const seenR = results.filter((r) => r.check?.result === "seen");
+    const notR = results.filter((r) => r.check?.result === "not_seen");
+    const unclearR = results.filter((r) => r.check?.result === "unclear");
+    const unlooked = results.filter((r) => !r.check);
+    const result: PanoCheck["result"] = results.length && seenR.length === results.length ? "seen" : notR.length ? "not_seen" : "unclear";
+
+    const clauses: string[] = [];
+    if (seenR.length) clauses.push(`${an(feature)} is visible in ${roomList(seenR.map((r) => r.req))}`);
+    if (notR.length) clauses.push(`no ${feature} in ${roomList(notR.map((r) => r.req))}`);
+    if (unclearR.length) clauses.push(`couldn't tell if ${roomList(unclearR.map((r) => r.req))} ${unclearR.length > 1 ? "have" : "has"} ${an(feature)} (${lowerFirst(unclearR[0].check!.note.replace(/\.$/, ""))})`);
+    // Rooms Hermit couldn't look at this time (no photo check on hand, or the fresh checks ran out): plain truth, no cache talk.
+    const many = unlooked.length > 1, roomsWord = roomList(unlooked.map((r) => r.req)).replace(/\s*#\d+(?:,? (?:and )?#\d+)*$/, "");
+    const askLine = `so whether ${many ? `they have ${plural(feature)}` : `it has ${an(feature)}`} is a question for the landlord`;
+    if (unlooked.length && clauses.length) clauses.push(`couldn't look closer at ${roomList(unlooked.map((r) => r.req))} this time, ${askLine}`);
+    const outcome = unlooked.length && clauses.length === 0
+      ? `Couldn't look closer at the ${roomsWord} in ${name} this time, ${askLine}.`
+      : `Looked closer at ${name}: ${clauses.join("; ")}.`;
+    void notes; // why the look didn't run stays out of the sentence; lookErrors still reach the result for the planner
+    const evidence: Evidence[] = results.flatMap((r) => (r.check ? [{ source: "Matterport scan photo", ref: r.check.panoId ? `pano:${r.check.panoId} face ${r.check.face ?? "?"}` : `${sid}/${r.roomId} (no photo inside the room)`, confidence: r.check.confidence }] : []));
+
+    // Report: the photo checks behind this answer; couldn't-tell rooms become landlord questions.
+    const byKey = new Map((e.checks ?? []).map((c) => [`${c.roomId}|${c.feature}`, c]));
+    for (const r of results) if (r.check) byKey.set(`${r.check.roomId}|${r.check.feature}`, r.check);
+    e.checks = [...byKey.values()];
+    for (const r of unclearR)
+      (e.extraUnknowns ??= []).push({ topic: "looked closer", question: `Is there ${an(feature)} in ${r.req}? ${r.check!.note}` });
+    if (unlooked.length)
+      (e.extraUnknowns ??= []).push({ topic: "looked closer", question: `${unlooked.length > 1 ? "Do" : "Does"} ${roomList(unlooked.map((r) => r.req))} have ${unlooked.length > 1 ? plural(feature) : an(feature)}? Hermit couldn't look closer at ${unlooked.length > 1 ? "those rooms" : "that room"} this time.` });
+    if (unclearR.length || unlooked.length) { e.lines.push({ factor: "Closer look: couldn't tell", earned: -2, max: 0, note: `${an(feature)} in ${roomList([...unclearR, ...unlooked].map((r) => r.req))}`, source: "inspect_view (scan photos)" }); rescore(e); }
+    e.escalations.push({ question, outcome, result, evidence });
+    this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome, result, evidence });
+    return { result: { outcome, result, rooms: results.map((r) => ({ room: r.req, result: r.check?.result ?? "not looked at", note: r.check?.note })), unverifiedFixtures: unverifiedFixtures(this.spec, e), ...(this.lookErrors.length ? { photoCheckError: this.lookErrors.at(-1) } : {}) }, summary: outcome };
+  }
+
+  // No photo check applies (no scan, no fixture named, or no matching room): read Matterport's own tags and description.
+  private inspectMetadata(id: string, e: Evaluation | undefined, question: string, words: Set<string>) {
     let outcome: string;
-    if (!e?.graph) outcome = "unresolved: no cached scan for this candidate";
+    let result: PanoCheck["result"] = "unclear";
+    const name = spaceName(e?.shell ?? this.shell(id)?.shell ?? { name: id, address: "" });
+    if (!e?.graph) outcome = `Couldn't look closer at ${name}: it has no 3D scan, so this is a question for the landlord.`;
     else {
-      const words = new Set((question.toLowerCase().match(/[a-z]+/g) ?? []).map((w) => w.replace(/s$/, "")));
       const fixtures = FIXTURE_WORDS.filter((f) => words.has(f));
       const roomTypes = ROOM_WORDS.filter((r) => words.has(r));
       const objs = e.graph.objects.filter((o) => fixtures.includes(o.label.replace(/s$/, "")));
       const rooms = fixtures.length ? [] : e.graph.rooms.filter((r) => roomTypes.includes(r.label));
       const desc = e.graph.description ?? "";
       const sentences = desc.split(/(?<=\.)\s+/);
-      const has = (x: string, w: string) => new RegExp(`\b${w}`, "i").test(x);
+      const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const has = (x: string, w: string) => new RegExp(`\\b${esc(w)}`, "i").test(x);
       const sentence = sentences.find((x) => fixtures.some((f) => has(x, f)) && roomTypes.some((r) => has(x, r)))
         ?? (roomTypes.length ? undefined : sentences.find((x) => [...fixtures, ...roomTypes].some((w) => has(x, w))));
-      outcome = !fixtures.length && !roomTypes.length ? "unresolved: question names no fixture or room type Hermit can look up"
-        : objs.length ? `observed: ${objs.map((o) => `${o.label} in room ${o.roomId ?? "?"} (conf ${o.confidence.toFixed(2)})`).join("; ")}`
-        : rooms.length ? `observed: room tags ${rooms.map((r) => r.rawTags.join("/")).join("; ")}`
-        : sentence ? `described, not tagged: Matterport's scan description says "${sentence.trim().slice(0, 160)}" (AI-written; ask to confirm)`
-        : `not observed in ${e.graph.objects.length} object annotations / ${e.graph.rooms.length} room tags / scan description; treat as unknown`;
+      if (objs.length || rooms.length) result = "seen";
+      const what = [...fixtures, ...roomTypes].join(" or ") || "that";
+      outcome = !fixtures.length && !roomTypes.length ? `Looked closer at ${name}, but the question didn't name something a scan can show, so it stays a question for the landlord.`
+        : objs.length ? `Looked closer at ${name}: the scan marks ${objs.map((o) => o.label).join(", ")}.`
+        : rooms.length ? `Looked closer at ${name}: the scan labels a ${rooms.map((r) => r.label).join(" and a ")}.`
+        : sentence ? `Looked closer at ${name}: the scan's written description mentions it ("${sentence.trim().slice(0, 140)}"), but no photo confirms it, so ask.`
+        : `Looked closer at ${name}: nothing in the scan shows ${what}, so it's a question for the landlord.`;
     }
-    e?.escalations.push({ question, outcome });
-    if (e && !outcome.startsWith("observed")) { e.lines.push({ factor: "Closer look unresolved", earned: outcome.startsWith("described") ? -1 : -3, max: 0, note: question, source: "inspect_view" }); rescore(e); }
-    this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome });
-    return { result: { outcome }, summary: outcome };
+    const evidence: Evidence[] = e?.graph ? [{ source: "matterport", ref: `${e.graph.sid} objectAnnotations + generatedDescription`, confidence: 0.5 }] : [];
+    e?.escalations.push({ question, outcome, result, evidence });
+    if (e && result !== "seen") { e.lines.push({ factor: "Closer look unresolved", earned: outcome.includes("written description") ? -1 : -3, max: 0, note: question, source: "inspect_view" }); rescore(e); }
+    this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome, result, evidence });
+    return { result: { outcome, result }, summary: outcome };
   }
 
   private drop(drops: { shellId: string; reason: string }[]) {
@@ -355,24 +540,26 @@ export class Run {
   // Code-enforced must-haves (every planner path): a recorded fail drops the candidate; unknown stays in, flagged, with a landlord question.
   private enforce(id: string, rules: RuleHit[], hardFails: string[] = []) {
     const must = mustHaves(this.spec);
-    const why = [
-      ...rules.filter((r) => r.status === "fail" && must.some((m) => m.rule === r.rule)).map((r) => `${r.rule}: ${r.detail} (must-have ${must.find((m) => m.rule === r.rule)!.need}; ${r.evidence.map((e) => `${e.source} ${e.ref}`).join(", ") || r.citation})`),
-      ...hardFails,
-    ];
+    const why = [...rules.filter((r) => r.status === "fail" && must.some((m) => m.rule === r.rule)).map((r) => r.detail.replace(/\.$/, "")), ...hardFails];
     if (why.length) this.dropOne(id, why.join("; "));
     return why.length > 0;
   }
 
+  // Every drop names the space and carries the evidence that ruled it out.
   private dropOne(id: string, reason: string) {
     if (this.dropped.has(id)) return;
     const e = this.evaluated.get(id);
     const s = this.screened.get(id);
+    const shell = e?.shell ?? s?.shell ?? this.shell(id)?.shell;
+    const name = shell ? spaceName(shell) : id;
+    const named = shell && (reason.includes(name) || reason.includes(displayName(shell.name))) ? reason : `${name}: ${lowerFirst(reason)}`;
     const evidence: Evidence[] = [
-      ...(e?.rules ?? s?.flags ?? []).filter((r) => r.status === "fail").flatMap((r) => r.evidence),
+      ...(e?.rules ?? s?.flags ?? []).filter((r) => r.status === "fail").flatMap((r) => [...r.evidence].sort((a, b) => Number(b.source.startsWith("Vexcel")) - Number(a.source.startsWith("Vexcel")))),
       ...(e?.graph && (e.fit.hardFails.length || severe(this.counts(e))) ? [{ source: "matterport", ref: `${e.graph.sid} room graph`, confidence: 0.8 }] : []),
-    ];
+    ].filter((x, i, a) => a.findIndex((y) => y.ref === x.ref && y.source === x.source) === i);
     this.dropped.add(id);
-    this.emit({ type: "drop", id: rid("ev"), shellId: id, reason, evidence });
+    this.dropReasons.set(id, { reason: /[.!?]$/.test(named) ? named : `${named}.`, evidence });
+    this.emit({ type: "drop", id: rid("ev"), shellId: id, reason: this.dropReasons.get(id)!.reason, evidence });
   }
 
   // The Skeptic argues against the top pick. It keeps the spot only if the runner-up isn't clearly less risky.
@@ -395,6 +582,7 @@ export class Run {
     const alt = clean ?? (second && weight(mine) >= 3 && weight(second.c) + 2 <= weight(mine) && second.e.finalScore >= top.finalScore - 6 ? second : undefined);
     if (alt) {
       this.swappedFrom = top.shell.id;
+      this.skepticWhy = { concerns: mine.map((c) => c.text), clean: !!clean, alt: alt.id };
       for (const c of alt.c) alt.e.lines.push({ factor: "Skeptic's concern", earned: -c.weight, max: 0, note: c.text, source: c.source });
       alt.e.finalScore = total(alt.e.lines);
       chosen.splice(chosen.indexOf(alt.id), 1);
@@ -404,6 +592,24 @@ export class Run {
     this.emit({ type: "challenge", id: rid("ev"), shellId: top.shell.id, name, concerns: mine.map((c) => c.text), outcome: alt ? "swapped" : "survived",
       detail: alt ? `${displayName(alt.e.shell.name)} has ${clean ? "no competitor on its block" : "fewer red flags"}, so it moves to the top.`
         : second ? `${name} still wins: ${second.c.length ? `the alternatives have their own problems (${second.c[0].text.toLowerCase()})` : "its strengths outweigh these"}.` : `${name} is the only finalist.` });
+  }
+  private skepticWhy: { concerns: string[]; clean: boolean; alt: string } | null = null;
+
+  // Guardrail: for the top 2 finalists, a fixture you need (a sink in the exam rooms) that the scan hasn't confirmed
+  // gets a closer look, whether or not the planner asked for one.
+  private async lookCloser(chosen: string[]) {
+    for (const id of chosen.slice(0, 2)) {
+      const e = this.evaluated.get(id)!;
+      if (!e.graph || this.inspections >= BUDGET.inspections) continue;
+      const looked = new Set(e.escalations.flatMap((x) => (x.result ? FIXTURE_WORDS.filter((f) => x.question.toLowerCase().includes(f)) : [])));
+      const f = unverifiedFixtures(this.spec, e).find((x) => !looked.has(x.toLowerCase()));
+      if (!f) continue;
+      const question = `Is there ${an(f)} in the ${fixtureRooms(this.spec, e, f) || "rooms you need"}?`;
+      this.emit({ type: "handoff", id: rid("ev"), to: "inspector", shellIds: [id], why: `Hermit's rule: the Inspector looks closer at a finalist when a fixture you need isn't confirmed (${f} at ${spaceName(e.shell)})` });
+      const t0 = Date.now();
+      const r = await this.inspect(id, question);
+      this.emit({ type: "tool", id: rid("ev"), tool: "inspect_view", args: { shellId: id, question }, resultId: rid("inspect_view"), summary: r.summary, ms: Date.now() - t0 });
+    }
   }
 
   private async submit(ids: string[]) {
@@ -429,36 +635,71 @@ export class Run {
       .filter((e) => !this.dropped.has(e.shell.id) && !picked.includes(e.shell.id) && severe(this.counts(e)))
       .sort(this.byRoomFit).slice(0, 3 - picked.length).map((e) => e.shell.id));
     guard(picked);
-    const chosen = picked.filter((id) => !this.dropped.has(id)).sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!)).slice(0, 5);
+    const rank = (list: string[]) => list.filter((id) => !this.dropped.has(id)).sort((a, b) => this.byRoomFit(this.evaluated.get(a)!, this.evaluated.get(b)!));
+    await this.lookCloser(rank(picked));
+    const chosen = rank(picked).slice(0, 5);
     if (ids.length && !chosen.length && !ids.some((id) => this.vetoes.has(id))) throw new Error(`none of ${ids.join(", ")} were evaluated (or all were dropped/vetoed); call evaluate_candidates first`);
     for (const id of chosen) {
       const e = this.evaluated.get(id)!;
       for (const a of ["estimator", "advocate"] as const) if (!e.verdicts.some((v) => v.agent === a)) e.verdicts.push(consult(a, this.spec, e));
+      // The Surveyor's aerial read goes on every report, consulted or not, so the Above evidence is never missing.
+      if (!e.verdicts.some((v) => v.agent === "surveyor")) e.verdicts.push(consult("surveyor", this.spec, e));
     }
     this.skeptic(chosen);
     this.reports = chosen.map((id, i) => { const e = this.evaluated.get(id)!; return buildReport(this.spec, e, i + 1, this.regulations, e.shell.sid && this.deps.site ? this.deps.site(e.shell.sid) : null); });
     const first = this.candidates[0];
     if (first && chosen[0] && chosen[0] !== first.shell.id) {
-      const veto = this.vetoes.get(first.shell.id);
-      const top = displayName(this.evaluated.get(chosen[0])!.shell.name), scout = displayName(first.shell.name);
-      const skeptic = this.swappedFrom === first.shell.id;
-      const firstEval = this.evaluated.get(first.shell.id);
-      const topEval = this.evaluated.get(chosen[0])!;
-      const roomsWin = firstEval && !this.dropped.has(first.shell.id) && (() => {
-        const a = this.counts(topEval), b = this.counts(firstEval);
-        const miss = (c: typeof a) => c.reduce((s, x) => s + missingOf(x), 0);
-        return countTier(a) < countTier(b) || miss(a) < miss(b);
-      })();
-      const short = roomsWin ? shortfalls(this.spec, this.counts(firstEval!))[0] ?? countLine(this.spec, this.counts(firstEval!)) : undefined;
-      this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason: skeptic
-        ? `The Skeptic flagged a possible exclusive conflict at the Scout's first pick, ${scout}. ${top} takes the top spot.`
-        : veto
-        ? `${AGENTS[veto.agent].name} vetoed the Scout's first pick, ${scout} (${veto.headline.charAt(0).toLowerCase()}${veto.headline.slice(1)}). ${top} takes the top spot.`
-        : this.dropped.has(first.shell.id) ? `The Scout's first pick, ${scout}, was dropped. ${top} takes the top spot.`
-        : short ? `${top} has more of the rooms you need already built. The Scout's first pick, ${scout}: ${short.charAt(0).toLowerCase()}${short.slice(1)}.`
-        : `After walking the scans, ${top} outscored the Scout's first pick, ${scout}.` });
+      const { reason, evidence } = this.whyTop(first.shell.id, chosen[0]);
+      this.emit({ type: "rerank", id: rid("ev"), order: chosen, reason, evidence });
     }
     return { result: { reports: this.reports.length }, summary: `${this.reports.length} Shell Reports` };
+  }
+
+  // Why the top pick isn't the Scout's first pick, quoting the evidence that decided it.
+  private whyTop(firstId: string, topId: string): { reason: string; evidence: Evidence[] } {
+    const top = this.evaluated.get(topId)!;
+    const topName = spaceName(top.shell), scout = this.nameOf(firstId);
+    const firstEval = this.evaluated.get(firstId);
+    const veto = this.vetoes.get(firstId);
+    const dropped = this.dropReasons.get(firstId);
+    if (this.swappedFrom === firstId && this.skepticWhy)
+      return { reason: `Changed the top pick: ${this.skepticWhy.concerns[0].replace(/\.$/, "")} at ${scout}. ${topName} has ${this.skepticWhy.clean ? "no competitor on its block" : "fewer red flags"}.`, evidence: [{ source: "Skeptic", ref: this.skepticWhy.concerns.join(" | "), confidence: 0.5 }] };
+    if (veto)
+      return { reason: `Changed the top pick: ${AGENTS[veto.agent].name} ruled out ${scout} (${lowerFirst(veto.headline.replace(/\.$/, ""))}).`, evidence: veto.claims.flatMap((c) => c.evidence).slice(0, 4) };
+    if (dropped)
+      return { reason: `Changed the top pick: ${dropped.reason.startsWith(scout) ? `${scout} was dropped (${lowerFirst(dropped.reason.slice(scout.length + 2).replace(/\.$/, ""))})` : `${scout} was dropped (${lowerFirst(dropped.reason.replace(/\.$/, ""))})`}.`, evidence: dropped.evidence };
+    if (!firstEval)
+      return { reason: `Changed the top pick: ${scout} ranked first on the record search, but its rooms were never walked; ${topName} is the best of the spaces Hermit walked.`, evidence: [] };
+    // Looked closer: a fixture you need is visible at the top pick but not confirmed at the Scout's pick.
+    for (const c of top.checks ?? []) {
+      if (c.result !== "seen") continue;
+      // The Scout's pick may not have been inspected this run: read its saved photo checks for the same rooms.
+      let theirs = (firstEval.checks ?? []).filter((x) => x.feature === c.feature);
+      if (!theirs.length && firstEval.graph) theirs = this.targets(firstEval, c.feature.toLowerCase(), [])
+        .flatMap((t) => { const k = (this.deps.panoCheck ?? loadPanoCheck)(firstEval.graph!.sid, t.roomId, c.feature); return k ? [k] : []; });
+      if (theirs.some((x) => x.result === "seen")) continue;
+      const room = this.spec.rooms.find((r) => r.fixtures?.some((f) => f.toLowerCase() === c.feature.toLowerCase()))?.label ?? "room";
+      const what = `${room.replace(/ /g, "-")} ${plural(c.feature)}`;
+      const seenRefs = (top.checks ?? []).filter((x) => x.feature === c.feature && x.result === "seen");
+      const not = theirs.some((x) => x.result === "not_seen");
+      const why = !theirs.length ? "weren't looked at" : not ? "aren't there in its photos" : "couldn't be confirmed";
+      return {
+        reason: `Changed the top pick: ${topName}'s ${what} are visible in the scan photos; ${scout}'s ${why}${!not && theirs[0]?.note ? ` (${lowerFirst(theirs[0].note.replace(/\.$/, ""))})` : ""}.`,
+        evidence: [...seenRefs, ...theirs].map((x) => ({ source: "Matterport scan photo", ref: x.panoId ? `pano:${x.panoId} face ${x.face ?? "?"}` : `${x.sid}/${x.roomId} (no photo inside the room)`, confidence: x.confidence })),
+      };
+    }
+    const a = this.counts(top), b = this.counts(firstEval);
+    const miss = (c: typeof a) => c.reduce((s, x) => s + missingOf(x), 0);
+    if (countTier(a) < countTier(b) || miss(a) < miss(b)) {
+      const short = shortfalls(this.spec, b)[0] ?? countLine(this.spec, b);
+      return { reason: `Changed the top pick: ${topName} has more of the rooms you need already built (${countLine(this.spec, a)}); ${scout}: ${lowerFirst(short)}.`, evidence: [top.graph, firstEval.graph].flatMap((g) => (g ? [{ source: "matterport", ref: `${g.sid} room graph`, confidence: 0.8 }] : [])) };
+    }
+    const gap = top.lines.filter((l) => l.max > 0).map((l) => ({ l, o: firstEval.lines.find((x) => x.factor === l.factor) })).filter((x) => x.o)
+      .sort((x, y) => (y.l.earned - y.o!.earned) - (x.l.earned - x.o!.earned))[0];
+    if (gap && gap.l.earned > gap.o!.earned)
+      return { reason: `Changed the top pick: ${topName} scores higher on ${gap.l.factor.toLowerCase()} (${gap.l.note}) than ${scout} (${gap.o!.note}).`, evidence: [{ source: gap.l.source, ref: gap.l.note, confidence: 0.6 }, { source: gap.o!.source, ref: gap.o!.note, confidence: 0.6 }] };
+    const pen = firstEval.lines.filter((l) => l.earned < 0).sort((x, y) => x.earned - y.earned)[0];
+    return { reason: `Changed the top pick: ${scout} lost points for ${pen ? `${lowerFirst(pen.factor)} (${pen.note})` : "its evidence"}; ${topName} scored ${top.finalScore} vs ${firstEval.finalScore}.`, evidence: pen ? [{ source: pen.source, ref: pen.note, confidence: 0.5 }] : [] };
   }
 
   // Verifier pass: deterministic re-check of every report (always), plus an independent LLM audit when a provider is set.
@@ -491,7 +732,8 @@ export class Run {
     const demoted = reports.filter((r) => r.verification!.status === "demoted");
     if (demoted.length) {
       this.reports = [...reports.filter((r) => !demoted.includes(r)), ...demoted].map((r, i) => ({ ...r, rank: i + 1 }));
-      this.emit({ type: "rerank", id: rid("ev"), order: this.reports.map((r) => r.shellId), reason: `Verifier moved ${demoted.map((r) => r.shellId).join(", ")} to the bottom: ${demoted[0].verification!.issues[0]}` });
+      const names = demoted.map((r) => this.nameOf(r.shellId));
+      this.emit({ type: "rerank", id: rid("ev"), order: this.reports.map((r) => r.shellId), reason: `The verifier moved ${list(names)} to the bottom: ${lowerFirst(demoted[0].verification!.issues[0])}.`, evidence: demoted[0].rules.filter((h) => h.status === "fail").flatMap((h) => h.evidence).slice(0, 4) });
     }
     const flagged = reports.filter((r) => r.verification!.status === "flagged").length;
     const must = mustHaves(this.spec).length;
@@ -504,7 +746,7 @@ export class Run {
 
 // Last step when the budget is spent: evaluate any unevaluated picks inside the single submit call.
 export async function finalize(run: Run, ids: string[]) {
-  const missing = ids.filter((id) => !run.evaluated.has(id));
+  const missing = ids.filter((id) => !run.evaluated.has(id) && !run.dropped.has(id));
   if (missing.length) await run.evaluateQuietly(missing);
   return run.call("submit_reports", { shellIds: ids.filter((id) => run.evaluated.has(id) && !run.dropped.has(id)) });
 }
@@ -512,17 +754,40 @@ export async function finalize(run: Run, ids: string[]) {
 const FIXTURE_WORDS = ["sink", "toilet", "shower", "bathtub", "tub", "hood", "drain", "range", "stove", "oven", "refrigerator", "dishwasher", "washer", "dryer", "elevator", "ramp"];
 const ROOM_WORDS = ["bathroom", "restroom", "kitchen", "office", "bedroom", "reception", "conference", "storage", "utility", "garage", "exam"];
 
+// Fixtures the spec asks for in a matched room that neither the room type, Matterport's tags nor a scan photo shows.
 export function unverifiedFixtures(spec: RequirementSpec, e: Evaluation): string[] {
   if (!e.graph) return [];
+  const g = seenGraph(e);
   const out = new Set<string>();
   for (const a of e.fit.assignment) {
     if (!a.roomId) continue;
     const req = spec.rooms.find((r) => a.req === r.label || a.req.startsWith(`${r.label} #`));
-    const room = e.graph.rooms.find((r) => r.id === a.roomId)!;
-    const have = new Set([...(IMPLIED_FIXTURES[room.label] ?? []), ...e.graph.objects.filter((o) => o.roomId === room.id).map((o) => o.label)]);
-    for (const f of req?.fixtures ?? []) if (!have.has(f)) out.add(f);
+    const room = g.rooms.find((r) => r.id === a.roomId)!;
+    const have = new Set([...(IMPLIED_FIXTURES[room.label] ?? []), ...g.objects.filter((o) => o.roomId === room.id).map((o) => o.label.toLowerCase())]);
+    for (const f of req?.fixtures ?? []) if (!have.has(f.toLowerCase())) out.add(f);
   }
   return [...out];
+}
+
+// "the exam rooms": the requested rooms where this fixture is still unconfirmed, for a plain question.
+export function fixtureRooms(spec: RequirementSpec, e: Evaluation, f: string): string {
+  if (!e.graph) return "";
+  const g = seenGraph(e);
+  const labels = new Set<string>();
+  for (const a of e.fit.assignment) {
+    const req = spec.rooms.find((r) => a.req === r.label || a.req.startsWith(`${r.label} #`));
+    const room = a.roomId ? g.rooms.find((r) => r.id === a.roomId) : undefined;
+    if (!req?.fixtures?.includes(f) || !room) continue;
+    const have = new Set([...(IMPLIED_FIXTURES[room.label] ?? []), ...g.objects.filter((o) => o.roomId === room.id).map((o) => o.label.toLowerCase())]);
+    if (!have.has(f.toLowerCase())) labels.add(req.count > 1 ? plural(req.label) : req.label);
+  }
+  return list([...labels]);
+}
+
+// The room graph plus every fixture a scan photo showed ("seen"), for fitting only; the report keeps the measured graph.
+function seenGraph(e: Evaluation): RoomGraph {
+  const seen = [...(e.seen ?? []), ...(e.checks ?? [])].filter((c) => c.result === "seen");
+  return seen.length ? { ...e.graph!, objects: [...e.graph!.objects, ...seen.map((c) => ({ label: c.feature.toLowerCase(), roomId: c.roomId, confidence: c.confidence }))] } : e.graph!;
 }
 
 // Bedrooms and baths typed as numbers override the pack's counts (0 = none required, e.g. a studio); a half bath is

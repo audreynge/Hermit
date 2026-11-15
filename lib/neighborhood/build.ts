@@ -46,3 +46,49 @@ export function siteAt(lat: number, lon: number, city: string): SiteFile {
     pois, osmSource: L.pois.length ? "OpenStreetMap via Overpass (cached)" : null, blockGroup: null, demographics: null, workers: workersNear(city, lat, lon),
   };
 }
+
+// Metro bounding boxes the cached layers cover (same as pipeline/neighborhood.ts).
+const BBOX: Record<string, [number, number, number, number]> = { houston: [29.45, -95.9, 30.15, -94.95], los_angeles: [33.65, -118.75, 34.4, -117.95] };
+export function cityAt(lat: number, lon: number): string | null {
+  for (const [c, [s, w, n, e]] of Object.entries(BBOX)) if (lat >= s && lat <= n && lon >= w && lon <= e) return c;
+  return null;
+}
+
+// Heat sources for the foot-traffic proxy map: nearby places (OSM) and where people work (LEHD jobs per census
+// block). Weights are relative (0.15–1.2) so a dense job block glows more than a single shop. Not a foot count.
+export function heatFor(site: SiteFile, city: string): { heat: NonNullable<SiteFile["heat"]>; heatSources: string[] } {
+  const here = { lat: site.lat, lon: site.lon };
+  const heat: NonNullable<SiteFile["heat"]> = site.pois.map((p) => ({ lat: p.lat, lon: p.lon, w: 0.8 }));
+  const sources = site.pois.length ? ["nearby places (OpenStreetMap)"] : [];
+  let blocks = 0;
+  for (const [la, lo, jobs] of layer(city).workers) {
+    if (!jobs || Math.abs(la - site.lat) > 0.009 || Math.abs(lo - site.lon) > 0.011) continue;
+    if (km(here, { lat: la, lon: lo }) > 0.8) continue;
+    heat.push({ lat: la, lon: lo, w: Math.min(1.2, Math.max(0.15, Math.log10(1 + jobs) / 3)) });
+    blocks++;
+  }
+  if (blocks) sources.push("where people work (US Census LEHD)");
+  // Keep the strongest 400 so the SVG stays light.
+  return { heat: heat.sort((a, b) => b.w - a.w).slice(0, 400), heatSources: sources };
+}
+
+// Fills gaps in a prefetched site file (or builds one) from the cached city layers, then adds heat sources.
+// Shells without a scan, home scans, and quiet blocks used to get no heat at all.
+export function enrichSite(site: SiteFile | null, lat?: number, lon?: number, cityHint?: string): SiteFile | null {
+  const la = site?.lat ?? lat, lo = site?.lon ?? lon;
+  if (la == null || lo == null || !Number.isFinite(la) || !Number.isFinite(lo)) return site;
+  const city = (site?.city && BBOX[site.city] ? site.city : null) ?? (cityHint && BBOX[cityHint] ? cityHint : null) ?? cityAt(la, lo);
+  if (!city) return site;
+  let out: SiteFile;
+  if (!site) out = siteAt(la, lo, city);
+  else {
+    out = { ...site };
+    if (!out.pois.length || !out.workers) {
+      const base = siteAt(la, lo, city);
+      if (!out.pois.length && base.pois.length) { out.pois = base.pois; out.osmSource = base.osmSource; }
+      if (!out.workers) out.workers = base.workers;
+      if (!out.traffic) out.traffic = base.traffic;
+    }
+  }
+  return { ...out, ...heatFor(out, city) };
+}

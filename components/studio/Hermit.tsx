@@ -10,7 +10,7 @@ import type { Furn } from "@/lib/spec/furnish";
 import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
 import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/blocks";
 import type { Block } from "@/lib/spec/parse";
-import { searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
+import { decisionLine, searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
 import { isLayoutEdit, localCommand, type LocalCommand } from "@/lib/chat/commands";
 import { chatAsked, type ChatState, type Turn } from "@/lib/chat/converse";
 import { validateUpload } from "@/lib/design/extract";
@@ -147,7 +147,7 @@ export function Hermit() {
     if (started.current) return;
     started.current = true;
     if (replay) {
-      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays the crew's exact steps without calling any outside service." }]);
+      setMessages([{ id: uid(), role: "hermit", text: "This is a recorded run. It replays Hermit's exact steps without calling any outside service." }]);
       void runSearch({ ...EMPTY, city: "houston", useType: "space" } as RequirementSpec, replay);
       return;
     }
@@ -364,6 +364,14 @@ export function Hermit() {
 
   const runSpec = useMemo(() => ({ ...spec, city: spec.city ?? "houston", useType: spec.useType || "office" }) as RequirementSpec, [spec]);
   const steps = useMemo(() => thinkingSteps(events, runSpec), [events, runSpec]);
+  const decided = useMemo(() => decisionLine(events), [events]);
+  // The chat's pointer to "How Hermit decided": bring the panel into view and move focus to it.
+  const showDecisions = () => {
+    const el = document.getElementById("crew");
+    if (!el) return;
+    el.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
+    el.focus({ preventScroll: true });
+  };
   const finished = !running && events.some((e) => e.type === "done");
   useEffect(() => {
     if (!finished || !runId || announced.current === runId) return;
@@ -381,8 +389,8 @@ export function Hermit() {
     return (!running && messages.slice(i + 1).find((m) => m.trace)?.id) || messages[i].id;
   }, [messages, running]);
   const extraFor = (m: ChatMsg) => {
-    // The search's message restates the spec and lists the crew's checks (folded under the results once done); the running-crab loader sits above the composer.
-    if (m.id === traceAt && (running || events.length > 0)) return <><SpecChecklist spec={runSpec} /><Thinking steps={steps} running={running} /></>;
+    // The search's message restates the spec and shows the newest checks while running; once done, one line points to "How Hermit decided". The running-crab loader sits above the composer.
+    if (m.id === traceAt && (running || events.length > 0)) return <><SpecChecklist spec={runSpec} /><Thinking steps={steps} running={running} decided={decided} onShow={showDecisions} /></>;
     if (m.compare?.length) return <Compare reports={m.compare} />;
     if (m.findings) return <div className="bubble"><RegulationList findings={m.findings} /></div>;
     if (m.blocks) return <div className="bubble"><LayoutPreview blocks={m.blocks} /></div>;
@@ -433,7 +441,7 @@ export function Hermit() {
             <>
               <MatchingSpaces reports={reports} spec={runSpec} runId={runId} running={running} selected={selected} onSelect={setSelected}
                 onOpen={(r) => runId && router.push(`/shell/${r.shellId}?run=${runId}&tab=inside`)} />
-              <CrewTrace events={events} running={running} useLabel={(spec.useType || "space").toLowerCase()} />
+              <CrewTrace events={events} running={running} recorded={!!replay} />
               <details className="card pad studio-editor" ref={(el) => { editor.current = el; }} tabIndex={-1}>
                 <summary>Edit your layout</summary>
                 {studio}

@@ -1,16 +1,18 @@
 import type { Verdict } from "../crew";
 import { chairFor, checkAccess } from "../reason/access";
 import type { Finding } from "../regs/research";
-import { useCategory } from "../reason/rules";
+import { parkingQuestion, useCategory } from "../reason/rules";
 import { triangulate } from "../reason/triangulate";
 import { buildoutCheck } from "../reason/buildout";
 import { exclusiveScan } from "../reason/exclusive";
 import type { SiteFile } from "../neighborhood/types";
 import { packFor } from "../uses/packs";
-import { sqftOf } from "../query/shells";
-import { countedKind, countLine, missingOf, needLine, roomCounts, roomNoun, shortfalls } from "../reason/fit";
-import type { Evidence, FitResult, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
+import { classMatches, sqftOf } from "../query/shells";
+import { countLine, missingOf, roomCounts, roomNoun, shortfalls } from "../reason/fit";
+import { fitRows, fitShort, openingWeeks, roomList, summaryLine } from "../uses/rooms";
+import type { AerialCount, Evidence, FitResult, PanoCheck, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
+import { alsoFits, alsoFitsFromEvidence } from "../reverse";
 import { mustHaves } from "./verify";
 
 export type Evaluation = {
@@ -23,11 +25,24 @@ export type Evaluation = {
   work: { items: WorkItem[]; weeksToOpen: [number, number]; costRange: [number, number]; tiAllowance?: number };
   finalScore: number;
   lines: ScoreLine[];
-  escalations: { question: string; outcome: string }[];
+  escalations: { question: string; outcome: string; result?: PanoCheck["result"]; evidence?: Evidence[] }[];
   similarity?: Similarity;
   extraUnknowns?: { topic: string; question: string }[];
   verdicts: Verdict[];
+  aerial?: AerialCount | null; // Vexcel count around the building (lib/vexcel/count.ts); null = not counted
+  checks?: PanoCheck[]; // "looked closer" results on real scan photos, one per room and feature
+  seen?: PanoCheck[]; // every "seen" photo check in this scan, used to refit rooms (a room with a visible sink can be the exam room)
 };
+
+// "Suite 1202, MEDPLACE" or "Medical Office, 7440 Cypress Creek Pky": the name a person would use, for trace reasons.
+export function spaceName(shell: Pick<Shell, "name" | "address">): string {
+  const parts = shell.name.split(" · ");
+  const first = displayName(shell.name);
+  const street = (parts[1] ?? shell.address ?? "").split(",")[0].trim();
+  if (!street || first.toLowerCase().includes(street.toLowerCase()) || street.toLowerCase().includes(first.toLowerCase())) return first || street;
+  if (parts[1] || !/\d/.test(first)) return `${first}, ${street}`;
+  return first;
+}
 
 const QUESTIONS: Record<string, string> = {
   electrical: "Is heavy power available? What is the electrical service (amps, volts, phase) to the space?",
@@ -46,6 +61,7 @@ const QUESTIONS: Record<string, string> = {
   transit: "How close is the nearest bus or rail stop?",
   zoning_records: "Which zone is the parcel in today, and does it permit our use by right?",
 };
+const PARKING_RULES = new Set(["parking", "onsite_parking"]);
 
 export const displayName = (name: string) =>
   name.split(" · ")[0].replace(/\s*[-–]\s*[\d,]+\s*(?:SF|sq\.?\s*ft)\s*$/i, "").trim();
@@ -59,8 +75,8 @@ export function scoreLines(spec: RequirementSpec, shell: Shell, graph: RoomGraph
   const exact = spec.mode === "home" ? shell.mode === "home" : shell.useTags.includes(use);
   const near = !exact && shell.useTags.some((t) => NEIGHBOR[use]?.includes(t));
   lines.push({ factor: "Built for your use", earned: exact ? 20 : near ? 8 : 0, max: 20,
-    note: exact ? (shell.scanClass ? `Matterport reads it as ${shell.scanClass.replace(/_/g, " ")}` : `Prior use ${use}`) : near ? `Close use (${shell.useTags.join(", ")}); conversion needed` : "Different prior use",
-    source: shell.scanClass ? `matterport ${shell.sid}.propertyClassifications` : `models_index name "${shell.name}"` });
+    note: exact ? (classMatches(shell.scanClass, use) ? `Matterport reads it as ${shell.scanClass!.replace(/_/g, " ")}` : `Prior use ${use}`) : near ? `Close use (${shell.useTags.join(", ")}); conversion needed` : "Different prior use",
+    source: exact && classMatches(shell.scanClass, use) ? `matterport ${shell.sid}.propertyClassifications` : `models_index name "${shell.name}"` });
 
   if (graph && fit.assignment.length) {
     // Full credit for a room that's there as-is, half for one that needs a fixture or a change, none for one to build.
@@ -118,7 +134,7 @@ export function regulationHits(regs: Finding[]): RuleHit[] {
     return {
       rule: n > 1 ? `reg_${f.topic}_${n}` : `reg_${f.topic}`,
       status: f.certainty === "applies" ? "warn" : "unknown",
-      detail: `${f.requirement} (${f.jurisdiction} rule, checked ${f.retrievedAt}; screening only, verify with the jurisdiction)`,
+      detail: `${f.requirement} (${f.jurisdiction} rule; ask the city to confirm for this space)`,
       citation: f.url,
       evidence: [{ source: f.jurisdiction, ref: f.citedText.slice(0, 160), confidence: 0.6 }],
       reg: { topic: f.topic, jurisdiction: f.jurisdiction, requirement: f.requirement, certainty: f.certainty, retrievedAt: f.retrievedAt },
@@ -143,7 +159,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   const doors = doorQuestions(rules);
   const raw = [...doors, ...rules
     .filter((r) => !r.rule.startsWith("reg_") && (r.status === "unknown" || (r.status === "warn" && QUESTIONS[r.rule])))
-    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: QUESTIONS[r.rule] ?? r.detail }))];
+    .map((r) => ({ topic: r.rule.replace(/_/g, " "), question: PARKING_RULES.has(r.rule) ? parkingQuestion(r, QUESTIONS[r.rule]) : QUESTIONS[r.rule] ?? r.detail }))];
   for (const f of regs) if (f.certainty === "applies") raw.push({ topic: `${f.jurisdiction} rule`, question: `Confirm: ${f.requirement}` });
   const counts = roomCounts(spec, fit, graph);
   const short = shortfalls(spec, counts);
@@ -161,33 +177,26 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   for (const b of buildout) if (b.status !== "seen") raw.push({ topic: "unverified build-out", question: b.question });
   // Proposed-change and must-have questions lead (and are never cut from the draft); duplicates go.
   const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
-  const LEAD = new Set(["rooms", "proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
+  const LEAD = new Set(["rooms", "looked closer", "proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
   const priority = (u: { topic: string }) => (LEAD.has(u.topic) ? 0 : mustTopics.has(u.topic) ? 1 : 2);
-  const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
+  const unknowns = tidyUnknowns(raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b)),
+    { fit, floorplan: graph ?? undefined, checks: e.checks }, spec);
 
-  const matched = fit.assignment.filter((a) => a.roomId).length;
+  // Rooms the scan labels as the type you asked for (or shows set up for it); a room that could be converted isn't "already built".
+  const built = fitShort(fitRows({ fit, floorplan: graph ?? undefined, checks: e.checks }, spec));
   const fails = rules.filter((r) => r.status === "fail");
   const unconfirmed = counts.some((c) => c.unknown || c.convert.length);
   const verdict = short.length ? "Short on rooms" : fit.hardFails.length || fails.length ? "Conditional fit"
     : e.finalScore < 50 ? "Long shot" : unconfirmed ? "Rooms to confirm" : e.finalScore >= 70 ? "Likely fits" : "Workable with changes";
-  const items = work.items.length;
-  const cost = items ? `${items} work item${items > 1 ? "s" : ""} (screening estimate $${Math.round(work.costRange[0] / 1000)}k–$${Math.round(work.costRange[1] / 1000)}k)` : "no build-out found in the scan";
-  const area = graph ? `${Math.round(graph.totalAreaSqft).toLocaleString()} sf measured` : "";
   const tally = countLine(spec, counts);
-  const base = (key: string) => key.replace(/ #\d+$/, "");
-  const rest = fit.assignment.filter((a) => !countedKind(spec, spec.rooms.find((r) => r.label === base(a.req)) ?? { label: base(a.req), count: 1 }));
-  const restLine = rest.length ? `${tally ? ", plus " : ""}${rest.filter((a) => a.roomId).length} of ${rest.length} ${tally ? "other " : ""}rooms you need${tally ? "" : " are already built"}` : "";
-  const rooms = tally || rest.length ? `${tally}${restLine} (${area}).${short.length ? ` Missing: ${short.join("; ")}.` : ""}` : `${area}.`;
-  const unclear = fit.unknowns.length ? ` ${fit.unknowns.length} couldn't be identified from scan labels, so they're questions, not passes.` : "";
-  const summary = graph
-    ? `${rooms}${unclear} ${items ? `Work left: ${cost}` : "No build-out found"}, about ${work.weeksToOpen[0]}–${work.weeksToOpen[1]} weeks to open.`
-    : `Record-only: no room scan, so room counts${counts.length ? ` (${needLine(spec, counts)})` : ""} are not verified. ${cost}.`;
+  // The same sentence the card, the chat and the Overview use (lib/uses/rooms.ts).
+  const summary = summaryLine({ fit, floorplan: graph ?? undefined, checks: e.checks, work: work.items, costRange: work.costRange, unknowns, address: shell.address, useTags: shell.useTags }, spec);
 
   const nm = displayName(shell.name);
   const place = spec.mode === "home" ? `the home at ${shell.address}` : shell.address.startsWith(nm) ? shell.address : `${nm} at ${shell.address}`;
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, Math.max(5, unknowns.filter((u) => priority(u) < 2).length)).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${place} looks promising${graph && tally ? `: ${tally.replace(/ already built$/, "")} already look built` : matched ? `: ${matched} of the ${fit.assignment.length} rooms I need already look built` : ""}.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sq ft)` : ""} and ${place} looks promising${graph && built ? `: in the 3D tour, ${built}` : ""}.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -203,7 +212,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     fit,
     rules,
     work: work.items,
-    weeksToOpen: work.weeksToOpen,
+    weeksToOpen: openingWeeks({ work: work.items, unknowns, address: shell.address, useTags: shell.useTags }, spec), // the opening plan, the same number every screen shows
     costRange: work.costRange,
     tiAllowance: work.tiAllowance,
     unknowns,
@@ -217,15 +226,87 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     listing: shell.listing,
     ...(e.similarity ? { similarity: e.similarity } : {}),
     score: e.similarity ? [...e.lines, { factor: "Match to your drawn layout", earned: e.finalScore - total(e.lines), max: 0, note: `Layout ${e.similarity.score}% similar, blended 50/50 with the evidence score`, source: "match_layout" }] : e.lines,
-    crew: e.verdicts, triangulation: triangulate(spec, shell, graph), defurnished: shell.defurnished,
+    crew: e.verdicts, triangulation: triangulate(spec, shell, graph, e.aerial ?? null), defurnished: shell.defurnished,
     buildout, conflicts: exclusive.conflicts,
+    ...(e.aerial ? { aerial: e.aerial } : {}),
+    ...(e.checks?.length ? { checks: e.checks } : {}),
+    alsoFits: graph && spec.mode !== "home" ? alsoFitsFor(shell, graph, spec.useType, e.checks ?? []) : [],
   };
 }
 
-// Open the tour on the sweep nearest the first matched room (the evidence), else the first sweep.
+type Ask = { topic: string; question: string };
+const NOT_LOOKED = /^Is there an? (.+?) in (.+?)\? Hermit didn't get to look at that room's photos\.$/;
+// Questions that say the same thing in different words: only the first of each family is asked.
+const FAMILIES: [string, RegExp][] = [["zoning", /zoning|deed restriction/i], ["step-free", /step-free/i], ["parking", /\bpark(ing)?\b|\bstalls?\b/i]];
+const fixtureWord = (f: string) => new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(e?s)?\\b`, "i");
+
+/**
+ * Landlord questions without repeats or ones the scan photos already answered:
+ * - a fixture seen in every assigned room of that type ("Do the exam rooms have their own sinks?") isn't asked;
+ * - rooms Hermit couldn't look at become one question per fixture ("Do exam rooms #1 and #2 have sinks?");
+ * - zoning, step-free entry and parking are asked once.
+ */
+export function tidyUnknowns(raw: Ask[], r: Pick<ShellReport, "fit" | "floorplan"> & Partial<Pick<ShellReport, "checks">>, spec: Pick<RequirementSpec, "rooms">): Ask[] {
+  const reqs = (label: string) => r.fit.assignment.filter((a) => a.roomId && a.req.replace(/\s*#\d+$/, "").toLowerCase() === label.toLowerCase());
+  const pairs = spec.rooms.flatMap((room) => (room.fixtures ?? []).map((f) => ({ label: room.label.toLowerCase(), f: f.toLowerCase() })));
+  const answered = pairs.filter(({ label, f }) => {
+    const as = reqs(label);
+    return as.length > 0 && as.every((a) => (r.checks ?? []).some((c) => c.roomId === a.roomId && c.result === "seen" && c.feature.toLowerCase() === f));
+  });
+  const about = (q: string, p: { label: string; f: string }) => q.toLowerCase().includes(p.label) && fixtureWord(p.f).test(q);
+  // Rooms not looked at, merged per fixture.
+  const unlooked = new Map<string, string[]>();
+  for (const u of raw) { const m = u.question.match(NOT_LOOKED); if (m) unlooked.set(m[1].toLowerCase(), [...(unlooked.get(m[1].toLowerCase()) ?? []), m[2]]); }
+  const out: Ask[] = [];
+  const families = new Set<string>();
+  for (const u of raw) {
+    const m = u.question.match(NOT_LOOKED);
+    let ask = u;
+    if (m) {
+      const rooms = unlooked.get(m[1].toLowerCase());
+      if (!rooms) continue; // already merged into the first one
+      unlooked.delete(m[1].toLowerCase());
+      const f = m[1].toLowerCase(), many = rooms.length > 1;
+      ask = { topic: u.topic, question: `${many ? "Do" : "Does"} ${roomList(rooms)} have ${many ? (/(s|sh|ch|x)$/.test(f) ? `${f}es` : `${f}s`) : an(f)}? Hermit couldn't look closer at ${many ? "those rooms" : "that room"} this time.` };
+    }
+    if (answered.some((p) => about(ask.question, p))) continue;
+    const fam = [...FAMILIES.filter(([, re]) => re.test(ask.question)).map(([k]) => k), ...pairs.filter((p) => about(ask.question, p)).map((p) => `${p.label}|${p.f}`)];
+    if (fam.length && fam.every((k) => families.has(k))) continue;
+    for (const k of fam) families.add(k);
+    if (!out.some((x) => x.question === ask.question)) out.push(ask);
+  }
+  return out;
+}
+
+/** Older recorded reports: clean their questions the same way, and keep the inquiry draft's list in step. */
+export function tidyReport<T extends ShellReport>(report: T, spec: Pick<RequirementSpec, "rooms">): T {
+  const unknowns = tidyUnknowns(report.unknowns, report, spec);
+  const kept = new Set(unknowns.map((u) => u.question));
+  const fresh = unknowns.filter((u) => !report.unknowns.some((x) => x.question === u.question)).map((u) => `- ${u.question}`);
+  const lines = report.draftMessage.split("\n");
+  const asks = lines.map((l, i) => (l.startsWith("- ") ? i : -1)).filter((i) => i >= 0);
+  const was = new Set(report.unknowns.map((u) => u.question));
+  const draft = asks.length
+    ? [...lines.slice(0, asks[0]), ...fresh, ...asks.map((i) => lines[i]).filter((l) => !was.has(l.slice(2)) || kept.has(l.slice(2))), ...lines.slice(asks.at(-1)! + 1)].join("\n")
+    : report.draftMessage;
+  // The intro's room count, rebuilt from the one room rule (older runs wrote "0 of 2 exam rooms, ... already look built").
+  const built = report.floorplan ? fitShort(fitRows(report, spec)) : "";
+  return { ...report, unknowns, draftMessage: draft.replace(/(\d) sf\)/g, "$1 sq ft)").replace(/looks promising[^\n]*?\.(?=\s|$)/, `looks promising${built ? `: in the 3D tour, ${built}` : ""}.`) };
+}
+
+// Open the tour where Hermit saw a fixture you asked for, else the sweep nearest the first matched room, else the first sweep.
 function evidenceSweep(e: Evaluation): string | undefined {
   const g = e.graph;
   if (!g) return undefined;
+  const seen = e.checks?.find((c) => c.result === "seen" && c.panoId);
+  if (seen) return seen.panoId;
   const first = e.fit.assignment.find((a) => a.roomId);
   return g.rooms.find((r) => r.id === first?.roomId)?.panoId ?? g.panos?.[0]?.id;
+}
+
+// Pack fit first; when the scan's room labels are too generic for it, fall back to measured rooms plus the run's own
+// photo checks. (This file also runs in the browser, so it never reads files; the report page adds cached checks.)
+function alsoFitsFor(shell: Shell, graph: RoomGraph, useType: string, own: PanoCheck[]) {
+  const packs = alsoFits(shell, graph, useType);
+  return packs.length ? packs : alsoFitsFromEvidence(graph, own, useType);
 }
