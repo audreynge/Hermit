@@ -23,6 +23,8 @@ type Tab = "suggested" | "placed" | "search";
 type Card = { name: string; terms: string[]; size?: FurnishItem["size"]; model?: Model };
 const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "sage green", "red", "gold"];
 const STARTUP_MS = 25_000;
+// ponytail: fixed settle after the start pano is current (8/8 clean in tests at 600 ms); the SDK exposes no "pano textures ready" event.
+const SETTLE_MS = 600;
 const MAX_TRIES = 3;
 const NUDGE_M = 0.1;
 const STATUS_TEXT: Record<Status, string> = { searching: "Finding a model…", loading: "Loading…", ready: "", none: "Box: no 3D model found", failed: "Box: model didn't load" };
@@ -55,6 +57,9 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
   const viewer = useRef<MatterportViewer | null>(null);
   const sdk = useRef<MpSdk | null>(null);
   const moved = useRef(false);
+  // Every camera move (tour stop, room pick, view switch) runs through this queue: a move that starts while a pano is
+  // still activating blacks out the tour ("Texture for sweep not activated"), so moves wait for the start pano and each other.
+  const nav = useRef<Promise<unknown>>(Promise.resolve());
   const scene = useRef<FurnishScene | null>(null);
   const strip = useRef<HTMLUListElement>(null);
   const floorY = useRef(0), pointer = useRef<Vec | undefined>(undefined); // last floor spot under the cursor ("here")
@@ -155,10 +160,14 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
       const s = await el.playingPromise;
       if (dead) return;
       sdk.current = s;
+      let settle!: () => void;
+      nav.current = new Promise<void>((r) => (settle = r)).then(() => new Promise((r) => setTimeout(r, SETTLE_MS)));
+      setTimeout(() => settle(), 5000); // never block navigation if no start pano is reported (e.g. a dollhouse start)
       scene.current = await createScene(s, onLoad);
       if (process.env.NODE_ENV !== "production") (window as unknown as { __furnish: unknown }).__furnish = scene.current; // for e2e tests
       s.Pointer.intersection.subscribe((i) => { if (i.position && Math.abs(i.position.y - floorY.current) < 0.15) pointer.current = { ...i.position }; });
       s.Sweep.current.subscribe((sw) => {
+        if (sw.sid) settle();
         if (sw.puckPosition) floorY.current = sw.puckPosition.y;
         const r = report.floorplan?.rooms.find((x) => x.id === sw.roomInfo?.id);
         setRoom(r ? { id: r.id, label: r.label, polygon: r.polygon, ceiling: r.heightFt ? r.heightFt * M_PER_FT : undefined } : undefined);
@@ -181,34 +190,37 @@ export function FurnishTour({ report, use, stop, onFail }: { report: ShellReport
     const t = setTimeout(() => setToast(null), undo ? 12000 : 6000);
     return () => clearTimeout(t);
   }, [toast, undo]);
+  const navigate = useCallback((move: (s: MpSdk) => Promise<unknown>) => {
+    const s = sdk.current;
+    if (!s) return Promise.resolve();
+    return (nav.current = nav.current.then(() => move(s)).catch(() => null));
+  }, []);
   const goTo = useCallback((index: number) => {
     const id = report.floorplan?.rooms.flatMap((r) => r.sweeps ?? []).find((s) => s.index === index)?.id;
-    const s = sdk.current;
-    if (!id || !s) return;
-    // Flying away from the start pano while it's still activating blacks out the tour ("Texture for sweep not activated"); jump the first move.
-    const first = !moved.current;
-    moved.current = true;
-    s.Sweep.moveTo(id, first ? { transition: s.Sweep.Transition.INSTANT } : {}).catch(() => null);
-  }, [report.floorplan]);
+    if (!id) return;
+    void navigate((s) => {
+      const first = !moved.current; // the first move jumps, so there's no fly-through over a half-loaded start pano
+      moved.current = true;
+      return s.Sweep.moveTo(id, first ? { transition: s.Sweep.Transition.INSTANT } : {});
+    });
+  }, [report.floorplan, navigate]);
   useEffect(() => { if (ready && stop != null) goTo(stop); }, [stop, ready, goTo]);
 
   // Matterport refuses a switch while the camera is still moving, so retry briefly; the Mode subscription updates the buttons.
-  const setMode = useCallback(async (m: ViewMode) => {
-    const s = sdk.current;
-    if (!s) return;
+  const setMode = useCallback((m: ViewMode) => navigate(async (s) => {
     const to = { inside: s.Mode.Mode.INSIDE, dollhouse: s.Mode.Mode.DOLLHOUSE, floorplan: s.Mode.Mode.FLOORPLAN }[m];
     for (let i = 0; i < 5; i++) {
       if (await s.Mode.moveTo(to).then(() => true, () => false)) return;
       await new Promise((r) => setTimeout(r, 500));
     }
-  }, []);
+  }), [navigate]);
   // Picking a room: walking, go stand in it; from above, just outline it.
   const pickRoom = useCallback((id: string | undefined) => {
     setPicked(id);
     const r = rooms.find((x) => x.id === id);
     const sweep = r && report.floorplan?.rooms.find((x) => x.id === r.id)?.sweeps?.[0];
-    if (sweep && state.current.mode === "inside") sdk.current?.Sweep.moveTo(sweep.id).catch(() => null);
-  }, [rooms, report.floorplan]);
+    if (sweep && state.current.mode === "inside") void navigate((s) => s.Sweep.moveTo(sweep.id));
+  }, [rooms, report.floorplan, navigate]);
   // Walking into another room makes it the target again.
   useEffect(() => { if (state.current.mode === "inside") setPicked((p) => (p === room?.id ? p : undefined)); }, [room?.id]);
 
