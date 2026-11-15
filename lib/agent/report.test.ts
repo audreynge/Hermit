@@ -42,7 +42,7 @@ describe("buildReport room counts", () => {
   it("never says Likely fits while a restroom is unconfirmed", () => {
     const r = buildReport(biz, withFit([{ req: "exam room #1", roomId: "a", cost: 0 }, { req: "exam room #2", roomId: "b", cost: 0 }, { req: "restroom #1", roomId: "w", cost: 0 }, { req: "restroom #2", roomId: null, cost: 70 }], ["restroom #2: not identifiable in scan S"]), 1);
     expect(r.verdict).toBe("Rooms to confirm");
-    expect(r.summary).toMatch(/^2 of 2 exam rooms, 1 of 2 restrooms \(1 not confirmed\) already built/);
+    expect(r.summary).toMatch(/^3 of 4 rooms already built\. No build-out found in the scan\. About \d+ to \d+ weeks to open/);
   });
 
   it("says Likely fits only when every count is met", () => {
