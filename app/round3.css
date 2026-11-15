@@ -210,3 +210,16 @@ nav.primary svg { width: 21px; height: 21px; }
 .journey-dot { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: currentColor; color: #fff; font-size: 13px; }
 .journey-dot { color: inherit; }
 /* == end C0 == */
+
+/* == W5b: Lease coach upload + Q&A == */
+.lease-drop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px; border: 2px dashed var(--line-strong); border-radius: 14px; background: var(--sand-1); }
+.lease-drop.over { border-color: var(--accent); }
+.lease-drop p { margin: 0; flex: 1 1 100%; font-size: 17px; }
+.key-points { display: grid; gap: 8px; padding-left: 22px; font-size: 18px; line-height: 1.45; }
+.lease-chat { display: grid; gap: 8px; }
+.lease-msg { margin: 0; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; max-width: 92%; }
+.lease-msg.user { justify-self: end; background: var(--sand-1); }
+.lease-msg.assistant { background: var(--card); border: 1px solid var(--line); }
+.lease-ask { display: flex; gap: 8px; }
+.lease-ask input { flex: 1; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px 12px; font: inherit; background: var(--card); color: var(--ink); }
+/* == end W5b == */
