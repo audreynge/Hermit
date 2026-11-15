@@ -45,6 +45,7 @@ export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: st
   const go = (t: TabId | string) => { window.scrollTo({ top: 0 }); history.replaceState(null, "", `?run=${runId}&tab=${toTab(t)}`); };
   const ctx: ReportCtx = { ...props, go };
   const Panel = PANELS[tab];
+  const labelFor = (id: TabId, label: string) => (id === "broker" && spec.mode === "home" ? "Talk to the landlord" : label);
   const step = tab === "broker" || tab === "lease" ? 2 : 1;
   return (
     <article className="shell-page">
@@ -60,10 +61,10 @@ export function ShellReportPage(props: Omit<ReportCtx, "go"> & { initialTab?: st
       </header>
       <nav className="report-tabs" role="tablist" aria-label="Shell Report sections">
         {TABS.map(({ id, label, Icon }) => (
-          <button key={id} role="tab" type="button" aria-selected={tab === id} aria-controls="report-panel" onClick={() => go(id)}><Icon aria-hidden="true" /> {label}</button>
+          <button key={id} role="tab" type="button" aria-selected={tab === id} aria-controls="report-panel" onClick={() => go(id)}><Icon aria-hidden="true" /> {labelFor(id, label)}</button>
         ))}
       </nav>
-      <section id="report-panel" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label} className="report-panel"><Panel {...ctx} /></section>
+      <section id="report-panel" role="tabpanel" aria-label={labelFor(tab, TABS.find((t) => t.id === tab)!.label)} className="report-panel"><Panel {...ctx} /></section>
       <ReportChat report={report} spec={spec} runId={runId} tab={tab} />
     </article>
   );

@@ -24,8 +24,9 @@ const GROUPS: { title: string; rules: string[] }[] = [
 const label = (r: string) => LABEL[r] ?? r.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
-function headline(rules: RuleHit[]) {
-  const fail = rules.filter((r) => r.status === "fail").length, check = rules.filter((r) => r.status === "warn" || r.status === "unknown").length;
+function headline(rules: RuleHit[], extra: RuleStatus[] = []) {
+  const st = [...rules.map((r) => r.status), ...extra];
+  const fail = st.filter((x) => x === "fail").length, check = st.filter((x) => x === "warn" || x === "unknown").length;
   if (fail) return `${plural(fail, "problem")}${check ? `, ${check} to check` : ""}.`;
   return check ? `${plural(check, "thing")} to check.` : "All clear.";
 }
@@ -65,7 +66,10 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
     : a.entry.status === "blocked" ? `The front door is too narrow for a ${a.chairIn[0]} inch wheelchair (about ${a.entry.clearIn?.toFixed(0)} inches clear)`
     : "The scan didn't measure the front door");
   const reach = a ? a.asScanned.filter((r) => r.status === "reachable").length : 0;
-  const price = report.listing?.price, budget = spec.budgetMonthly ?? spec.budgetTotal;
+  // Route verdicts from the scan, so the heading can't say "All clear" above a blocked door or room.
+  const accessExtra: RuleStatus[] = a ? [a.entry.status === "blocked" ? "fail" : a.entry.status === "unknown" ? "unknown" : "pass", ...(reach < a.asScanned.length ? ["fail" as const] : [])] : [];
+  const price = report.listing?.price;
+  const budget = report.listing?.kind === "sale" ? spec.budgetTotal : report.listing?.kind === "lease" ? spec.budgetMonthly : undefined;
   const nb = home
     ? [{ q: "What's it like?", a: neighbors(site) }, { q: "Getting around", a: gettingAround(site) }, { q: "Errands nearby", a: errands(site) }]
     : [{ q: "Customers", a: customers(site) }, { q: "Who's nearby", a: neighbors(site) }, { q: "Competitors", a: competitors(site, use) }];
@@ -97,14 +101,14 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
         {report.buildout?.length ? <p className="muted">Things you need, as seen in the scan: {report.buildout.map((b) => `${b.item} (${b.status === "seen" ? "seen" : "not confirmed"})`).join(", ")}.</p> : null}
       </Section>
 
-      <Section id="ov-rules" title={home ? "Can I live here?" : "Can I open here?"} lead={headline(report.rules)}>
+      <Section id="ov-rules" title={home ? "Can I live here?" : "Can I open here?"} lead={headline(report.rules, accessExtra)}>
         {!home && spec.city === "houston" && <p>Houston has no zoning, so the main check is the lot&apos;s deed restrictions.</p>}
         {GROUPS.filter((g) => !home || g.title !== "Zoning").map((g) => {
           const rows = report.rules.filter((r) => g.rules.includes(r.rule));
           if (!rows.length && !(g.title === "Wheelchair access" && a)) return null;
           return (
             <div key={g.title} className="ov-group">
-              <h3>{g.title}: <span className="ov-group-sum">{headline(rows)}</span></h3>
+              <h3>{g.title}: <span className="ov-group-sum">{headline(rows, g.title === "Wheelchair access" ? accessExtra : [])}</span></h3>
               {g.title === "Wheelchair access" && a && <p>{chairWords}, and it can reach {reach} of {a.asScanned.length} rooms.</p>}
               <ul className="ov-rules">{rows.map((r, i) => <RuleRow key={i} r={r} />)}</ul>
             </div>
@@ -147,11 +151,17 @@ export function Overview({ report, spec, site, use, challenge, plan, go }: Repor
             <li key={i}><span className="ov-weeks num">Weeks {s.weeks[0]}–{s.weeks[1]}</span><span><strong>{s.title}.</strong> {s.detail}</span></li>
           ))}
         </ol>
-        {plan.steps.filter((s) => s.unknown).map((s) => <p key={s.title} className="muted">{s.title}: {s.detail}</p>)}
+        {plan.steps.filter((s) => s.unknown).map((s) => (
+          <p key={s.title} className="muted">{s.title}: {s.detail}{s.who && <> Ask <a href={s.who.url} target="_blank" rel="noreferrer">{s.who.who} <ExternalLink aria-hidden="true" className="inline-icon" /></a>.</>}</p>
+        ))}
       </Section>
 
-      <Section id="ov-unknown" title="What's still unknown" lead={report.unknowns.length ? undefined : "Nothing big. You can still ask anything."}>
+      <Section id="ov-unknown" title="What's still unknown" lead={report.unknowns.length || challenge?.concerns.length ? undefined : "Nothing big. You can still ask anything."}>
         {report.unknowns.length > 0 && <ol className="ov-list">{report.unknowns.slice(0, 3).map((u) => <li key={u.question}>{u.question}</li>)}</ol>}
+        {challenge?.concerns.length ? <>
+          <h3>What our double-check worried about</h3>
+          <ul className="ov-list">{challenge.concerns.slice(0, 3).map((c) => <li key={c}>{c}</li>)}</ul>
+        </> : null}
         <button type="button" className="btn primary ov-cta" onClick={() => go("broker")}>Ask the {who}</button>
       </Section>
 
