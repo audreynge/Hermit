@@ -20,6 +20,33 @@ Users currently piece together property records, tours, and site imagery to disc
 
 **Dataset reality:** The supplied index has 14,944 scans concentrated in Houston and Los Angeles. Its “commercial” category contains mostly apartment units/amenities, not actual commercial suites. Rough planning counts: ~8,200 units, ~1,930 homes, ~480 office suites, 2 medical, ~4 salons and ~10 retail; these are name-derived and must be verified against Matterport classifications. Never present record-only evidence as scan verification. Do not assume current listing availability unless the kit supports it.
 
+## 1a. Current state (updated Nov 15)
+
+- **Two catalogs exist and are being merged** (`pipeline/merge-catalog.ts`):
+  - **Supabase Postgres** (`DATABASE_URL`): 2,659 shells built from the CoStar kit, with 1,406 room graphs. Coverage: parking 2,142; listings 2,488; subtype 2,187; zoning 671; sprinklers 179; tenant brands 0. The catalog is copied into local SQLite at boot (`lib/db/catalog.ts`).
+  - **Local `data/processed/shells.json`:** all 14,944 index rows with scan fields (`kind`, `scanClass`, `measuredSqft`), but no CoStar fields. Also holds 574 room graphs, 568 neighborhood `site/` files, floor plans and replays.
+- **Vexcel works** (`VEXCELAPIKEY`, `api.vexcelgroup.com/v2`).
+  - Parking stalls and rooftop units are counted on the cached ortho by `gemini-3.8-flash` (`pipeline/aerial.ts` → `data/processed/aerial/<sid>.json`, loaded with `lib/vexcel/count.ts`).
+  - Counts are labeled "around the building" unless clipped to the lot.
+- **Matterport panoramas are real photos,** six 2k cube faces per panorama.
+  - "Hermit looked closer" maps each panorama to a room by point-in-polygon and asks Gemini whether a feature is visible (`pipeline/panos.ts` → `data/processed/panos/<sid>/checks.json`, loaded with `lib/vision/pano.ts`).
+  - Results are `seen`, `not_seen` or `unclear`, always with the photo. No hand labels and no accuracy claims.
+- **The planner is Gemini** (`GEMINI_API_KEY`). It uses Claude only if `ANTHROPIC_API_KEY` is set. No key is needed.
+- **Routes:**
+  - `/` hero
+  - `/studio` Find a space: chat interview with the Layout Studio, then Matching Spaces
+  - `/shell/[id]?run=` Shell Report, with tabs Overview · Inside & furnish · Neighborhood · Lease coach · Talk to your broker
+  - `/packet/[run]/[shell]`, `/saved`, `/messages`
+  - `/search`, `/chat`, `/address` and `/layout` redirect to `/studio`
+- **Images** are served by `app/api/asset/[sid]?kind=floorplan|aerial|pano&f=`.
+- **Demo story:** Dr. Priya, a pediatric clinic in Houston (hero `x37LjPx62VA`). The recorded replay plays offline.
+
+## 1b. UI rule: a non-technical owner reads every screen
+
+- One plain sentence plus a photo per finding. Details go behind a small "How we know" link, never on the page by default.
+- No number fluff, no new tabs, no new pages in the nav. Don't add side features (address lookup, more lease tools). Don't remove existing ones without asking.
+- No fake data: if something wasn't counted or seen, say so ("couldn't tell"), and turn it into a question.
+
 ## 2. User experience
 
 1. **Intake (under 45 seconds):** city, mode, intended use, size/headcount, budget/timeline, must-haves, accessibility, optional TI/free-rent inputs.
