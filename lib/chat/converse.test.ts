@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { actionTurn, converse, openChat, parseTarget, type ChatState } from "./converse";
+import { actionTurn, chatAsked, converse, openChat, parseTarget, type ChatState } from "./converse";
+import { ChatStateSchema } from "../server/schemas";
 import { surveyToSpec } from "../spec/survey";
 
 const fromSurvey = (over = {}) => surveyToSpec({ transaction: "lease", accessibility: false, requirements: [], ...over });
@@ -258,5 +259,13 @@ describe("no suggestion chips", () => {
       t = converse(t.state, msg);
     }
     expect(t.quickReplies).toEqual([]);
+  });
+});
+
+describe("chatAsked", () => {
+  it("maps an interview walk's asked list onto slots the chat API accepts", () => {
+    const asked = chatAsked(["use", "city", "roomsRetry", "roomsOk", "baths", "size", "moveIn", "budget", "musts", "accessibility", "parking", "other"]);
+    expect(asked).toEqual(["use", "city", "rooms", "size", "musts"]);
+    expect(ChatStateSchema.safeParse({ spec: { mode: "business", useType: "office", rooms: [], needs: {}, priorities: {}, input: "chat" }, asked, phase: "gathering" }).success).toBe(true);
   });
 });

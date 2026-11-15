@@ -11,7 +11,7 @@ import { basicsDone, CITY_AGAIN, deeperQuestion, interviewQuestion, plural, prog
 
 export type Msg = { role: "hermit" | "user"; text: string };
 export type IState = { spec: Draft; asked: string[]; history: Msg[]; field?: Field | null; quick?: string[]; ready?: boolean };
-export type ITurn = { reply: string; why?: string; quick: string[]; multi?: boolean; state: IState; ready: boolean; basicsDone: boolean; stages: FunnelStage[]; llm: boolean; progress?: number; search?: boolean };
+export type ITurn = { reply: string; why?: string; quick: string[]; multi?: boolean; state: IState; ready: boolean; basicsDone: boolean; stages: FunnelStage[]; llm: boolean; progress?: number; search?: boolean; question?: string };
 
 const SKIP = /\b(just search|search now|go ahead|that'?s (it|all)|skip|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
 const SEARCH_ONLY = /\b(just search|search now|find (it|them|spaces)|show me|let'?s see|walk inside|see (my |the |your )?matches)\b/i;
@@ -163,7 +163,7 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   const basics = basicsDone(spec, asked);
   const out = (reply: string, why?: string): ITurn => ({
     reply, why, quick: [], state: { spec, asked, history: [...history, { role: "hermit" as const, text: reply }].slice(-40), field: q?.field ?? null, quick: [], ready },
-    ready, basicsDone: ready || basics, stages, llm, progress: progress(spec, asked, ready),
+    ready, basicsDone: ready || basics, stages, llm, progress: progress(spec, asked, ready), question: q?.text,
   });
   if (ready) {
     const lead = state.ready ? `${ack || "Updated."}${changed ? ` Sketch on the right: ${sketchText(spec)}.` : ""}` : `${ack} That's everything I need for ${describe(spec)}.`.trim();

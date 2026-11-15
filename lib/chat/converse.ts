@@ -6,6 +6,10 @@ import { an } from "../text";
 import { isLayoutEdit } from "./commands";
 
 export type Slot = "use" | "city" | "size" | "rooms" | "musts" | "chair";
+const SLOTS = new Set<string>(["use", "city", "size", "rooms", "musts", "chair"]);
+// The interview tracks more fields than the chat; keep only the chat's slots (the API caps asked at 10).
+export const chatAsked = (asked: string[]): Slot[] =>
+  [...new Set(asked.map((a) => (a.startsWith("rooms") || a === "baths" || a === "beds" ? "rooms" : a)).filter((a) => SLOTS.has(a)))].slice(0, 10) as Slot[];
 export type Card = { kind: "multi"; options: { value: string; label: string }[] };
 export type ChatState = { spec: Draft; asked: Slot[]; phase: "gathering" | "results" };
 export type Turn = { reply: string; state: ChatState; ready: boolean; quickReplies: string[]; card?: Card; action?: "compare" | "email" | "regulations" | "save" | "view" | "report" | "broker" | "reset" | "search" | "edit_layout"; target?: number; fallback?: "deterministic"; fallbackWhy?: string; edit?: { target: "layout" | "fitout"; ops: unknown[] } };

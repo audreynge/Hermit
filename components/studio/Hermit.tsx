@@ -11,7 +11,7 @@ import { blocksToSketch, roomsFromBlocks, sketchToBlocks } from "@/lib/spec/bloc
 import type { Block } from "@/lib/spec/parse";
 import { searchCounts, summarizeResults, thinkingSteps } from "@/lib/chat/present";
 import { isLayoutEdit, localCommand, type LocalCommand } from "@/lib/chat/commands";
-import type { ChatState, Turn } from "@/lib/chat/converse";
+import { chatAsked, type ChatState, type Turn } from "@/lib/chat/converse";
 import { validateUpload } from "@/lib/design/extract";
 import type { FitoutDiff, FitoutOp } from "@/lib/design/fitout";
 import type { Finding } from "@/lib/regs/research";
@@ -59,6 +59,8 @@ export function Hermit() {
   // What the inline editor is seeded with. It follows the sketch only until the user edits, then changes only on outside edits.
   const [editorInit, setEditorInit] = useState<Block[]>([]);
   const touched = useRef(false);
+  const pendingQ = useRef<string | null>(null);
+  const fromInterview = useRef(false), pushEditor = useRef(false);
   const [ready, setReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -84,14 +86,22 @@ export function Hermit() {
   const spec = iv.spec;
   const pack = useMemo(() => packFor({ useType: spec.useType || "office", mode: spec.mode }), [spec.useType, spec.mode]);
   const sketchRooms: RoomReq[] = useMemo(() => (spec.useType ? seedRooms(spec) : []), [spec]);
-  // After an editor edit the editor owns the layout; interview answers no longer re-lay it out behind the user's back.
-  useEffect(() => { if (!touched.current) setLayout((prev) => toLayout(sketchRooms, pack, prev)); }, [sketchRooms, pack]);
+  // After an editor edit, only interview answers re-lay out (toLayout keeps the user's rooms and adds/removes the delta),
+  // and that result is pushed back into the editor.
+  useEffect(() => {
+    if (touched.current && !fromInterview.current) return;
+    pushEditor.current = touched.current;
+    fromInterview.current = false;
+    setLayout((prev) => toLayout(sketchRooms, pack, prev));
+  }, [sketchRooms, pack]);
 
   const ask = useCallback(async (state: IState, text: string | null): Promise<ITurn | null> => {
     setBusy(true);
     try {
       const t = await post<ITurn>("/api/interview", { state, text });
       setIv(t.state); setReady(t.ready);
+      pendingQ.current = t.ready ? null : t.question ?? null;
+      fromInterview.current = true;
       if (typeof t.progress === "number") setProgress(t.progress);
       setMessages((m) => [...m, { id: uid(), role: "hermit", text: t.reply, why: t.why }]);
       return t;
@@ -162,7 +172,7 @@ export function Hermit() {
   }, [iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, replay]);
 
   const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
-  useEffect(() => { if (!touched.current) setEditorInit(blocks); }, [blocks]);
+  useEffect(() => { if (!touched.current || pushEditor.current) { pushEditor.current = false; setEditorInit(blocks); } }, [blocks]);
 
   const finalSpec = (s: Draft): RequirementSpec => {
     const adj = adjacency(layout);
@@ -202,7 +212,7 @@ export function Hermit() {
   const syncConv = async (s: Draft, phase: ChatState["phase"]) => {
     for (let i = 0; i < 2; i++) {
       conv.current ??= (await post<{ conversationId: string }>("/api/chat", { open: true, spec: s })).conversationId;
-      const r = await fetch(`/api/conversations/${conv.current}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: { spec: s, asked: iv.asked, phase }, ...(runId ? { lastRunId: runId } : {}) }) });
+      const r = await fetch(`/api/conversations/${conv.current}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: { spec: s, asked: chatAsked(iv.asked), phase }, ...(runId ? { lastRunId: runId } : {}) }) });
       if (r.ok) return conv.current;
       conv.current = null; // stale id (database reset or another browser); open a fresh one
     }
@@ -234,14 +244,12 @@ export function Hermit() {
 
   const respond = async (turn: Turn, d?: Design) => {
     if (d?.kind === "layout") {
-      let next: Draft | null = null;
-      if (d.applied) { past.current = [...past.current.slice(-49), blocks]; setLastEdit("layout"); next = applyBlocks(d.blocks); }
+      if (d.applied) { past.current = [...past.current.slice(-49), blocks]; setLastEdit("layout"); applyBlocks(d.blocks); }
       const stale = d.applied && reports.length ? " These matches are from before this change. Say “search with this” to update them." : "";
+      // Before results, repeat the interview's pending question so it doesn't stall (interview state stays as is).
+      const pending = !reports.length && pendingQ.current ? ` ${pendingQ.current}` : "";
       // Before results the editor is open beside the chat, so the chat needn't redraw the layout.
-      say(turn.reply + stale, d.applied && reports.length ? { blocks: d.blocks } : {});
-      // Before results, carry on with the interview's pending question so it doesn't stall.
-      if (next && !reports.length && !ready) void ask({ ...iv, spec: next }, null);
-      return;
+      return say(turn.reply + stale + pending, d.applied && reports.length ? { blocks: d.blocks } : {});
     }
     if (d?.kind === "fitout") {
       setFitouts((all) => {
