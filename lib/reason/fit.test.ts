@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fit } from "./fit";
+import { countLine, countTier, fit, roomCounts, severe, shortfalls } from "./fit";
 import { normalizeRoomLabel } from "./labels";
 import type { RequirementSpec, Room, RoomGraph } from "../types";
 
@@ -50,12 +50,49 @@ describe("fit", () => {
     expect(r.hardFails).toEqual([]);
   });
 
-  it("records a hard fail when a required room is absent", () => {
+  it("records a hard fail when a required non-counted room is absent", () => {
     const g = graph([room("r1", "office", 150)]);
-    const r = fit(spec([{ label: "bathroom", count: 1, hard: true }]), g);
+    const r = fit(spec([{ label: "kitchen", count: 1, hard: true }]), g);
     expect(r.hardFails).toHaveLength(1);
-    expect(r.hardFails[0]).toMatch(/bathroom/);
+    expect(r.hardFails[0]).toMatch(/kitchen/);
     expect(r.score).toBeLessThan(60);
+  });
+
+  it("reports a missing bathroom as a count shortfall, not a hard fail, and never fills it with a closet", () => {
+    const s = spec([{ label: "restroom", count: 1, hard: true }]);
+    const r = fit(s, graph([room("r1", "office", 150), room("c", "storage", 40), room("x", "other", 30)]));
+    expect(r.assignment[0].roomId).toBeNull();
+    expect(r.hardFails).toEqual([]);
+    const counts = roomCounts(s, r, true);
+    expect(shortfalls(s, counts)).toEqual(["Has no restrooms; you need 1"]);
+    expect(severe(counts)).toBe(true);
+  });
+
+  it("states real counts: 3 of 3 exam rooms, 1 of 2 restrooms", () => {
+    const s = spec([{ label: "exam room", count: 3, hard: false }, { label: "restroom", count: 2, hard: false }, { label: "reception", count: 1, hard: false }]);
+    const g = graph([room("a", "office", 120), room("b", "office", 120), room("c", "office", 120), room("w", "bathroom", 50), room("cl", "storage", 30), room("r", "reception", 300)]);
+    const r = fit(s, g);
+    const counts = roomCounts(s, r, true);
+    expect(countLine(s, counts)).toBe("3 of 3 exam rooms, 1 of 2 restrooms already built");
+    expect(shortfalls(s, counts)).toEqual(["Has 1 restroom; you need 2"]);
+    expect(r.assignment.find((a) => a.roomId === "cl")).toBeUndefined();
+    expect(countTier(counts)).toBe(2);
+  });
+
+  it("fills primary rooms before lesser rooms when the scan is short on rooms", () => {
+    const s = spec([{ label: "exam room", count: 2, hard: false }, { label: "reception", count: 1, hard: false }, { label: "storage", count: 1, hard: false }]);
+    const r = fit(s, graph([room("a", "office", 120), room("b", "office", 120)]));
+    expect(shortfalls(s, roomCounts(s, r, true))).toEqual([]);
+  });
+
+  it("treats counts as unknown, never met, without a readable scan", () => {
+    const s = spec([{ label: "bathroom", count: 2, hard: false }]);
+    const sparse = fit(s, graph([room("r1", "other", 150), room("r2", "other", 140), room("r3", "office", 120)]));
+    const counts = roomCounts(s, sparse, true);
+    expect(counts[0]).toMatchObject({ have: 0, unknown: 2 });
+    expect(shortfalls(s, counts)).toEqual([]);
+    expect(countTier(counts)).toBe(1);
+    expect(countTier(roomCounts(s, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, false))).toBe(1);
   });
 
   it("keeps a required room unknown, not failed, when the scan's labels are too sparse to tell", () => {

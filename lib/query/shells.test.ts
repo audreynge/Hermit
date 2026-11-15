@@ -64,6 +64,13 @@ describe("searchShells", () => {
     expect(r[0].reasons).toContain("For sale");
   });
 
+  it("screens out homes whose record has fewer bathrooms than needed", () => {
+    const homes = [s("b1", { mode: "home", baths: 1, sid: "a" }), s("b2", { mode: "home", baths: 2, sid: "b" }), s("b?", { mode: "home", sid: "c" })];
+    const out = searchShells(spec({ mode: "home", useType: "home", baths: 2 }), homes);
+    expect(out.results.map((x) => x.shell.id)).toEqual(["b2", "b?"]);
+    expect(out.stages.find((st) => st.key === "baths")!.removed[0].reason).toBe("Has 1 bathroom; you need 2");
+  });
+
   it("keeps a shell with unknown size but says so", () => {
     const r = searchShells(spec({ sizeSqft: [2000, 3000] }), [s("nosize", { sid: "q" })]).results;
     expect(r[0].reasons.join(" ")).toMatch(/size unknown/i);

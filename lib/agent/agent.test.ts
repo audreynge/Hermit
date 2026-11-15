@@ -73,11 +73,11 @@ describe("deterministic agent", () => {
     expect(report.reports.map((r) => r.shellId)).not.toContain("C");
   });
 
-  it("vetoes the search leader when its scan lacks a required room, changing the top pick", async () => {
+  it("drops the search leader when its scan has no restroom, changing the top pick", async () => {
     const ev = await run();
-    const veto = ev.find((e) => e.type === "veto" && e.shellId === "A") as Extract<TraceEvent, { type: "veto" }> | undefined;
-    expect(veto?.agent).toBe("inspector");
-    expect(veto?.reason).toMatch(/bathroom not found/);
+    const drop = ev.find((e) => e.type === "drop" && e.shellId === "A") as Extract<TraceEvent, { type: "drop" }> | undefined;
+    expect(drop?.reason).toBe("Has no restrooms; you need 1");
+    expect(drop?.evidence[0].source).toBe("matterport");
     expect(ev.some((e) => e.type === "rerank")).toBe(true);
     const report = ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>;
     expect(report.reports[0].shellId).not.toBe("A");
@@ -206,6 +206,53 @@ describe("deterministic agent", () => {
     const top = report.reports[0];
     expect(top.unknowns.some((u) => /power/i.test(u.topic + u.question))).toBe(true);
     expect(top.draftMessage).toMatch(/Pat/);
+  });
+});
+
+describe("required room counts", () => {
+  const two = (sid: string, baths: number, exams = 3) => graph(sid, [
+    ...Array.from({ length: exams }, (_, i) => room(`${sid}e${i}`, "office", 120)),
+    ...Array.from({ length: baths }, (_, i) => room(`${sid}b${i}`, "bathroom", 50)),
+    room(`${sid}s`, "storage", 40), room(`${sid}r`, "reception", 300),
+  ]);
+  const need2 = { ...spec, sizeSqft: undefined, needs: {}, rooms: [{ label: "exam room", count: 3, minSqft: 100, hard: false }, { label: "restroom", count: 2, hard: false }] };
+  const go = async (graphs: Record<string, RoomGraph>, shells: Shell[]) => {
+    const events: TraceEvent[] = [];
+    await runAgent(need2, (e) => events.push(e), { shells: () => shells, graph: (sid) => graphs[sid] ?? null });
+    return events;
+  };
+
+  it("drops a space with 1 restroom when 2 are needed, never counting the storage closet", async () => {
+    const ids = ["P", "Q", "R", "S"];
+    const ev = await go({ P: two("P", 1), Q: two("Q", 2), R: two("R", 2), S: two("S", 2) }, [shell("P", { buildingClass: "A" }), ...ids.slice(1).map((id) => shell(id))]);
+    const drop = ev.find((e) => e.type === "drop" && e.shellId === "P") as Extract<TraceEvent, { type: "drop" }> | undefined;
+    expect(drop?.reason).toBe("Has 1 restroom; you need 2");
+    const reports = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports.map((r) => r.shellId)).not.toContain("P");
+    expect(reports[0].summary).toMatch(/^3 of 3 exam rooms, 2 of 2 restrooms already built/);
+    expect(reports[0].reasons[0]).toBe("3 of 3 exam rooms, 2 of 2 restrooms already built");
+  });
+
+  it("keeps short spaces when fewer than 3 would remain, ranks them last and says what's missing", async () => {
+    const ev = await go({ P: two("P", 1), Q: two("Q", 2), R: two("R", 2, 1) }, [shell("P", { buildingClass: "A" }), shell("Q"), shell("R", { buildingClass: "A" })]);
+    expect(ev.some((e) => e.type === "drop")).toBe(false);
+    const reports = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports[0].shellId).toBe("Q");
+    expect(reports[0].verdict).not.toBe("Short on rooms");
+    const p = reports.find((r) => r.shellId === "P")!;
+    expect(p.verdict).toBe("Short on rooms");
+    expect(p.summary).toMatch(/1 of 2 restrooms already built.*Missing: Has 1 restroom; you need 2\./);
+    expect(p.unknowns[0].question).toMatch(/shows 1 restroom and I need 2/);
+    expect(reports.find((r) => r.shellId === "R")!.summary).toMatch(/Missing: Has 1 exam room; you need 3/);
+  });
+
+  it("ranks a space with every count met above a higher-scoring one that is short a single exam room", async () => {
+    const ev = await go({ P: two("P", 2, 2), Q: two("Q", 2), R: two("R", 2), S: two("S", 2) },
+      [shell("P", { buildingClass: "A" }), shell("Q", { useTags: ["office"], listing: undefined }), shell("R", { useTags: ["office"], listing: undefined }), shell("S", { useTags: ["office"], listing: undefined })]);
+    expect(ev.some((e) => e.type === "drop" && e.shellId === "P")).toBe(false);
+    const reports = (ev.find((e) => e.type === "report") as Extract<TraceEvent, { type: "report" }>).reports;
+    expect(reports.at(-1)!.shellId).toBe("P");
+    expect(reports.at(-1)!.matchScore).toBeLessThanOrEqual(40);
   });
 });
 

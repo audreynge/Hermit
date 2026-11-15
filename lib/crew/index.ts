@@ -1,6 +1,7 @@
 import table from "../../rules/screening.json";
 import { corridorWidth } from "../geometry/polygon";
 import { packFor } from "../uses/packs";
+import { countLine, roomCounts, shortfalls } from "../reason/fit";
 import type { Evidence, RequirementSpec } from "../types";
 import type { Evaluation } from "../agent/report";
 
@@ -55,6 +56,9 @@ const SPECIALISTS: Record<AgentId, (spec: RequirementSpec, e: Evaluation) => Out
     if (!g) return { status: "unknown", headline: "Record-only: no room scan to walk", claims: [], questions: ["Is there a 3D tour or floor plan of the space?"] };
     const claims: Claim[] = [{ text: `${g.rooms.length} measured rooms, ${Math.round(g.totalAreaSqft).toLocaleString()} sf net floor area`, evidence: [scanRef(e, "rooms[].dimensions.areaFloor", 0.85)] }];
     const matched = e.fit.assignment.filter((a) => a.roomId).length;
+    const counts = roomCounts(spec, e.fit, true);
+    const short = shortfalls(spec, counts);
+    if (counts.length) claims.push({ text: countLine(spec, counts), evidence: [scanRef(e, "room labels (Hungarian assignment)", 0.7)] });
     if (e.fit.assignment.length) claims.push({ text: `${matched} of ${e.fit.assignment.length} rooms you need map onto measured rooms`, evidence: [scanRef(e, "room graph (Hungarian assignment)", 0.7)] });
     const advertised = e.shell.sqftSource === "scan name" ? e.shell.sqft : undefined;
     if (advertised && g.totalAreaSqft > 30) {
@@ -62,8 +66,8 @@ const SPECIALISTS: Record<AgentId, (spec: RequirementSpec, e: Evaluation) => Out
       if (Math.abs(gap) > 15) claims.push({ text: `Advertised ${advertised.toLocaleString()} sf vs ${Math.round(g.totalAreaSqft).toLocaleString()} sf measured (${Math.abs(gap)}% ${gap > 0 ? "smaller" : "larger"}; net vs gross differences are normal). A discrepancy to ask about.`, evidence: [scanRef(e, "dimensions.areaFloor", 0.8), { source: "index", ref: `scan name "${e.shell.name}"`, confidence: 0.6 }] });
     }
     for (const x of e.escalations) claims.push({ text: `Closer look: ${x.question} → ${x.outcome}`, evidence: [scanRef(e, "objectAnnotations + generatedDescription", 0.5)] });
-    const status: VerdictStatus = e.fit.hardFails.length ? "veto" : e.fit.unknowns.length || !matched ? "warn" : "pass";
-    const headline = e.fit.hardFails[0] ?? (status === "pass" ? `Walked ${g.rooms.length} rooms: your layout fits with ${e.fit.edits.length} change${e.fit.edits.length === 1 ? "" : "s"}` : `Walked ${g.rooms.length} rooms; ${e.fit.unknowns.length} room${e.fit.unknowns.length === 1 ? "" : "s"} couldn't be identified from scan labels`);
+    const status: VerdictStatus = e.fit.hardFails.length ? "veto" : short.length || e.fit.unknowns.length || !matched ? "warn" : "pass";
+    const headline = e.fit.hardFails[0] ?? short[0] ?? (status === "pass" ? `Walked ${g.rooms.length} rooms: your layout fits with ${e.fit.edits.length} change${e.fit.edits.length === 1 ? "" : "s"}` : `Walked ${g.rooms.length} rooms; ${e.fit.unknowns.length} room${e.fit.unknowns.length === 1 ? "" : "s"} couldn't be identified from scan labels`);
     return { status, headline, claims, questions: e.fit.unknowns.map((u) => `Can you confirm the ${u.split(":")[0].replace(/ #\d+$/, "")} in the space?`) };
   },
 

@@ -65,7 +65,8 @@ export function funnel(spec: RequirementSpec, shells: Shell[]) {
     step("use", `built for ${use} or a close use`, (s) =>
       s.useTags.includes(use) || s.useTags.some((t) => NEIGHBOR_USES[use]?.includes(t)) ? null : `Prior use is ${s.useTags.join(", ") || "unknown"}, not ${use}`);
   }
-  if (spec.beds != null) step("beds", `${spec.beds}+ bedrooms`, (s) => (s.beds == null || s.beds >= spec.beds! ? null : `${s.beds} bedrooms`));
+  if (spec.beds != null) step("beds", `${spec.beds}+ bedrooms`, (s) => (s.beds == null || s.beds >= spec.beds! ? null : `Has ${s.beds} bedroom${s.beds === 1 ? "" : "s"}; you need ${spec.beds}`));
+  if (spec.baths != null) step("baths", `${spec.baths}+ bathrooms`, (s) => (s.baths == null || s.baths >= spec.baths! ? null : `Has ${s.baths} bathroom${s.baths === 1 ? "" : "s"}; you need ${spec.baths}`));
   if (spec.mode === "home" && (spec.budgetTotal || spec.budgetMonthly)) {
     step("budget", "within 25% of your budget", (s) => {
       const price = s.listing?.price;
@@ -106,8 +107,9 @@ export function searchShells(spec: RequirementSpec, shells: Shell[], limit = Inf
     }
     if (spec.mode === "home") {
       const price = s.listing?.price;
-      if (spec.beds != null && s.beds === spec.beds) { score += 10; reasons.push(`${s.beds} bedrooms`); }
-      if (spec.baths != null && s.baths != null && s.baths >= spec.baths) score += 5;
+      // Meeting the room counts on record outweighs size and price.
+      if (spec.beds != null && s.beds != null) { score += 25; reasons.push(`${s.beds} bedrooms on record (you need ${spec.beds})`); }
+      if (spec.baths != null && s.baths != null) { score += 25; reasons.push(`${s.baths} bathrooms on record (you need ${spec.baths})`); }
       if (price && (spec.budgetTotal ?? spec.budgetMonthly) && price <= (spec.budgetTotal ?? spec.budgetMonthly)!) { score += 10; reasons.push(`$${price.toLocaleString()} within budget`); }
     }
     if (spec.needs.heavyPower && s.heavyPower) { score += 10; reasons.push("Heavy power on record"); }

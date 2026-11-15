@@ -1,3 +1,4 @@
+import { countLine, needLine, roomCounts, shortfalls } from "../reason/fit";
 import type { RequirementSpec, ShellReport, Verification } from "../types";
 
 // Each must-have the user selected, with the rule that screens it. A recorded "fail" on one rules the candidate out; null stays unknown.
@@ -25,6 +26,7 @@ export function checkReport(spec: RequirementSpec, r: ShellReport): Verification
     else if ((!hit || hit.status === "unknown") && !r.unknowns.some((u) => u.topic === m.rule.replace(/_/g, " "))) issues.push(`${m.need} is unverified and has no landlord question`);
   }
   for (const f of r.fit.hardFails) violations.push(f);
+  if (r.floorplan) violations.push(...shortfalls(spec, roomCounts(spec, r.fit, true)));
   for (const h of r.rules) if ((h.status === "pass" || h.status === "fail") && !h.evidence.length) issues.push(`${h.rule} ${h.status} has no cited record`);
   for (const w of r.work) if (!w.source) issues.push(`work item "${w.item}" has no source`);
   if (r.badge === "scan-verified" && !r.floorplan) issues.push("labelled scan-verified without a room graph");
@@ -33,7 +35,7 @@ export function checkReport(spec: RequirementSpec, r: ShellReport): Verification
 }
 
 export const AUDIT_PROMPT = `You are an independent auditor checking a property-search assistant's reports. You did not write them.
-For each report, check: does any must-have the user selected have a recorded "fail"? Is anything stated as passing, verified, compliant or available without a cited source or with status unknown? Does the summary or verdict claim more than the rules and evidence show?
+For each report, check: does any must-have the user selected have a recorded "fail"? Is anything stated as passing, verified, compliant or available without a cited source or with status unknown? Does the summary or verdict claim more than the rules and evidence show? Do its room counts match roomCounts exactly, and does it call any unconfirmed room present?
 Statuses: pass = recorded evidence meets it; fail = recorded evidence contradicts it; warn = partly supported with open questions; unknown = not on record. Warn and unknown are acceptable when the report lists a landlord question for them; do not ask for them to become fail.
 Flag only real problems: an unknown or warn presented as a pass or as verified in the verdict/summary, a must-have fail, a pass with no evidence, or a claim the evidence does not support. Be specific; set ok true with no issues if a report is sound.
 Return JSON only: {"reports":[{"shellId":string,"ok":boolean,"issues":[string]}]}.`;
@@ -50,8 +52,10 @@ export type Auditor = { name: string; audit: (prompt: string) => Promise<AuditRe
 export const auditInput = (spec: RequirementSpec, reports: ShellReport[]) => JSON.stringify({
   mustHaves: mustHaves(spec).map((m) => m.need),
   requiredRooms: spec.rooms.filter((r) => r.hard).map((r) => r.label),
+  requiredRoomCounts: needLine(spec, roomCounts(spec, { score: 0, assignment: [], edits: [], breakdown: {}, hardFails: [], unknowns: [] }, false)),
   reports: reports.map((r) => ({
     shellId: r.shellId, verdict: r.verdict, summary: r.summary, badge: r.badge, hardFails: r.fit.hardFails,
+    roomCounts: r.floorplan ? countLine(spec, roomCounts(spec, r.fit, true)) : "no scan: unconfirmed", shortRooms: r.floorplan ? shortfalls(spec, roomCounts(spec, r.fit, true)) : [],
     rules: r.rules.filter((h) => !h.rule.startsWith("reg_")).map((h) => ({ rule: h.rule, status: h.status, detail: h.detail, evidence: h.evidence.map((e) => `${e.source}: ${e.ref}`) })),
     unknowns: r.unknowns.map((u) => u.question),
   })),
