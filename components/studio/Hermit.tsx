@@ -3,7 +3,7 @@ import { ImageUp, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KEYS, load, save } from "@/lib/client/store";
-import { toggleSaved } from "@/lib/client/persist";
+import { isSaved, toggleSaved } from "@/lib/client/persist";
 import type { IState, ITurn } from "@/lib/interview/turn";
 import type { Furn } from "@/lib/spec/furnish";
 import { adjacency, toLayout, type SketchRoom } from "@/lib/spec/sketch";
@@ -56,8 +56,9 @@ export function Hermit() {
   const [layout, setLayout] = useState<SketchRoom[]>([]);
   const [furniture, setFurniture] = useState<Furn[]>([]);
   const [extras, setExtras] = useState<Block[]>([]); // doors, windows: Layout Studio objects that aren't furniture
-  // The editor's own last output; passed back as `initial` so its edits don't bounce through the sketch round trip.
-  const [drawn, setDrawn] = useState<Block[] | null>(null);
+  // What the inline editor is seeded with. It follows the sketch only until the user edits, then changes only on outside edits.
+  const [editorInit, setEditorInit] = useState<Block[]>([]);
+  const touched = useRef(false);
   const [ready, setReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -89,7 +90,7 @@ export function Hermit() {
     setBusy(true);
     try {
       const t = await post<ITurn>("/api/interview", { state, text });
-      setIv(t.state); setReady(t.ready); setDrawn(null);
+      setIv(t.state); setReady(t.ready);
       if (typeof t.progress === "number") setProgress(t.progress);
       setMessages((m) => [...m, { id: uid(), role: "hermit", text: t.reply, why: t.why }]);
     } catch {
@@ -158,6 +159,7 @@ export function Hermit() {
   }, [iv, messages, layout, furniture, extras, ready, progress, reports, events, runId, replay]);
 
   const blocks = useMemo(() => sketchToBlocks(layout, furniture, extras), [layout, furniture, extras]);
+  useEffect(() => { if (!touched.current) setEditorInit(blocks); }, [blocks]);
 
   const finalSpec = (s: Draft): RequirementSpec => {
     const adj = adjacency(layout);
@@ -250,6 +252,8 @@ export function Hermit() {
     if (turn.action === "search") return search();
     const idx = turn.target ? turn.target - 1 : selected;
     const target = reports[idx];
+    if ((turn.action === "save" || turn.action === "report" || turn.action === "broker") && (!target || !runId)) return say("That works once your matches are loaded.");
+    if (turn.action === "save" && target && isSaved(target.shellId)) return say("Already saved.");
     say(turn.reply, turn.action === "compare" ? { compare: reports } : {});
     if (turn.action === "email" && target) setEmailFor(target);
     if (turn.action === "save" && target && runId) toggleSaved(target, runId);
@@ -294,6 +298,7 @@ export function Hermit() {
       const res = await fetch("/api/design", { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
       const { turn } = (await res.json()) as { turn: Turn };
+      touched.current = false;
       setIv((x) => ({ ...x, spec: turn.state.spec }));
       if (turn.ready && !reports.length) setReady(true);
       say(turn.reply);
@@ -304,7 +309,7 @@ export function Hermit() {
 
   // A drawing (from the editor or a chat edit) becomes the sketch (rooms pinned where drawn) and the room requirements.
   const applyBlocks = (next: Block[], fromEditor = false) => {
-    setDrawn(fromEditor ? next : null);
+    touched.current = fromEditor;
     const sk = blocksToSketch(next);
     const roomBlocks = next.filter((b) => b.kind !== "object");
     // Only guess the use when the rooms make it obvious; otherwise the interview still asks.
@@ -319,7 +324,7 @@ export function Hermit() {
     conv.current = null; announced.current = null; past.current = []; started.current = true;
     setFitouts({}); setSelected(0); setViewIndex(null); save(KEYS.chat, null);
     setIv({ spec: EMPTY, asked: [], history: [] }); setMessages([]); setReports([]); setEvents([]); setRunId(null);
-    setReady(false); setProgress(0); setLayout([]); setFurniture([]); setExtras([]); setDrawn(null);
+    setReady(false); setProgress(0); setLayout([]); setFurniture([]); setExtras([]); touched.current = false;
     void ask({ spec: EMPTY, asked: [], history: [] }, null);
   };
 
@@ -354,7 +359,7 @@ export function Hermit() {
   const links = runId && sel ? [undefined, `/shell/${sel.shellId}?run=${runId}&tab=inside`, `/shell/${sel.shellId}?run=${runId}&tab=broker`] : [];
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
 
-  const studio = <LayoutStudio inline initial={drawn ?? blocks} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
+  const studio = <LayoutStudio inline initial={editorInit} onChange={(b) => applyBlocks(b, true)} onDone={() => {}} />;
 
   return (
     <div className="studio">
