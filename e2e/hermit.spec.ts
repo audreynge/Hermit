@@ -1,5 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import type { Size } from "../lib/furnish/catalog";
+import { corners } from "../lib/furnish/ops";
+import { pointInPolygon, type Pt } from "../lib/geometry/polygon";
+import type { RoomGraph } from "../lib/types";
 
 async function axe(page: Page, exclude?: string) {
   const b = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]);
@@ -19,6 +26,21 @@ async function fresh(page: Page, path = "/") {
   await page.goto(path);
   await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
   await page.goto(path);
+}
+
+/** Opens a report's 3D tour and its furnishing chat, which starts collapsed behind a "Furnish this …" button. */
+async function openFurnishChat(page: Page) {
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("tab", { name: "Step inside" }).click();
+  await page.waitForFunction(() => "__furnish" in window, null, { timeout: 90_000 }); // the SDK scene is up
+  const furnish = dialog.getByRole("button", { name: /^Furnish this / });
+  await expect(furnish).toBeVisible();
+  await expect(page.locator("#furnish-text")).toHaveCount(0);
+  await furnish.click();
+  const input = dialog.getByLabel("Tell me what to place");
+  await expect(input).toBeEnabled();
+  await expect(input).toBeFocused();
+  return { dialog, input };
 }
 
 const RICH = "I'm looking for a space for a small medical clinic in Houston. I need about 1,200-1,800 sq ft, with 3 exam rooms, a reception area, and some storage.";
@@ -277,8 +299,7 @@ test.describe("furnishing the 3D tour", () => {
     await fresh(page, "/studio?replay=demo");
     await expect(cards(page).first()).toBeVisible({ timeout: 60_000 }); // Matching Spaces
     await cards(page).first().getByRole("button", { name: "View property" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByLabel("Tell me what to place")).toBeEnabled({ timeout: 90_000 });
+    const { dialog } = await openFurnishChat(page);
     // The tray lowers itself when no floor is visible above it; reopen it before using its tabs.
     const openTray = async () => { const show = dialog.getByRole("button", { name: "Show the furniture tray" }); if (await show.count()) await show.click(); };
     const tab = (name: RegExp) => ({ click: async () => { await openTray(); await dialog.getByRole("tab", { name }).click(); }, el: dialog.getByRole("tab", { name }) });
@@ -368,7 +389,103 @@ test.describe("furnishing the 3D tour", () => {
     await toolbar.getByRole("button", { name: "Remove item 3" }).click();
     await expectPlaced(11);
   });
+
+  // Live: Gemini plans, real model search, a real scan with its real floor plan. Results vary, so checks are structural.
+  test("furnish this room on a real scan: inside the rooms, no overlaps, undo and clear", async ({ page }) => {
+    test.setTimeout(360_000);
+    const SID = "1FFftrgRFBd", BEDROOM = "h26t7ky77ew74yb0pg8qqf5rd"; // a single-floor Houston home in the private bundle
+    const file = process.env.HERMIT_DB ?? path.join("data", "sample", "hermit.db");
+    const row = fs.existsSync(file) ? (new DatabaseSync(file, { readOnly: true }).prepare("SELECT json FROM roomgraphs WHERE sid = ?").get(SID) as { json: string } | undefined) : undefined;
+    test.skip(!row, `needs the private bundle with scan ${SID}`);
+    const graph = JSON.parse(row!.json) as RoomGraph, bedroom = graph.rooms.find((r) => r.id === BEDROOM)!;
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // Point the demo replay's report at the real scan and its floor plan, as a home search.
+    await page.route("**/api/agent?replay=demo", async (r) => {
+      const res = await r.fetch();
+      const body = (await res.text()).split("\n\n").map((chunk) => {
+        if (!chunk.startsWith("data: ")) return chunk;
+        const e = JSON.parse(chunk.slice(6));
+        if (e.spec) e.spec = { ...e.spec, mode: "home", useType: "home" };
+        for (const rep of e.reports ?? []) Object.assign(rep, { inside: { sid: SID, sweepId: bedroom.sweeps![0].id }, floorplan: graph });
+        return `data: ${JSON.stringify(e)}`;
+      }).join("\n\n");
+      await r.fulfill({ response: res, body });
+    });
+    await fresh(page, "/studio?replay=demo");
+    await cards(page).first().getByRole("button", { name: "View property" }).click({ timeout: 60_000 });
+    const { dialog, input } = await openFurnishChat(page);
+    await page.evaluate((id) => {
+      const s = (document.querySelector("matterport-viewer") as unknown as { mpSdk: { Sweep: { moveTo: (id: string, o: object) => Promise<unknown>; Transition: { INSTANT: unknown } } } }).mpSdk;
+      return s.Sweep.moveTo(id, { transition: s.Sweep.Transition.INSTANT });
+    }, bedroom.sweeps![0].id);
+    await expect(input).toHaveAttribute("placeholder", /^Furnish this bedroom/, { timeout: 30_000 });
+
+    type Item = { id: string; name: string; pos: { x: number; y: number; z: number }; rotY: number; size: Size; fitted?: Size };
+    const saved = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? "[]"), `hermit:furnish:${SID}`) as Promise<Item[]>;
+    const toast = dialog.locator(".furnish-toast"), toasts: string[] = [];
+    const say = async (text: string) => {
+      await expect(toast).toBeHidden({ timeout: 10_000 }); // the last reply fades after 6 s, so the next toast is this one's
+      await input.fill(text);
+      await dialog.getByRole("button", { name: "Send" }).click();
+      await expect(toast).toBeVisible({ timeout: 120_000 });
+      const t = await toast.innerText();
+      toasts.push(`"${text}" → ${t}`);
+      return t;
+    };
+    const inBedroom = (p: Item) => pointInPolygon({ x: p.pos.x, y: -p.pos.z }, bedroom.polygon);
+
+    // 1. Furnish, timing chat → items placed → every model settled (ready, or a box when none was found/loaded).
+    const before = await saved();
+    const t0 = Date.now();
+    const furnishing = say("furnish this room");
+    await expect.poll(async () => (await saved()).length, { timeout: 120_000 }).toBeGreaterThan(before.length);
+    const tPlaced = Date.now();
+    await furnishing;
+    const show = dialog.getByRole("button", { name: "Show the furniture tray" });
+    if (await show.count()) await show.click();
+    await dialog.getByRole("tab", { name: /Placed/ }).click();
+    const statuses = () => page.evaluate(() => [...document.querySelectorAll(".furnish-strip .furnish-card[data-status]")].map((b) => b.getAttribute("data-status")!));
+    await expect.poll(async () => (await statuses()).filter((s) => s === "searching" || s === "loading").length, { timeout: 180_000, intervals: [500] }).toBe(0);
+    const tSettled = Date.now();
+    const items = await saved(), st = await statuses();
+    const count = (s: string) => st.filter((x) => x === s).length;
+    await page.screenshot({ path: process.env.FURNISH_SHOT ?? test.info().outputPath("furnished.png") });
+
+    // 2. Structure: at least two pieces, each inside a room on the plan; floor pieces don't overlap (2 cm slack, rugs
+    // excluded: they lie under things by design); raised pieces stand on another piece.
+    const floorY = Math.min(...items.map((p) => p.pos.y));
+    const foot = (p: Item, slack = 0) => { const s = p.fitted ?? p.size; return corners(p.pos, { ...s, w: s.w - slack, d: s.d - slack }, p.rotY); };
+    const solid = items.filter((p) => p.pos.y <= floorY + 0.05 && (p.fitted ?? p.size).h > 0.1);
+    const outside = items.filter((p) => !graph.rooms.some((r) => r.polygon.length >= 3 && pointInPolygon({ x: p.pos.x, y: -p.pos.z }, r.polygon))).map((p) => p.name);
+    const overlaps = solid.flatMap((a, i) => solid.slice(i + 1).filter((b) => footprintsOverlap(foot(a, 0.02), foot(b, 0.02))).map((b) => `${a.name} × ${b.name}`));
+    const floating = items.filter((p) => p.pos.y > floorY + 0.05 && !items.some((q) => q !== p && pointInPolygon({ x: p.pos.x, y: -p.pos.z }, foot(q)))).map((p) => p.name);
+    console.log(`[furnish e2e] ${items.length} items: ${items.map((p) => `${p.name}${p.pos.y > floorY + 0.05 ? ` (raised ${(p.pos.y - floorY).toFixed(2)} m)` : ""}`).join(", ")}`);
+    console.log(`[furnish e2e] chat → items placed ${tPlaced - t0} ms; placed → models settled ${tSettled - tPlaced} ms; models ready ${count("ready")}, no model ${count("none")}, failed to load ${count("failed")}`);
+    console.log(`[furnish e2e] outside rooms: [${outside}]; overlaps: [${overlaps}]; floating: [${floating}]`);
+    expect.soft(items.length, "at least two pieces placed").toBeGreaterThanOrEqual(2);
+    expect.soft(outside, "every piece's center is in a room").toEqual([]);
+    expect.soft(overlaps, "floor pieces don't overlap").toEqual([]);
+    expect.soft(floating, "raised pieces stand on another piece").toEqual([]);
+
+    // 3. Undo restores the list from before; then furnish again (cached plan) and clear the room.
+    await say("undo");
+    await expect.poll(async () => (await saved()).map((p) => p.id)).toEqual(before.map((p) => p.id));
+    await say("furnish this room");
+    await expect.poll(async () => (await saved()).filter(inBedroom).length, { timeout: 120_000 }).toBeGreaterThan(0);
+    await say("clear this room");
+    await expect.poll(async () => (await saved()).filter(inBedroom).map((p) => p.name)).toEqual([]);
+    for (const t of toasts) console.log(`[furnish e2e] toast ${t}`);
+  });
 });
+
+/** Two convex footprints overlap (separating axis test). */
+function footprintsOverlap(a: Pt[], b: Pt[]): boolean {
+  const axes = [a, b].flatMap((q) => [0, 1].map((i) => ({ x: q[i + 1].x - q[i].x, y: q[i + 1].y - q[i].y })));
+  return axes.every((ax) => {
+    const pa = a.map((p) => p.x * ax.x + p.y * ax.y), pb = b.map((p) => p.x * ax.x + p.y * ax.y);
+    return Math.min(...pa) < Math.max(...pb) && Math.min(...pb) < Math.max(...pa);
+  });
+}
 
 test.describe("designs in the chat", () => {
   // UI moved inline in spec revamp
