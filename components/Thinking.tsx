@@ -7,7 +7,7 @@ const ICONS: Record<string, typeof Search> = { search: Search, gavel: Gavel, bol
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 // The crew's checks: while running, the crab scuttles along the shore and each check rises in one at a time;
-// when done, a collapsed list so finished chats stay compact.
+// when done, nothing: the "How Hermit decided" panel shows the decisions.
 export function Thinking({ steps, running }: { steps: Step[]; running: boolean }) {
   const [shown, setShown] = useState(0);
   useEffect(() => {
@@ -42,16 +42,6 @@ export function Thinking({ steps, running }: { steps: Step[]; running: boolean }
       </div>
     );
   }
-  if (!steps.length) return null;
-  return (
-    <details className="think-done">
-      <summary>Checked {steps.length} thing{steps.length === 1 ? "" : "s"}</summary>
-      <ul>
-        {steps.map((s) => {
-          const Icon = ICONS[s.icon] ?? Search;
-          return <li key={s.id} className={s.tone}><Icon aria-hidden="true" /> {s.label}</li>;
-        })}
-      </ul>
-    </details>
-  );
+  // Done: the "How Hermit decided" panel beside the results is the one decision view, so the chat keeps no second list.
+  return null;
 }

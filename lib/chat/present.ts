@@ -1,6 +1,7 @@
 import { displayName } from "../agent/report";
 import type { RequirementSpec, ShellReport, TraceEvent } from "../types";
 import { an } from "../text";
+import { fitRows, fitShort, openingWeeks, openLine, sizeText } from "../uses/rooms";
 
 export { displayName };
 
@@ -63,10 +64,11 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
 
   const prior = r.reasons.find((x) => x.startsWith("Prior use matches"))?.match(/\((.+)\)/)?.[1];
   const matched = r.fit.assignment.filter((a) => a.roomId).length;
+  const rooms = fitShort(fitRows(r, spec));
   // "Ready" needs scanned evidence: known work ≤ $10k and most requested rooms already there. Otherwise just the sourced prior use.
   const ready = !!r.floorplan && r.costRange != null && r.costRange[1] <= 10000 && matched * 2 > r.fit.assignment.length;
   if (prior) out.push(ready ? READY[prior] ?? `Already built as ${an(prior)} space (minimal build-out)` : `Previously used as ${an(USED_AS[prior] ?? `${prior} space`)}`);
-  else if (r.fit.assignment.length) out.push(`${matched} of ${r.fit.assignment.length} rooms already built`);
+  else if (rooms) out.push(rooms.charAt(0).toUpperCase() + rooms.slice(1));
 
   const wantsParking = !!(spec.needs.parking || spec.needs.parkingStalls);
   const onsite = wantsParking ? r.rules.find((x) => x.rule === "onsite_parking" && x.status === "pass") : undefined;
@@ -74,7 +76,7 @@ export function highlights(r: ShellReport, spec: RequirementSpec): string[] {
   if (onsite) out.push(`On-site parking${stalls ? ` (${stalls} stalls)` : ""}`);
   else if (wantsParking && r.rules.some((x) => x.rule === "parking" && x.status === "pass")) out.push("Enough parking for the use");
   if (r.listing?.status === "active") out.push(`Listed for ${r.listing.kind === "sale" ? "sale" : "lease"} now`);
-  if (r.costRange && !r.costRange[1]) out.push("No build-out identified");
+  if (r.costRange && !r.costRange[1]) out.push("No build-out found in the scan");
   else if (r.costRange) out.push(`About ${k(r.costRange[0])}–${k(r.costRange[1])} of work`);
   return out.slice(0, 3);
 }
@@ -100,22 +102,54 @@ export function summarizeResults(reports: ShellReport[], spec: RequirementSpec, 
       followUp: "Want me to widen the size range or raise the budget?",
     };
   }
-  const strong = reports.filter((r) => r.matchScore >= 70).length;
-  const n = strong || reports.length;
+  // The count is what the results list shows, so the chat and the list never disagree.
+  const n = reports.length;
   const top = reports[0];
-  const area = areaOf(top);
   const all = highlights(top, spec);
   const sizeNote = all.find((x) => /^[\d,]+ sq ft/.test(x));
   const h = all.filter((x) => !x.startsWith("Right size") && x !== sizeNote).map((x) => x[0].toLowerCase() + x.slice(1));
-  const why = [sizeNote ? `it's ${sizeNote}` : area ? `it's ${fmt(area)} sq ft` : "", ...h].filter(Boolean);
+  const size = sizeText(top);
+  const why = [sizeNote ? `it's ${sizeNote}` : size ? `it's ${size}` : "", ...h].filter(Boolean);
   const list = why.length > 1 ? `${why.slice(0, -1).join(", ")}, and ${why.at(-1)}` : why[0];
+  const park = parkingLine(top, spec);
   return {
-    paragraphs: [`I found ${n} ${strong ? "strong" : "possible"} match${n === 1 ? "" : "es"} in ${city} for ${an(spec.useType)}. ${shortName(top)} is the best fit${list ? `: ${list}` : ""}.`],
+    paragraphs: [`I found ${n} match${n === 1 ? "" : "es"} in ${city} for ${an(spec.useType)}. ${shortName(top)} is the best fit${list ? `: ${list}` : ""}. ${openLine(openingWeeks(top, spec), spec.mode === "home")}${park ? ` ${park.text}` : ""}`],
     followUp: `Want me to compare the layouts or draft an email to the ${spec.mode === "home" ? "listing agent" : "property manager"}?`,
   };
 }
 
-export type Step = { id: string; icon: string; label: string; tone: "info" | "warn" };
+const recordStalls = (r: ShellReport) =>
+  Number((r.rules.find((h) => h.rule === "parking") ?? r.rules.find((h) => h.rule === "onsite_parking"))?.detail.match(/(\d[\d,]*) recorded stalls?/i)?.[1]?.replace(/,/g, "")) || undefined;
+const parkingRules = (r: ShellReport) => r.rules.filter((h) => h.rule === "parking" || h.rule === "onsite_parking");
+
+/** The card's parking fact: the stall count on the CoStar record, and whether to ask where they are. */
+export function parkingFact(r: ShellReport): { text: string; ask: boolean } | null {
+  const n = recordStalls(r);
+  if (!n) return null;
+  return { text: `${n.toLocaleString()} parking (record)`, ask: parkingRules(r).some((h) => h.status === "warn" || h.status === "fail") };
+}
+
+/** One plain parking sentence for the chat and the Overview, only when the record and the aerial photo don't settle it. */
+export function parkingLine(r: ShellReport, spec: Pick<RequirementSpec, "mode" | "useType">): { text: string } | null {
+  const hits = parkingRules(r).filter((h) => h.status === "warn" || h.status === "fail");
+  if (!hits.length) return null;
+  const n = recordStalls(r);
+  const who = spec.mode === "home" ? "you'd" : /clinic|medical|dental|doctor|pediatric/i.test(spec.useType) ? "patients" : "customers";
+  if (n && hits.some((h) => /no marked surface lot/.test(h.detail)))
+    return { text: `Parking: CoStar lists ${n.toLocaleString()} spaces, but the aerial photo shows no surface lot. Ask where ${who} park.` };
+  return { text: `Parking: the CoStar record and the aerial photo don't settle it. Ask how many spaces come with the space, and where.` };
+}
+
+/** "2,714 scans indexed → 2,714 in Houston → …" reads as "2,714 spaces in Houston → …" (no repeated count). */
+export function funnelText(summary: string): string {
+  const stages = summary.split(" → ");
+  const lead = stages[0]?.match(/^([\d,]+) scans indexed$/);
+  const city = stages[1]?.match(/^([\d,]+) in (.+)$/);
+  if (lead && city && lead[1] === city[1]) return [`${city[1]} spaces in ${city[2]}`, ...stages.slice(2)].join(" → ");
+  return summary.replace(/ scans indexed/, " spaces on file");
+}
+
+export type Step ={ id: string; icon: string; label: string; tone: "info" | "warn" };
 
 export function thinkingSteps(events: TraceEvent[], spec: RequirementSpec): Step[] {
   const steps: Step[] = [];
@@ -204,9 +238,9 @@ export function compareRows(reports: ShellReport[]) {
     return p ? (p.status === "unknown" ? "unknown" : p.detail.match(/^(\d+)/)?.[1] ? `${p.detail.match(/^(\d+)/)![1]} stalls` : p.status) : "—";
   };
   return [
-    { label: "Size", values: reports.map((r) => (areaOf(r) ? `${fmt(areaOf(r)!)} sq ft` : "—")) },
-    { label: "Rooms already built", values: reports.map((r) => (r.fit.assignment.length ? `${r.fit.assignment.filter((a) => a.roomId).length} of ${r.fit.assignment.length}` : "—")) },
-    { label: "Weeks to open", values: reports.map((r) => `${r.weeksToOpen[0]}–${r.weeksToOpen[1]}`) },
+    { label: "Size", values: reports.map((r) => sizeText(r) || "—") },
+    { label: "Rooms already built", values: reports.map((r) => (r.fit.assignment.length ? `${fitRows(r).built.length} of ${r.fit.assignment.length}` : "—")) },
+    { label: "Weeks to open", values: reports.map((r) => { const [lo, hi] = openingWeeks(r); return `${lo}–${hi}`; }) },
     { label: "Known work", values: reports.map((r) => (r.costRange?.[1] ? `${k(r.costRange[0])}–${k(r.costRange[1])}` : "none")) },
     { label: "Parking", values: reports.map(parking) },
   ];

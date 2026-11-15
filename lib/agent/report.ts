@@ -8,10 +8,10 @@ import { exclusiveScan } from "../reason/exclusive";
 import type { SiteFile } from "../neighborhood/types";
 import { packFor } from "../uses/packs";
 import { classMatches, sqftOf } from "../query/shells";
-import { countedKind, countLine, missingOf, needLine, roomCounts, roomNoun, shortfalls } from "../reason/fit";
+import { countLine, missingOf, roomCounts, roomNoun, shortfalls } from "../reason/fit";
+import { fitRows, fitShort, openingWeeks, roomList, summaryLine } from "../uses/rooms";
 import type { AerialCount, Evidence, FitResult, PanoCheck, RequirementSpec, RoomGraph, RuleHit, ScoreLine, Shell, ShellReport, Similarity, WorkItem } from "../types";
 import { an } from "../text";
-import { labelCost, normalizeRoomLabel } from "../reason/labels";
 import { alsoFits } from "../reverse";
 import { mustHaves } from "./verify";
 
@@ -62,8 +62,6 @@ const QUESTIONS: Record<string, string> = {
   zoning_records: "Which zone is the parcel in today, and does it permit our use by right?",
 };
 const PARKING_RULES = new Set(["parking", "onsite_parking"]);
-const sameRoomType = (req: string, observed: string) =>
-  normalizeRoomLabel([req]) === "other" ? req.toLowerCase() === observed.toLowerCase() : labelCost(req, observed) === 0;
 
 export const displayName = (name: string) =>
   name.split(" · ")[0].replace(/\s*[-–]\s*[\d,]+\s*(?:SF|sq\.?\s*ft)\s*$/i, "").trim();
@@ -181,37 +179,24 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
   const mustTopics = new Set(musts.map((m) => m.rule.replace(/_/g, " ")));
   const LEAD = new Set(["rooms", "looked closer", "proposed change", "door", "exclusive use", "competitor nearby", "unverified build-out"]);
   const priority = (u: { topic: string }) => (LEAD.has(u.topic) ? 0 : mustTopics.has(u.topic) ? 1 : 2);
-  const unknowns = raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b));
+  const unknowns = tidyUnknowns(raw.filter((u, i) => raw.findIndex((x) => x.question === u.question) === i).sort((a, b) => priority(a) - priority(b)),
+    { fit, floorplan: graph ?? undefined, checks: e.checks }, spec);
 
-  // Rooms the scan labels as the type you asked for; a room that could be converted isn't "already built".
-  const matched = fit.assignment.filter((a) => { const room = a.roomId ? graph?.rooms.find((r) => r.id === a.roomId) : undefined; return room && sameRoomType(a.req.replace(/ #\d+$/, ""), room.label); }).length;
+  // Rooms the scan labels as the type you asked for (or shows set up for it); a room that could be converted isn't "already built".
+  const built = fitShort(fitRows({ fit, floorplan: graph ?? undefined, checks: e.checks }, spec));
   const fails = rules.filter((r) => r.status === "fail");
   const unconfirmed = counts.some((c) => c.unknown || c.convert.length);
   const verdict = short.length ? "Short on rooms" : fit.hardFails.length || fails.length ? "Conditional fit"
     : e.finalScore < 50 ? "Long shot" : unconfirmed ? "Rooms to confirm" : e.finalScore >= 70 ? "Likely fits" : "Workable with changes";
-  const items = work.items.length;
-  const cost = items ? `${items} work item${items > 1 ? "s" : ""} (screening estimate $${Math.round(work.costRange[0] / 1000)}k–$${Math.round(work.costRange[1] / 1000)}k)` : "no build-out found in the scan";
-  const area = graph ? `${Math.round(graph.totalAreaSqft).toLocaleString()} sf measured` : "";
   const tally = countLine(spec, counts);
-  const base = (key: string) => key.replace(/ #\d+$/, "");
-  const rest = fit.assignment.filter((a) => !countedKind(spec, spec.rooms.find((r) => r.label === base(a.req)) ?? { label: base(a.req), count: 1 }));
-  // Same rule as roomCounts (and lib/uses/rooms.ts fitRows): built only when the scan labels the room as that type;
-  // any other matched room could be made into it, it isn't already there.
-  const restBuilt = rest.filter((a) => { const room = a.roomId ? graph?.rooms.find((r) => r.id === a.roomId) : undefined; return room && sameRoomType(base(a.req), room.label); }).length;
-  const restConvert = rest.filter((a) => a.roomId).length - restBuilt;
-  const could = restConvert ? `${tally ? " (" : "; "}${restConvert} more could be made from rooms here${tally ? ")" : ""}` : "";
-  const restLine = rest.length ? `${tally ? ", plus " : ""}${restBuilt} of ${rest.length} ${tally ? "other " : ""}rooms you need${tally ? " already built" : ` ${restBuilt === 1 ? "is" : "are"} already built`}${could}` : "";
-  const rooms = tally || rest.length ? `${tally}${restLine} (${area}).${short.length ? ` Missing: ${short.join("; ")}.` : ""}` : `${area}.`;
-  const unclear = fit.unknowns.length ? ` ${fit.unknowns.length} couldn't be identified from scan labels, so they're questions, not passes.` : "";
-  const summary = graph
-    ? `${rooms}${unclear} ${items ? `Work left: ${cost}` : "No build-out found"}, about ${work.weeksToOpen[0]}–${work.weeksToOpen[1]} weeks to open.`
-    : `Record-only: no room scan, so room counts${counts.length ? ` (${needLine(spec, counts)})` : ""} are not verified. ${cost}.`;
+  // The same sentence the card, the chat and the Overview use (lib/uses/rooms.ts).
+  const summary = summaryLine({ fit, floorplan: graph ?? undefined, checks: e.checks, work: work.items, costRange: work.costRange, unknowns, address: shell.address, useTags: shell.useTags }, spec);
 
   const nm = displayName(shell.name);
   const place = spec.mode === "home" ? `the home at ${shell.address}` : shell.address.startsWith(nm) ? shell.address : `${nm} at ${shell.address}`;
   const contact = shell.listing?.contact?.name?.split(" ")[0];
   const asks = unknowns.slice(0, Math.max(5, unknowns.filter((u) => priority(u) < 2).length)).map((u) => `- ${u.question}`).join("\n");
-  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sf)` : ""} and ${place} looks promising${graph && tally ? `: ${tally.replace(/ already built$/, "")} already look built` : matched ? `: ${matched} of the ${fit.assignment.length} rooms I need already look built` : ""}.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
+  const draftMessage = `Hi${contact ? ` ${contact}` : ""},\n\nI'm looking for ${spec.mode === "home" ? "a home" : `space for ${an(spec.useType)}`} in ${spec.city === "houston" ? "Houston" : "Los Angeles"}${spec.sizeSqft ? ` (about ${spec.sizeSqft[0].toLocaleString()}–${spec.sizeSqft[1].toLocaleString()} sq ft)` : ""} and ${place} looks promising${graph && built ? `: in the 3D tour, ${built}` : ""}.${spec.needs.wheelchair ? ` It needs to work for a wheelchair user${spec.needs.chairWidthIn ? ` (the chair is ${spec.needs.chairWidthIn} in wide)` : ""}.` : ""}\n\nCould you help with a few questions?\n${asks || "- Is the space available, and what are the terms?"}\n\nThanks!`;
 
   return {
     shellId: shell.id,
@@ -227,7 +212,7 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     fit,
     rules,
     work: work.items,
-    weeksToOpen: work.weeksToOpen,
+    weeksToOpen: openingWeeks({ work: work.items, unknowns, address: shell.address, useTags: shell.useTags }, spec), // the opening plan, the same number every screen shows
     costRange: work.costRange,
     tiAllowance: work.tiAllowance,
     unknowns,
@@ -247,6 +232,66 @@ export function buildReport(spec: RequirementSpec, e: Evaluation, rank: number, 
     ...(e.checks?.length ? { checks: e.checks } : {}),
     alsoFits: graph && spec.mode !== "home" ? alsoFits(shell, graph, spec.useType) : [],
   };
+}
+
+type Ask = { topic: string; question: string };
+const NOT_LOOKED = /^Is there an? (.+?) in (.+?)\? Hermit didn't get to look at that room's photos\.$/;
+// Questions that say the same thing in different words: only the first of each family is asked.
+const FAMILIES: [string, RegExp][] = [["zoning", /zoning|deed restriction/i], ["step-free", /step-free/i], ["parking", /\bpark(ing)?\b|\bstalls?\b/i]];
+const fixtureWord = (f: string) => new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(e?s)?\\b`, "i");
+
+/**
+ * Landlord questions without repeats or ones the scan photos already answered:
+ * - a fixture seen in every assigned room of that type ("Do the exam rooms have their own sinks?") isn't asked;
+ * - rooms Hermit couldn't look at become one question per fixture ("Do exam rooms #1 and #2 have sinks?");
+ * - zoning, step-free entry and parking are asked once.
+ */
+export function tidyUnknowns(raw: Ask[], r: Pick<ShellReport, "fit" | "floorplan"> & Partial<Pick<ShellReport, "checks">>, spec: Pick<RequirementSpec, "rooms">): Ask[] {
+  const reqs = (label: string) => r.fit.assignment.filter((a) => a.roomId && a.req.replace(/\s*#\d+$/, "").toLowerCase() === label.toLowerCase());
+  const pairs = spec.rooms.flatMap((room) => (room.fixtures ?? []).map((f) => ({ label: room.label.toLowerCase(), f: f.toLowerCase() })));
+  const answered = pairs.filter(({ label, f }) => {
+    const as = reqs(label);
+    return as.length > 0 && as.every((a) => (r.checks ?? []).some((c) => c.roomId === a.roomId && c.result === "seen" && c.feature.toLowerCase() === f));
+  });
+  const about = (q: string, p: { label: string; f: string }) => q.toLowerCase().includes(p.label) && fixtureWord(p.f).test(q);
+  // Rooms not looked at, merged per fixture.
+  const unlooked = new Map<string, string[]>();
+  for (const u of raw) { const m = u.question.match(NOT_LOOKED); if (m) unlooked.set(m[1].toLowerCase(), [...(unlooked.get(m[1].toLowerCase()) ?? []), m[2]]); }
+  const out: Ask[] = [];
+  const families = new Set<string>();
+  for (const u of raw) {
+    const m = u.question.match(NOT_LOOKED);
+    let ask = u;
+    if (m) {
+      const rooms = unlooked.get(m[1].toLowerCase());
+      if (!rooms) continue; // already merged into the first one
+      unlooked.delete(m[1].toLowerCase());
+      const f = m[1].toLowerCase(), many = rooms.length > 1;
+      ask = { topic: u.topic, question: `${many ? "Do" : "Does"} ${roomList(rooms)} have ${many ? (/(s|sh|ch|x)$/.test(f) ? `${f}es` : `${f}s`) : an(f)}? Hermit couldn't look closer at ${many ? "those rooms" : "that room"} this time.` };
+    }
+    if (answered.some((p) => about(ask.question, p))) continue;
+    const fam = [...FAMILIES.filter(([, re]) => re.test(ask.question)).map(([k]) => k), ...pairs.filter((p) => about(ask.question, p)).map((p) => `${p.label}|${p.f}`)];
+    if (fam.length && fam.every((k) => families.has(k))) continue;
+    for (const k of fam) families.add(k);
+    if (!out.some((x) => x.question === ask.question)) out.push(ask);
+  }
+  return out;
+}
+
+/** Older recorded reports: clean their questions the same way, and keep the inquiry draft's list in step. */
+export function tidyReport<T extends ShellReport>(report: T, spec: Pick<RequirementSpec, "rooms">): T {
+  const unknowns = tidyUnknowns(report.unknowns, report, spec);
+  const kept = new Set(unknowns.map((u) => u.question));
+  const fresh = unknowns.filter((u) => !report.unknowns.some((x) => x.question === u.question)).map((u) => `- ${u.question}`);
+  const lines = report.draftMessage.split("\n");
+  const asks = lines.map((l, i) => (l.startsWith("- ") ? i : -1)).filter((i) => i >= 0);
+  const was = new Set(report.unknowns.map((u) => u.question));
+  const draft = asks.length
+    ? [...lines.slice(0, asks[0]), ...fresh, ...asks.map((i) => lines[i]).filter((l) => !was.has(l.slice(2)) || kept.has(l.slice(2))), ...lines.slice(asks.at(-1)! + 1)].join("\n")
+    : report.draftMessage;
+  // The intro's room count, rebuilt from the one room rule (older runs wrote "0 of 2 exam rooms, ... already look built").
+  const built = report.floorplan ? fitShort(fitRows(report, spec)) : "";
+  return { ...report, unknowns, draftMessage: draft.replace(/(\d) sf\)/g, "$1 sq ft)").replace(/looks promising[^\n]*?\.(?=\s|$)/, `looks promising${built ? `: in the 3D tour, ${built}` : ""}.`) };
 }
 
 // Open the tour where Hermit saw a fixture you asked for, else the sweep nearest the first matched room, else the first sweep.

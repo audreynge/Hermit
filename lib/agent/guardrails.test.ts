@@ -105,7 +105,7 @@ describe("Hermit looked closer", () => {
     const { events, reports } = await go(spec(), deps([shell("A"), shell("B")], { look }));
     expect(calls).toBe(1);
     const esc = of(events, "escalate");
-    expect(esc[0].outcome).toBe("Looked closer at Suite A, A Main St: exam rooms #1 and #2 weren't looked at (the photo check couldn't run).");
+    expect(esc[0].outcome).toBe("Couldn't look closer at the exam rooms in Suite A, A Main St this time, so whether they have sinks is a question for the landlord.");
     expect(esc[0].result).toBe("unclear");
     expect(of(events, "error").some((e) => /Live photo check unavailable \(Gemini 402\)/.test(e.message))).toBe(true);
     expect(reports.length).toBeGreaterThan(0);

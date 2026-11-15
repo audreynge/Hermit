@@ -1,7 +1,8 @@
 "use client";
 import { Bookmark, BookmarkCheck, Box, Check, FileText, LandPlot, MapPin, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { accessLine, areaOf, highlights } from "@/lib/chat/present";
+import { accessLine, areaOf, highlights, parkingFact } from "@/lib/chat/present";
+import { sizeText } from "@/lib/uses/rooms";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 
 const cityOf = (address: string) => address.split(", ").slice(-2).join(", ");
@@ -36,26 +37,26 @@ const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
 // Zillow-style headline: the asking price when the listing has one, otherwise the size.
 function headline(r: ShellReport, area?: number): { text: string; priced: boolean } | null {
   const l = r.listing;
-  if (l?.askingRate) return { text: `${money(l.askingRate)}/sf/yr`, priced: true };
+  if (l?.askingRate) return { text: `${money(l.askingRate)}/sq ft/yr`, priced: true };
   if (l?.price) return { text: l.kind === "lease" ? `${money(l.price)}/mo` : money(l.price), priced: true };
   return area ? { text: `${Math.round(area).toLocaleString()} sq ft`, priced: false } : null;
 }
 
 // Listing evidence first (never claim "listed" without it), then measured vs record-only.
 function status(r: ShellReport) {
-  const evidence = r.badge === "scan-verified" ? { label: "measured", cls: "verified" } : { label: "record only", cls: "record" };
+  const evidence = r.badge === "scan-verified" ? { label: "3D scan", cls: "verified" } : { label: "Records only", cls: "record" };
   const listed = r.listing?.status === "active" ? { label: r.listing.kind === "sale" ? "For sale" : "For lease", cls: "listed" } : null;
   return { listed, evidence };
 }
 
-function facts(r: ShellReport, area: number | undefined, price?: string): string[] {
-  const out: string[] = [];
-  if (price) out.push(price);
-  if (area) out.push(`${Math.round(area).toLocaleString()} sq ft`);
-  const a = r.fit?.assignment ?? [];
-  if (a.length) out.push(`${a.filter((x) => x.roomId).length}/${a.length} rooms matched`);
-  const stalls = r.rules.find((h) => h.rule === "parking")?.detail.match(/(\d+) recorded stalls?/i)?.[1];
-  if (stalls) out.push(`${stalls} parking`);
+// Price, size (measured vs listing) and parking on record. The room count lives in the highlights, in the same words as the chat.
+function facts(r: ShellReport, price?: string): { text: string; ask?: boolean }[] {
+  const out: { text: string; ask?: boolean }[] = [];
+  if (price) out.push({ text: price });
+  const size = sizeText(r);
+  if (size) out.push({ text: size.charAt(0).toUpperCase() + size.slice(1) });
+  const park = parkingFact(r);
+  if (park) out.push(park);
   return out;
 }
 
@@ -85,7 +86,9 @@ export function SpaceCard({ report, spec, selected, saved, index, onSelect, onDe
         <h3 id={`sp-${report.shellId}`}>
           <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} aria-pressed={selected}>{report.name.split(" · ")[0]}</button>
         </h3>
-        <p className="space-facts num">{facts(report, area, head?.priced ? head.text : undefined).join(" · ")}</p>
+        <p className="space-facts num">{facts(report, head?.priced ? head.text : undefined).map((f, i) => (
+          <span key={f.text}>{i > 0 && " · "}{f.text}{f.ask && <span className="space-ask" style={{ color: "var(--warn)" }}>, ask where</span>}</span>
+        ))}</p>
         <div className="meta"><MapPin aria-hidden="true" /> {cityOf(report.address)}</div>
         <ul>{highlights(report, spec).map((h) => {
           const concern = h === access?.text && !access.ok; // a door problem must not wear a checkmark

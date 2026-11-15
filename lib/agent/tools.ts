@@ -472,16 +472,24 @@ export class Run {
     if (seenR.length) clauses.push(`${an(feature)} is visible in ${roomList(seenR.map((r) => r.req))}`);
     if (notR.length) clauses.push(`no ${feature} in ${roomList(notR.map((r) => r.req))}`);
     if (unclearR.length) clauses.push(`couldn't tell if ${roomList(unclearR.map((r) => r.req))} ${unclearR.length > 1 ? "have" : "has"} ${an(feature)} (${lowerFirst(unclearR[0].check!.note.replace(/\.$/, ""))})`);
-    if (unlooked.length) clauses.push(`${roomList(unlooked.map((r) => r.req))} ${unlooked.length > 1 ? "weren't" : "wasn't"} looked at${notes[0] ? ` (${notes[0]})` : ""}`);
-    const outcome = `Looked closer at ${name}: ${clauses.join("; ")}.`;
+    // Rooms Hermit couldn't look at this time (no photo check on hand, or the fresh checks ran out): plain truth, no cache talk.
+    const many = unlooked.length > 1, roomsWord = roomList(unlooked.map((r) => r.req)).replace(/\s*#\d+(?:,? (?:and )?#\d+)*$/, "");
+    const askLine = `so whether ${many ? `they have ${plural(feature)}` : `it has ${an(feature)}`} is a question for the landlord`;
+    if (unlooked.length && clauses.length) clauses.push(`couldn't look closer at ${roomList(unlooked.map((r) => r.req))} this time, ${askLine}`);
+    const outcome = unlooked.length && clauses.length === 0
+      ? `Couldn't look closer at the ${roomsWord} in ${name} this time, ${askLine}.`
+      : `Looked closer at ${name}: ${clauses.join("; ")}.`;
+    void notes; // why the look didn't run stays out of the sentence; lookErrors still reach the result for the planner
     const evidence: Evidence[] = results.flatMap((r) => (r.check ? [{ source: "Matterport scan photo", ref: r.check.panoId ? `pano:${r.check.panoId} face ${r.check.face ?? "?"}` : `${sid}/${r.roomId} (no photo inside the room)`, confidence: r.check.confidence }] : []));
 
     // Report: the photo checks behind this answer; couldn't-tell rooms become landlord questions.
     const byKey = new Map((e.checks ?? []).map((c) => [`${c.roomId}|${c.feature}`, c]));
     for (const r of results) if (r.check) byKey.set(`${r.check.roomId}|${r.check.feature}`, r.check);
     e.checks = [...byKey.values()];
-    for (const r of [...unclearR, ...unlooked])
-      (e.extraUnknowns ??= []).push({ topic: "looked closer", question: `Is there ${an(feature)} in ${r.req}? ${r.check ? r.check.note : "Hermit didn't get to look at that room's photos."}` });
+    for (const r of unclearR)
+      (e.extraUnknowns ??= []).push({ topic: "looked closer", question: `Is there ${an(feature)} in ${r.req}? ${r.check!.note}` });
+    if (unlooked.length)
+      (e.extraUnknowns ??= []).push({ topic: "looked closer", question: `${unlooked.length > 1 ? "Do" : "Does"} ${roomList(unlooked.map((r) => r.req))} have ${unlooked.length > 1 ? plural(feature) : an(feature)}? Hermit couldn't look closer at ${unlooked.length > 1 ? "those rooms" : "that room"} this time.` });
     if (unclearR.length || unlooked.length) { e.lines.push({ factor: "Closer look: couldn't tell", earned: -2, max: 0, note: `${an(feature)} in ${roomList([...unclearR, ...unlooked].map((r) => r.req))}`, source: "inspect_view (scan photos)" }); rescore(e); }
     e.escalations.push({ question, outcome, result, evidence });
     this.emit({ type: "escalate", id: rid("ev"), shellId: id, question, outcome, result, evidence });
