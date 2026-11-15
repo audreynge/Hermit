@@ -3,10 +3,8 @@ import { Layers } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { savedShells, toggleSaved } from "@/lib/client/persist";
-import type { Block } from "@/lib/spec/parse";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { isBuying, ParcelInfo } from "../ParcelInfo";
-import { PropertyViewer } from "../PropertyViewer";
 import { ResultsMap } from "../ResultsMap";
 import { SpaceCard } from "../SpaceCard";
 import { PropertySkeleton } from "../coastal/PropertySkeleton";
@@ -14,14 +12,12 @@ import { PropertySkeleton } from "../coastal/PropertySkeleton";
 const PLACE: Record<string, string> = { houston: "Houston, TX", los_angeles: "Los Angeles, CA" };
 
 // Map + cards in rank order; the score stays internal, never shown.
-export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected, onSelect, design, viewIndex, onViewIndex }: {
+export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected, onSelect }: {
   reports: ShellReport[]; spec: RequirementSpec; runId: string | null; running: boolean; onOpen: (r: ShellReport) => void;
-  design?: Block[]; viewIndex?: number | null; onViewIndex?: (i: number | null) => void;
   selected: number; onSelect: (i: number) => void;
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState<Record<string, boolean>>({});
-  const [ownView, setOwnView] = useState<number | null>(null);
   const [parcelFor, setParcelFor] = useState<ShellReport | null>(null);
   useEffect(() => {
     const load = () => setSaved(Object.fromEntries(savedShells().map((s) => [s.shellId, true])));
@@ -31,9 +27,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
   }, [reports]);
   useEffect(() => { if (selected >= reports.length) onSelect(0); }, [reports.length, selected, onSelect]);
 
-  const viewAt = onViewIndex ? viewIndex ?? null : ownView;
-  const setView = onViewIndex ?? setOwnView;
-  const viewing = viewAt != null ? reports[viewAt] : undefined;
   // Carousel paging: one dot per screenful of cards, read from the scroller so it follows the breakpoint.
   const list = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState({ page: 0, count: 1 });
@@ -62,7 +55,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
             <SpaceCard key={r.shellId} index={i} enterDelay={Math.min(i * 70, 350)} report={r} spec={spec} selected={i === selected} saved={!!saved[r.shellId]}
               onSelect={() => onSelect(i)}
               onSave={() => { const on = runId ? toggleSaved(r, runId) : false; setSaved((s) => ({ ...s, [r.shellId]: on })); }}
-              onDetails={() => details(r)} onView={() => setView(i)}
+              onDetails={() => details(r)}
               onParcel={isBuying(spec, r) ? () => setParcelFor(r) : undefined}
               extra={
                 <div className="space-crew">
@@ -82,7 +75,6 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
           ))}
         </div>
       )}
-      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} use={spec.useType} design={design} onClose={() => setView(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </section>
   );

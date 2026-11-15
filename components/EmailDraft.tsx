@@ -3,6 +3,7 @@ import { Copy, Mail } from "lucide-react";
 import { useState } from "react";
 import { draftEmail } from "@/lib/chat/present";
 import type { ShellReport } from "@/lib/types";
+import { openGmail } from "@/lib/text";
 import { Modal } from "./Modal";
 
 export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: () => void }) {
@@ -12,7 +13,6 @@ export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: 
   const [subject, setSubject] = useState(d.subject);
   const [body, setBody] = useState(d.body);
   const [status, setStatus] = useState("");
-  const mailto = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(`To: ${to}\nSubject: ${subject}\n\n${body}`);
@@ -30,7 +30,7 @@ export function EmailDraft({ report, onClose }: { report: ShellReport; onClose: 
       <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
       <label>Message<textarea value={body} onChange={(e) => setBody(e.target.value)} /></label>
       <div className="actions">
-        <a className="btn primary" href={mailto}><Mail aria-hidden="true" /> Open in my email app</a>
+        <button type="button" className="btn primary" onClick={() => openGmail(to, subject, body)}><Mail aria-hidden="true" /> Open in Gmail</button>
         <button type="button" className="btn" onClick={copy}><Copy aria-hidden="true" /> Copy email</button>
         <span role="status" className="muted">{status}</span>
       </div>

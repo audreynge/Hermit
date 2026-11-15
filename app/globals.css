@@ -472,13 +472,6 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Furnish the 3D tour: the tour fills a near-full-screen popup; controls float over it. */
-.modal:has(.furnish-tour) { width: calc(100vw - 24px); height: calc(100dvh - 24px); max-height: none; display: flex; flex-direction: column; padding: 14px 18px; overflow: hidden; }
-.modal-backdrop:has(.furnish-tour) { padding: 12px; }
-.modal:has(.furnish-tour) header { margin-bottom: 8px; }
-.modal:has(.furnish-tour) h2 { font-size: 20px; }
-.modal:has(.furnish-tour) > p.muted { display: none; }
-.modal:has(.furnish-tour) .viewer-body { flex: 1; min-height: 0; margin-top: 8px; display: flex; flex-direction: column; }
-.modal:has(.furnish-tour) .viewer-3d { flex: 1; display: flex; min-height: 0; }
 .furnish-tour { flex: 1; display: flex; min-height: 0; }
 .furnish-stage { position: relative; flex: 1; min-height: 320px; border-radius: 16px; overflow: hidden; background: var(--sea-wash); }
 .furnish-stage matterport-viewer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -513,10 +506,11 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line-strong); cursor: pointer; }
 .swatch[aria-pressed="true"] { outline: 3px solid var(--coral); outline-offset: 1px; }
 .furnish-pop input[type="color"] { width: 32px; height: 32px; border: 0; padding: 0; background: none; cursor: pointer; }
-.furnish-tray { position: absolute; z-index: 2; left: 10px; right: 10px; bottom: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border-radius: 16px; background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: var(--shadow); }
-.furnish-toast { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); margin: 0; max-width: min(560px, 90%); padding: 8px 14px; border-radius: 12px; background: var(--ink); color: var(--card); font-size: 14px; box-shadow: var(--shadow); }
-.furnish-chat { display: flex; gap: 6px; align-items: center; }
-.furnish-chat input, .furnish-search input { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-strong); font: inherit; font-size: 15px; background: var(--card); color: var(--ink); }
+.furnish-tray { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+.furnish-toast { position: absolute; z-index: 3; bottom: 12px; left: 50%; transform: translateX(-50%); margin: 0; max-width: min(560px, 90%); padding: 8px 14px; border-radius: 12px; background: var(--ink); color: var(--card); font-size: 14px; box-shadow: var(--shadow); }
+.furnish-search input { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-strong); font: inherit; font-size: 15px; background: var(--card); color: var(--ink); }
+.furnish-busy { position: absolute; z-index: 3; left: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
+.furnish-busy svg { width: 18px; height: 18px; }
 .furnish-shelf { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .furnish-tabs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .furnish-tabs [role="tablist"] { display: flex; gap: 4px; }
@@ -542,8 +536,7 @@ select.control:invalid, select.control.placeholder { color: var(--muted); }
 .furnish-card .sub { color: var(--ink-soft); align-self: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .furnish-card[data-status="failed"] .sub, .furnish-card[data-status="none"] .sub { color: var(--coral-ink); }
 @media (max-width: 760px) {
-  .modal:has(.furnish-tour) { padding: 10px; }
-  .furnish-tray { left: 6px; right: 6px; bottom: 6px; }
+    .furnish-tray { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
   .furnish-card { width: 160px; }
   .strip-nav { display: none; }
   .furnish-hint { display: none; }

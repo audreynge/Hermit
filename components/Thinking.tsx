@@ -17,6 +17,6 @@ export function Thinking({ steps, running }: { steps: Step[]; running: boolean }
     </ul>
   );
   // Live while the crew works; once done, folded into a dropdown the user can open.
-  if (running) return <div className="think-list"><p className="think-head">Checking…</p>{list}</div>;
+  if (running) return <div className="think-list"><p className="think-head" role="status">Checking…<span className="sr-only"> {steps.at(-1)?.label ?? ""}</span></p>{list}</div>;
   return <details className="think-list"><summary className="think-head">Checked {steps.length} thing{steps.length === 1 ? "" : "s"}<ChevronDown aria-hidden="true" className="think-toggle" /></summary>{list}</details>;
 }

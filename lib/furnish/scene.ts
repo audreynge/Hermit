@@ -5,6 +5,7 @@ import type * as THREE from "three";
 import { MATERIALS, type Size } from "./catalog";
 import { fitModel } from "./fit";
 import type { Placed, Vec } from "./ops";
+import { classify, samplePoints, type Footprint, type ProbeResult, type Sample } from "./probe";
 
 export type LoadState = "ready" | "failed";
 // The placeholder box and the model live on separate scene objects: a started node can't take new components, and
@@ -79,7 +80,7 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
       const box = new T.Box3().setFromObject(root).applyMatrix4(root.matrixWorld.clone().invert());
       if (!box.isEmpty()) { bounds = { min: { x: box.min.x, y: box.min.y, z: box.min.z }, max: { x: box.max.x, y: box.max.y, z: box.max.z } }; measuredHere = true; }
     }
-    const f = bounds && fitModel(bounds, p.size);
+    const f = bounds && fitModel(bounds, p.size, p.planned);
     if (!f) { settle(id, e, "failed"); return; }
     // Set the transform on the loaded object itself (standard position·rotation·scale), not through the loader's
     // local* inputs: the loader applies localPosition inside the scaled frame, which shifted off-center models away.
@@ -166,6 +167,12 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
     return ray;
   }
 
+  function screenOf(pos: Vec, rect: DOMRect): { x: number; y: number; behind: boolean } | null {
+    if (!camera) return null;
+    const v = new T.Vector3(pos.x, pos.y, pos.z).project(camera);
+    return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height, behind: v.z > 1 };
+  }
+
   return {
     sync,
     /** Camera position and horizontal look direction, read synchronously from the live camera. */
@@ -189,10 +196,18 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
       return { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z }, model: !!e!.root };
     },
     /** Screen position of a world point; `behind` when it's behind the camera (don't draw it). */
-    screenOf(pos: Vec, rect: DOMRect): { x: number; y: number; behind: boolean } | null {
-      if (!camera) return null;
-      const v = new T.Vector3(pos.x, pos.y, pos.z).project(camera);
-      return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height, behind: v.z > 1 };
+    screenOf,
+    /** Whether a footprint would sit on a built-in surface: casts the tour's ray through each sample point's pixel
+     *  (first model surface hit, see probe.ts). Points behind the camera or off-screen stay unknown. `rect` is the viewer's. */
+    async probe(fp: Footprint, floorY: number, rect: DOMRect): Promise<ProbeResult> {
+      const samples: Sample[] = [];
+      for (const at of samplePoints(fp, floorY)) {
+        const p = screenOf(at, rect), pt = p && !p.behind ? { x: p.x - rect.left, y: p.y - rect.top } : null;
+        const seen = pt && pt.x >= 0 && pt.x <= rect.width && pt.y >= 0 && pt.y <= rect.height;
+        const hit = seen ? (await sdk.Renderer.getWorldPositionData(pt).catch(() => null))?.position ?? null : undefined;
+        samples.push({ at, hit });
+      }
+      return classify(floorY, fp, samples);
     },
     /** Where a screen point's ray meets the floor plane at height y (synchronous, for smooth dragging). */
     floorAt(x: number, y: number, rect: DOMRect, floorY: number): Vec | null {

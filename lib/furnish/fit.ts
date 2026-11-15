@@ -22,7 +22,8 @@ const UPS: [Quaternion, number][] = [
 ];
 const YAWS = [0, Math.PI / 2];
 
-export function fitModel(b: Bounds, target: Size): Fit | null {
+/** `cap`: never exceed the target footprint (shrinking height instead), for items whose spot was planned around their size. */
+export function fitModel(b: Bounds, target: Size, cap = false): Fit | null {
   const src = new Box3(new Vector3(b.min.x, b.min.y, b.min.z), new Vector3(b.max.x, b.max.y, b.max.z));
   let best: (Fit & { score: number }) | null = null;
   for (const [up, penalty] of UPS) {
@@ -31,14 +32,15 @@ export function fitModel(b: Bounds, target: Size): Fit | null {
       const box = src.clone().applyMatrix4(new Matrix4().makeRotationFromQuaternion(q));
       const s3 = box.getSize(new Vector3());
       if (![s3.x, s3.y, s3.z].every((n) => Number.isFinite(n) && n > 1e-6)) continue;
-      const scale = target.h / s3.y;
+      const byHeight = target.h / s3.y, scale = cap ? Math.min(byHeight, target.w / s3.x, target.d / s3.z) : byHeight;
       const w = s3.x * scale, d = s3.z * scale;
-      const error = (Math.abs(Math.log(w / target.w)) + Math.abs(Math.log(d / target.d))) / 2;
+      // Scored on the uncapped shape, so capping never changes which way up the model stands.
+      const error = (Math.abs(Math.log((s3.x * byHeight) / target.w)) + Math.abs(Math.log((s3.z * byHeight) / target.d))) / 2;
       const score = error + penalty + (yaw ? 0.01 : 0);
       if (best && score >= best.score) continue;
       const c = box.getCenter(new Vector3());
       const e = new Euler().setFromQuaternion(q, "XYZ");
-      best = { rotation: { x: e.x || 0, y: e.y || 0, z: e.z || 0 }, scale, position: { x: -c.x * scale, y: -box.min.y * scale, z: -c.z * scale }, fitted: { w, d, h: target.h }, error, score };
+      best = { rotation: { x: e.x || 0, y: e.y || 0, z: e.z || 0 }, scale, position: { x: -c.x * scale, y: -box.min.y * scale, z: -c.z * scale }, fitted: { w, d, h: s3.y * scale }, error, score };
     }
   }
   if (!best) return null;
