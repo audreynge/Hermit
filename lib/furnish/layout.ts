@@ -26,6 +26,13 @@ const WALL_ZONE = 0.6; // kept clear in front of wall items
 const CENTER_ZONE = 0.6; // kept clear around center items (beyond their seats)
 const HALF_AISLE = 0.45; // grid zones can't overlap, so rows get a 0.9 m aisle
 const DOOR_DEPTH = 1.0;
+/** Overrides for the clearances above, in meters: grid aisle width, clear depth in front of wall items, door patch depth. */
+export type Clearances = { aisle?: number; frontClear?: number; turn?: number };
+/** Screening clearances for a wheelchair user (ADA 2010 Standards): a 36 in accessible route (§403.5.1), or the chair plus
+ *  2 in a side when wider; 30 × 48 in clear floor space for a forward approach to work surfaces (§305.3); a 60 in turning
+ *  space (§304.3) at each door. */
+export const wheelchairClearances = (chairWidthIn: number): Clearances =>
+  ({ aisle: Math.max(36, chairWidthIn + 4) * 0.0254, frontClear: 48 * 0.0254, turn: 60 * 0.0254 });
 const FLAT_H = 0.1; // rugs (sizes are clamped to ≥ 0.1 m): no collisions, not obstacles
 const SEAT = /\b(chair|stool|seat|bench|sofa|couch|loveseat|recliner)\b/;
 
@@ -90,8 +97,9 @@ function edgesOf(poly: Pt[]): Edge[] {
 }
 
 /** Lays out one room's plan. `budget` caps how many items are placed (model downloads are the cost). */
-export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacle[] = [], budget = 30): Layout {
+export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacle[] = [], budget = 30, clear: Clearances = {}): Layout {
   const poly = room.polygon;
+  const halfAisle = clear.aisle ? clear.aisle / 2 : HALF_AISLE, frontClear = clear.frontClear ?? WALL_ZONE, turn = clear.turn ?? DOOR_DEPTH;
   const placed: Laid[] = [], missing = new Map<string, number>();
   let capped = false;
   const miss = (name: string, n: number) => n > 0 && missing.set(name, (missing.get(name) ?? 0) + n);
@@ -102,9 +110,9 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
   const longest = edges.reduce((m, e) => (e.len > m.len ? e : m), edges[0]);
   const doors: Box[] = room.doors.flatMap((dr) => {
     const e = edges.map((e) => ({ e, near: nearestOnBoundary(dr.at, [e.a, add(e.a, e.u, e.len)]) })).sort((x, y) => x.near.dist - y.near.dist)[0];
-    return e && e.near.dist < 0.35 ? [{ c: add(e.near.pt, e.e.n, DOOR_DEPTH / 2), f: e.e.n, w: dr.width + 0.2, d: DOOR_DEPTH }] : [];
+    return e && e.near.dist < 0.35 ? [{ c: add(e.near.pt, e.e.n, turn / 2), f: e.e.n, w: Math.max(dr.width + 0.2, clear.turn ?? 0), d: turn }] : [];
   });
-  const doorDist = (p: Pt) => Math.min(Infinity, ...doors.map((b) => dist(p, add(b.c, b.f, -DOOR_DEPTH / 2))));
+  const doorDist = (p: Pt) => Math.min(Infinity, ...doors.map((b) => dist(p, add(b.c, b.f, -turn / 2))));
   const entries: Entry[] = existing.map((o, i) => ({ box: { c: o.pos, f: frontOf(o.rotY), w: o.size.w, d: o.size.d }, group: `existing${i}` }));
   const insts: Inst[] = [];
 
@@ -129,11 +137,11 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
     if (it.place === "wall" || it.place === "corner") {
       // Wide and deep enough for what sits in front (a styling chair, a desk chair pulled out), so stations don't crowd.
       const fronts = plan.filter((p) => p.of === it.key && p.place === "front" && p.size.h > FLAT_H);
-      const w = Math.max(b.w, ...fronts.map((p) => p.size.w + 0.4)), d = Math.max(WALL_ZONE, ...fronts.map((p) => p.size.d + 0.3));
+      const w = Math.max(b.w, ...fronts.map((p) => p.size.w + 0.4)), d = Math.max(frontClear,...fronts.map((p) => p.size.d + 0.3));
       return { c: add(b.c, b.f, b.d / 2 + d / 2), f: b.f, w, d };
     }
     if (it.place === "center") return reach(it, b, CENTER_ZONE);
-    if (it.place === "grid") return reach(it, b, HALF_AISLE);
+    if (it.place === "grid") return reach(it, b, halfAisle);
     return undefined;
   };
 
@@ -164,7 +172,7 @@ export function layoutRoom(plan: PlanItem[], room: LayoutRoom, existing: Obstacl
   function lattice(it: PlanItem, size: Size, ok: (b: Box) => boolean): Box[] {
     const hit = lattices.get(it.key);
     if (hit) return hit;
-    const z = reach(it, { c: { x: 0, y: 0 }, f: { x: 0, y: 1 }, w: size.w, d: size.d }, HALF_AISLE), ps = z.w, pt = z.d;
+    const z = reach(it, { c: { x: 0, y: 0 }, f: { x: 0, y: 1 }, w: size.w, d: size.d }, halfAisle), ps = z.w, pt = z.d;
     const center = (lo: number, hi: number, p: number) => lo + ((hi - lo) - Math.floor((hi - lo) / p) * p) / 2 + p / 2;
     const phases = [[center(S0, S1, ps), center(T0, T1, pt)], ...[0, 0.25, 0.5, 0.75].flatMap((a) => [0, 0.25, 0.5, 0.75].map((b) => [S0 + ps * (a + 0.5), T0 + pt * (b + 0.5)]))];
     let best: Box[] = [];

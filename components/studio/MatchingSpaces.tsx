@@ -3,6 +3,7 @@ import { Layers } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { savedShells, toggleSaved } from "@/lib/client/persist";
+import { chairFor } from "@/lib/reason/access";
 import type { Block } from "@/lib/spec/parse";
 import type { RequirementSpec, ShellReport } from "@/lib/types";
 import { isBuying, ParcelInfo } from "../ParcelInfo";
@@ -64,7 +65,7 @@ export function MatchingSpaces({ reports, spec, runId, running, onOpen, selected
           );
         })}
       </div>
-      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} use={spec.useType} design={design} onClose={() => setView(null)} />}
+      {viewing && <PropertyViewer key={viewing.shellId} report={viewing} use={spec.useType} chairIn={spec.needs.wheelchair ? chairFor(spec.needs)[0] : undefined} design={design} onClose={() => setView(null)} />}
       {parcelFor && <ParcelInfo report={parcelFor} onClose={() => setParcelFor(null)} />}
     </section>
   );

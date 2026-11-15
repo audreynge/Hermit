@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nearestOnBoundary, pointInPolygon, type Pt } from "../geometry/polygon";
-import { boxCorners, layoutRoom, yawOf, type Laid, type LayoutRoom, type PlanItem } from "./layout";
+import { boxCorners, layoutRoom, wheelchairClearances, yawOf,type Laid, type LayoutRoom, type PlanItem } from "./layout";
 import { corners } from "./ops";
 
 const rect = (w: number, d: number, x = 0, y = 0): Pt[] => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }];
@@ -118,6 +118,35 @@ describe("layoutRoom", () => {
     for (const a of tables) for (const b of tables) if (a !== b) expect(Math.max(Math.abs(a.pos.x - b.pos.x), Math.abs(a.pos.y - b.pos.y))).toBeGreaterThanOrEqual(0.9 + 2 * 0.52 + 0.85);
     const [host] = of(placed, "host stand");
     expect(Math.hypot(host.pos.x - 5, host.pos.y)).toBeLessThan(2);
+  });
+
+  it("wheelchair: grid aisles at least 36 in, never more tables than the default layout", () => {
+    const r = room(rect(10, 8), [{ at: { x: 5, y: 0 }, width: 1.0 }]);
+    const plan = [item("four top table", 0.9, 0.9, 0.75, "grid", { key: "t", count: 20 }), item("chair", 0.45, 0.5, 0.9, "around", { of: "t", count: 4 })];
+    const tablesOf = (clear?: ReturnType<typeof wheelchairClearances>) => of(layoutRoom(plan, r, [], 200, clear).placed, "four top table");
+    const wide = layoutRoom(plan, r, [], 200, wheelchairClearances(25)).placed;
+    sane(wide, r);
+    const tables = of(wide, "four top table");
+    expect(tables.length).toBeGreaterThan(0);
+    expect(tables.length).toBeLessThanOrEqual(tablesOf().length);
+    for (const a of tables) for (const b of tables) if (a !== b) expect(Math.max(Math.abs(a.pos.x - b.pos.x), Math.abs(a.pos.y - b.pos.y))).toBeGreaterThanOrEqual(0.9 + 2 * 0.52 + 0.915 - 1e-6);
+    // A wider chair widens the aisle past 36 in: chair + 4 in.
+    expect(wheelchairClearances(34).aisle).toBeCloseTo(38 * 0.0254);
+  });
+
+  it("wheelchair: 48 in clear in front of a desk holds nothing but its own chair", () => {
+    const r = room(rect(3.5, 3.5), [{ at: { x: 0, y: 1 }, width: 0.9 }]);
+    const { placed } = layoutRoom([
+      item("desk", 1.4, 0.7, 0.75, "wall", { key: "desk", wall: "far-from-door" }),
+      item("office chair", 0.65, 0.65, 1.1, "front", { of: "desk" }),
+      item("bookshelf", 0.9, 0.35, 1.8, "wall", { count: 3, priority: 2 }),
+      item("armchair", 0.8, 0.8, 0.9, "center", { priority: 2 }),
+      item("plant", 0.4, 0.4, 1, "corner", { count: 2, priority: 3 }),
+    ], r, [], 30, wheelchairClearances(25));
+    sane(placed, r);
+    const [desk] = of(placed, "desk"), f = front(desk);
+    const zone = boxCorners({ c: { x: desk.pos.x + f.x * (desk.size.d / 2 + 0.61), y: desk.pos.y + f.y * (desk.size.d / 2 + 0.61) }, f, w: desk.size.w, d: 1.22 });
+    for (const p of placed) if (p !== desk && p.name !== "office chair") expect(overlap(zone, cornersOf(p)), `${p.name} in front of the desk`).toBe(false);
   });
 
   it("tiny room: keeps essentials, drops the low-priority extras and says so", () => {

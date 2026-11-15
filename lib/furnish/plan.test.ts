@@ -92,6 +92,15 @@ describe("planFurnish", () => {
     expect(out.ops.length).toBeLessThanOrEqual(30);
   });
 
+  it("wheelchair: wider clearances are applied and the reply says so", async () => {
+    const base = { text: "furnish", use: "Ramen restaurant", rooms: [room("d", "open", 10, 8)], placed: [] };
+    const plain = await planFurnish(base, null), wide = await planFurnish({ ...base, access: { chairWidthIn: 26 } }, null);
+    const tables = (ops: object[]) => names(ops).filter((x) => x === "four top table").length;
+    expect(tables(wide.ops)).toBeGreaterThan(0); // counts vs plain aren't compared: both stop at the item budget
+    expect(wide.reply).toMatch(/wheelchair-wide \(36 in\+\)/);
+    expect(plain.reply).not.toMatch(/wheelchair/);
+  });
+
   it("offline templates follow the use and the room", async () => {
     const plan = async (use: string, label: string, w = 4, d = 4) => names((await planFurnish({ text: "furnish", use, rooms: [room("r", label, w, d)], placed: [] }, null)).ops);
     expect(await plan("dental practice", "office")).toEqual(expect.arrayContaining(["dental chair", "stool"]));

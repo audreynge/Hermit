@@ -6,7 +6,7 @@ import { pointInPolygon, shoelaceArea } from "../geometry/polygon";
 import { geminiClient, geminiJson, type GeminiClient } from "../llm/gemini";
 import { getCached, putCached } from "../regs/cache";
 import { clampSize, ftIn, normName, typicalSize, type Size } from "./catalog";
-import { DEPENDENT, layoutRoom, PLACES, type Layout, type Obstacle, type Place, type PlanItem, type PlanRoom } from "./layout";
+import { DEPENDENT, layoutRoom, PLACES, wheelchairClearances, type Layout, type Obstacle, type Place, type PlanItem, type PlanRoom } from "./layout";
 
 const MAX_ITEMS = 30; // per request: each item is a model search + download in the browser
 const MAX_COUNT: Partial<Record<Place, number>> = { grid: 20, around: 8 };
@@ -50,7 +50,7 @@ Rules:
 - Use only the listed room ids. A room that needs nothing gets an empty list.`;
 
 export type PlacedIn = { name: string; pos: { x: number; z: number }; size: Size; rotY: number }; // world coords
-export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[] };
+export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[]; access?: { chairWidthIn: number } };
 export type PlanOut = { ops: object[]; reply: string; dropped: { name: string; count: number }[]; source: "gemini" | "offline" };
 
 /** Room size along its longest wall and across it (meters), and whether it's a plain rectangle. */
@@ -168,17 +168,18 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
   // Fair share of the item budget per room; then what rooms left unused goes back to rooms that hit their share, the
   // current room (first) first. A bigger budget only appends to a room's greedy layout, so re-running it is safe.
   // Rooms are laid out in order so a "once" item that didn't fit one room goes to the next room that wants it.
+  const clear = input.access ? wheelchairClearances(input.access.chairWidthIn) : {};
   const share = Math.floor(MAX_ITEMS / rooms.length), plans: Planned[][] = [], lays: Layout[] = [];
   rooms.forEach((r, i) => {
     plans[i] = planFor(r);
-    lays[i] = layoutRoom(plans[i], r, existing, share + (i < MAX_ITEMS % rooms.length ? 1 : 0));
+    lays[i] = layoutRoom(plans[i], r, existing, share + (i < MAX_ITEMS % rooms.length ? 1 : 0), clear);
     for (const l of lays[i].placed) if (plans[i].find((t) => t.key === l.key)?.once) once.add(l.name);
   });
   for (let i = 0; i < rooms.length; i++) {
     const spare = MAX_ITEMS - lays.reduce((n, l) => n + l.placed.length, 0);
     // Leave out "once" items this room didn't place that a later room has since taken.
     const plan = plans[i].filter((t) => !t.once || !once.has(t.name) || lays[i].placed.some((l) => l.key === t.key));
-    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], existing, lays[i].placed.length + spare);
+    if (lays[i].capped && spare > 0) lays[i] = layoutRoom(plan, rooms[i], existing, lays[i].placed.length + spare, clear);
   }
   const ops: object[] = [], dropped: PlanOut["dropped"] = [];
   for (const l of lays) {
@@ -191,7 +192,8 @@ export async function planFurnish(input: PlanIn, gemini?: GeminiClient | null): 
   for (const l of lays) for (const p of l.placed) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
   const kinds = [...counts].map(([name, count]) => ({ name, count })), used = lays.filter((l) => l.placed.length).length;
   const where = used > 1 ? `${used} rooms` : `the ${rooms[lays.findIndex((l) => l.placed.length)]?.label ?? "room"}`;
-  const lead = `Placed ${listNames(kinds.slice(0, 6))}${kinds.length > 6 ? ` and ${kinds.length - 6} more kinds` : ""} in ${where}.`;
+  const wide = input.access ? ` Aisles kept wheelchair-wide (${Math.round(clear.aisle! / 0.0254)} in+) with turning room at doors (screening only).` : "";
+  const lead = `Placed ${listNames(kinds.slice(0, 6))}${kinds.length > 6 ? ` and ${kinds.length - 6} more kinds` : ""} in ${where}.${wide}`;
   const reply = !ops.length ? `I couldn't fit anything${dropped.length ? ` (no room for ${listNames(dropped)})` : ""}.`
     : `${lead}${dropped.length ? ` No room for: ${listNames(dropped)}.` : ""}${capped ? ` I stopped at ${ops.length} pieces to keep the tour quick; ask again in a room to add more there.` : ""}`;
   const note = why ? " (simple mode: the AI assistant isn't available right now)" : "";

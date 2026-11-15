@@ -46,7 +46,7 @@ type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function FurnishTour({ report, use, stop, stops, onFail }: { report: ShellReport; use: string; stop?: number; stops: Stop[]; onFail: () => void }) {
+export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { report: ShellReport; use: string; chairIn?: number; stop?: number; stops: Stop[]; onFail: () => void }) {
   const sid = report.inside!.sid;
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MatterportViewer | null>(null);
@@ -413,6 +413,7 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
       text: message, use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
       placed: state.current.items.slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
+      ...(chairIn && { access: { chairWidthIn: chairIn } }),
     });
     const r = out.ops.length ? apply(out.ops, undefined, undefined, out.ops.length) : null;
     return r?.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply;
