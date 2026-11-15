@@ -15,7 +15,11 @@ export function ResultsMap({ reports, selected, onSelect }: { reports: ShellRepo
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    // Only update on a real size change: a new object every callback can feed a resize→render→resize loop.
+    const ro = new ResizeObserver(([e]) => {
+      const w = Math.round(e.contentRect.width), h = Math.round(e.contentRect.height);
+      setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [el]);

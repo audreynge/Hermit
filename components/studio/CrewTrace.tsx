@@ -1,7 +1,7 @@
 "use client";
 import { Accessibility, ClipboardCheck, Handshake, HardHat, Map as MapIcon, MessageCircleWarning, Ruler, Satellite, Search, Sparkles, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { displayName, searchCounts } from "@/lib/chat/present";
+import { displayName, funnelText, searchCounts } from "@/lib/chat/present";
 import { an } from "@/lib/text";
 import type { Evidence as Ev, PanoCheck, ShellReport, TraceEvent } from "@/lib/types";
 import { Evidence, panoUrl } from "../Evidence";
@@ -48,7 +48,7 @@ const shortName = (name: string) => {
 
 function plain(reason: string): string {
   let m;
-  if ((m = reason.match(/Measured area (\d+) sf is far below the (\d+) sf/))) return `it measured only ${Number(m[1]).toLocaleString()} sf inside, much smaller than you need.`;
+  if ((m = reason.match(/Measured area (\d+) sf is far below the (\d+) sf/))) return `it measured only ${Number(m[1]).toLocaleString()} sq ft inside, much smaller than you need.`;
   if ((m = reason.match(/spans (\d+) floors/))) return `it's split over ${m[1]} levels with no elevator in sight.`;
   if ((m = reason.match(/about (\d+) in clear/))) return `the hallway is only about ${m[1]} inches wide, too tight for a wheelchair.`;
   const needs = [...reason.matchAll(/Has no ([\w -]+?)(?: \(plus \d+ to convert\))?; you need (\d+)/gi)];
@@ -73,7 +73,18 @@ function ownName(reason: string): { name: string; why: string } | null {
   return m && !/^[a-z_]+$/.test(m[1]) ? { name: m[1], why: m[2] } : null;
 }
 
-const featureOf = (q: string) => q.match(/is there an? ([\w -]+?)(?: in| at|\?|$)/i)?.[1]?.toLowerCase();
+// Older recorded runs wrote "Looked closer at X: exam rooms #1 and #2 weren't looked at (no saved photo check for it)."
+// That's about Hermit's cache, not the space: say it plainly.
+function notLooked(outcome: string, feature = "it"): string {
+  const m = outcome.match(/^Looked closer at (.+?): (.+?) (weren't|wasn't) looked at(?: \([^)]*\))?\.$/);
+  if (!m) return outcome.replace(/ (weren't|wasn't) looked at \([^)]*\)/g, " couldn't be looked at this time");
+  const many = m[3] === "weren't";
+  const rooms = m[2].replace(/\s*#\d+(?:,? (?:and )?#\d+)*$/, "");
+  const what = feature === "it" ? "what's there" : `whether ${many ? "they have" : "it has"} ${many ? `${feature}s` : `a ${feature}`}`;
+  return `Couldn't look closer at the ${rooms} in ${m[1]} this time, so ${what} is a question for the landlord.`;
+}
+
+const featureOf =(q: string) => q.match(/is there an? ([\w -]+?)(?: in| at|\?|$)/i)?.[1]?.toLowerCase();
 
 // The 4-6 moments that decided the result, from the real events: the search, each space ruled out, each closer look
 // (with the scan photo when there is one), a changed top pick and the reports written.
@@ -88,7 +99,7 @@ function friendlyRows(events: TraceEvent[], names: Map<string, string>, checks: 
     const n = searchCounts(events).kept || (funnel?.stages.at(-1)?.count ?? 0);
     const m = ((walked?.args as { shellIds?: string[] } | undefined)?.shellIds ?? []).length;
     out.push({ id: search?.id ?? funnel!.id, agent: "scout", kind: "work", text: `Looked at ${n.toLocaleString()} spaces in ${city}${m ? `, walked inside the best ${m}` : ""}.`,
-      how: [search?.summary.replace(/; (\d+) kept$/, ""), walked ? "Walking inside means reading each space's room layout from its Matterport scan." : null].filter((x): x is string => !!x) });
+      how: [search ? funnelText(search.summary.replace(/; (\d+) kept$/, "")) : null, walked ? "Walking inside means reading each space's room layout from its Matterport scan." : null].filter((x): x is string => !!x) });
   }
   // Drops with the same reason read as one moment that names every space.
   const drops = new Map<string, { id: string; ids: string[]; how: string[]; agent: string }>();
@@ -120,7 +131,7 @@ function friendlyRows(events: TraceEvent[], names: Map<string, string>, checks: 
         const shot = pool.find((c) => c.result === "seen" && (result === "seen" || /^Looked closer/.test(e.outcome))) ?? pool.find((c) => c.result === result);
         const who = name(e.shellId);
         // Newer runs write the outcome as a plain sentence ("Looked closer at Suite 1202, MEDPLACE: a sink is visible in ...").
-        const text = /^Looked closer/.test(e.outcome) ? e.outcome
+        const text = /^(Looked closer|Couldn't look closer)/.test(e.outcome) ? notLooked(e.outcome, feature)
           : !feature ? `Looked closer at ${who}: ${tidy(e.question, names)}`
           : result === "seen" ? `Looked closer at ${who}: ${an(feature)} is in the scan photos.`
           : result === "not_seen" ? `Looked closer at ${who}: no ${feature} in the scan photos, so it's a question for the landlord.`
@@ -191,7 +202,16 @@ function techRows(events: TraceEvent[], names: Map<string, string>): Row[] {
   return out;
 }
 
-export function CrewTrace({ events, running }: { events: TraceEvent[]; running: boolean; useLabel?: string }) {
+// The tool-call view's planner note. A replayed run is "recorded run"; the replay route may send planner "replay"
+// (older servers) or the original planner, so both read right. Never "planner: replay".
+const PLANNER: Record<string, string> = { claude: "Claude", gemini: "Gemini", openai: "OpenAI", deterministic: "fixed rules (no AI)" };
+function plannedBy(planner: string, recorded: boolean): string {
+  const who = PLANNER[planner];
+  if (recorded || planner === "replay") return who ? `recorded run · planned by ${who}` : "recorded run";
+  return who ? `planned by ${who}` : "";
+}
+
+export function CrewTrace({ events, running, recorded = false }: { events: TraceEvent[]; running: boolean; useLabel?: string; recorded?: boolean }) {
   const [tech, setTools] = useState(false);
   const [fetched, setFetched] = useState<Record<string, string>>({});
   const asked = useRef(new Set<string>());
@@ -223,7 +243,7 @@ export function CrewTrace({ events, running }: { events: TraceEvent[]; running: 
       <header className="crew-head">
         <h2 id="crew-title">How Hermit decided</h2>
         <button type="button" className="btn small crew-toggle" aria-pressed={tech} onClick={() => setTools((t) => !t)}>{tech ? "Hide tool calls" : "Show tool calls"}</button>
-        <p className="muted">{running ? "Working…" : done ? (tech ? `${done.toolCalls} tool calls · ${(done.ms / 1000).toFixed(1)} s · ${ruledOut} ruled out · planner: ${done.planner}` : ruledOut ? `${ruledOut} ruled out` : "Done") : ""}</p>
+        <p className="muted">{running ? "Working…" : done ? (tech ? [`${done.toolCalls} tool calls`, `${(done.ms / 1000).toFixed(1)} s`, `${ruledOut} ruled out`, plannedBy(done.planner, recorded)].filter(Boolean).join(" · ") : ruledOut ? `${ruledOut} ruled out` : "Done") : ""}</p>
       </header>
       <ol className="crew-list">
         {list.map((r) => {
