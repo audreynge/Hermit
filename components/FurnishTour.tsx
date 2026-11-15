@@ -180,7 +180,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
         lookingUp.current.delete(p.id);
         const known = !!size && sizeSource !== "default";
         setCandidates((c) => ({ ...c, [p.id]: models }));
-        setItems((cur) => cur.map((x) => (x.id === p.id && x.model === undefined
+        setItems((cur) => cur.map((x) => (x.id === p.id && x.terms === p.terms && x.model === undefined
           ? withModel(x, models[0] ?? null, known ? underCeiling(size!, roomAt(x.pos, makeView())?.ceiling) : x.size, known ? false : x.approxSize) : x)));
         setStatus((m) => ({ ...m, [p.id]: models.length ? "loading" : "none" }));
       });
