@@ -50,8 +50,12 @@ function split(f: Field, pool: Shell[], spec: Draft): [number, number] | undefin
   }
 }
 
+export const CITY_AGAIN = "Which city should I search, Houston or Los Angeles?";
+export const plural = (label: string, count: number) => (count > 1 && !/storage|open$/.test(label) ? `${label}s` : label);
+export const roomList = (rooms: { label: string; count: number }[]) => rooms.map((r) => `${r.count} ${plural(r.label, r.count)}`).join(", ");
+
 const TEXT: Record<Field, (spec: Draft, asked: string[]) => string> = {
-  city: () => "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. I cover Houston and Los Angeles right now. Which city should I search?",
+  city: (_spec, asked) => asked.includes("city") ? CITY_AGAIN : "Hi, I'm Hermit. I find spaces that are already built for what you need, so you build less. I cover Houston and Los Angeles right now. Which city should I search?",
   use: () => "What are you opening, or looking for?",
   price: (spec) => `What does a typical customer spend per visit${packFor(spec).key === "medical" ? " (what you collect per patient visit)" : ""}? I'll turn the rent into “customers a day”.`,
   days: () => "How many days a week will you be open?",
@@ -59,7 +63,7 @@ const TEXT: Record<Field, (spec: Draft, asked: string[]) => string> = {
   rooms: (spec, asked) => {
     const pack = packFor(spec);
     if (spec.mode === "home") return "How many bedrooms and bathrooms do you need?";
-    if (asked.includes("roomsOffer")) return `No problem. I'll plan on a typical ${pack.label.toLowerCase()}: ${pack.rooms.map((r) => `${r.count} ${r.label}`).join(", ")}. Does that work, or what would you change?`;
+    if (asked.includes("roomsOffer")) return `No problem. I'll plan on a typical ${pack.label.toLowerCase()}: ${roomList(pack.rooms)}. Does that work, or what would you change?`;
     if (asked.includes("roomsRetry")) return "I didn't catch the numbers. Could you tell me a count for each room, like how many offices or treatment rooms, and how many bathrooms?";
     return `What rooms does your ${pack.label.toLowerCase()} need, and how many of each? Please include bathrooms.`;
   },

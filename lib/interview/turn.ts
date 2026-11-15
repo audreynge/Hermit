@@ -7,7 +7,7 @@ import { TIMING_OPTIONS, type Draft } from "../spec/survey";
 import { chipsIn, toggleChip } from "../uses/chips";
 import { packFor, seedRooms } from "../uses/packs";
 import type { FunnelStage, RequirementSpec, Shell } from "../types";
-import { basicsDone, deeperQuestion, interviewQuestion, progress, type Field } from "./next";
+import { basicsDone, CITY_AGAIN, deeperQuestion, interviewQuestion, plural, progress, roomList, type Field } from "./next";
 
 export type Msg = { role: "hermit" | "user"; text: string };
 export type IState = { spec: Draft; asked: string[]; history: Msg[]; field?: Field | null; quick?: string[]; ready?: boolean };
@@ -74,13 +74,16 @@ function answerField(spec: Draft, field: Field | null | undefined, text: string)
 }
 
 // Parsed counts win per room type; the pack fills the rest only once the user confirms or skips.
-function answerRooms(spec: Draft, text: string, asked: string[]): Draft {
+function answerRooms(spec: Draft, text: string, asked: string[], notes: string[]): Draft {
   if (spec.rooms.some((r) => r.label !== "bathroom")) { asked.push("roomsOk"); return spec; }
   if (SKIP_ROOMS.test(text) || asked.includes("roomsOffer")) {
     asked.push("roomsOk");
-    return { ...spec, rooms: seedRooms({ ...spec, input: "text" }) };
+    const rooms = seedRooms({ ...spec, input: "text" });
+    notes.push(`No problem. I'll plan on a typical ${packFor(spec).label.toLowerCase()}: ${roomList(rooms)}. You can change it on the right.`);
+    return { ...spec, rooms };
   }
   asked.push(asked.includes("roomsRetry") ? "roomsOffer" : "roomsRetry");
+  notes.push("");
   return spec;
 }
 
@@ -113,12 +116,14 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
   if (state.field && !asked.includes(state.field)) asked.push(state.field);
   const tapped = !!text && !!state.quick?.includes(text);
   const wantsSearch = !!text && (state.field === "rooms" || state.field === "baths" ? SEARCH_ONLY : SKIP).test(text);
+  const notes: string[] = [];
   if (text) {
     spec = answerField(spec, state.field, text);
     const merged = mergeText(spec, text, state.field === "rooms" && /^\s*\d+\s*$/.test(text) ? "rooms" : null).spec;
     // Once the use is set, a stray noun ("a small lab") must not turn a clinic into a factory.
     spec = state.spec.useType ? { ...merged, useType: state.spec.useType, mode: state.spec.mode } : merged;
-    if (state.field === "rooms" && !wantsSearch && spec.mode !== "home") spec = answerRooms(spec, text, asked);
+    if (state.field === "rooms" && !wantsSearch && spec.mode !== "home") spec = answerRooms(spec, text, asked, notes);
+    if (state.field === "baths" && SKIP_ROOMS.test(text) && !/\d/.test(text)) notes.push("No problem. I'll plan on 1 bathroom.");
   }
   let { stages, pool } = funnel(asSpec(spec), shells);
   // Essentials first; once they're done (or the user says search), one optional deeper question per turn.
@@ -149,7 +154,9 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
     }
   }
   if (!llm) spec = fitHeadcount(spec, state.spec.headcount);
-  if (!ack && text && !tapped) ack = ["Got it.", "Thanks.", "Okay.", "Noted."][state.history.length % 4];
+  if (text && q?.field === "city") q = { ...q, text: CITY_AGAIN };
+  if (notes.length) ack = "";
+  else if (!ack && text && !tapped) ack = ["Got it.", "Thanks.", "Okay.", "Noted."][state.history.length % 4];
   const changed = sketchText(spec) !== sketchText(state.spec);
 
   const history: Msg[] = [...state.history, ...(text ? [{ role: "user" as const, text }] : [])];
@@ -163,7 +170,8 @@ export async function interviewTurn(state: IState, text: string | null, shells: 
     const go = wantsSearch ? "Tap “See your matches” below and I'll send the crew in." : "You can tap “See your matches” below whenever you're ready.";
     return out([lead, go, wantsSearch ? "" : q?.text ?? "Is there anything else you'd like me to factor in?"].filter(Boolean).join(" "), q?.why);
   }
-  const sketchNote = basics && !basicsDone(state.spec, state.asked) ? " I've sketched a typical layout on the right; change anything you like." : "";
+  const lead2 = notes.join(" ");
+  const sketchNote = lead2 ? ` ${lead2}` : basics && !basicsDone(state.spec, state.asked) ? " I've sketched a typical layout on the right; change anything you like." : "";
   return out(`${ack}${sketchNote} ${q!.text}`.trim(), q!.why);
 }
 
@@ -171,7 +179,7 @@ const sketchText = (s: Draft) => {
   const rooms = s.useType ? seedRooms(s) : [];
   const area = rooms.reduce((t, r) => t + r.count * (r.minSqft ?? 100), 0);
   const size = s.sizeSqft ? `, target ${s.sizeSqft[0].toLocaleString()}–${s.sizeSqft[1].toLocaleString()} sq ft` : "";
-  return rooms.length ? `${rooms.map((r) => `${r.count} ${r.label}${r.minSqft ? ` (${r.minSqft} sq ft)` : ""}`).join(", ")}; about ${area.toLocaleString()} sq ft of rooms${size}` : "nothing drawn yet";
+  return rooms.length ? `${rooms.map((r) => `${r.count} ${plural(r.label, r.count)}${r.minSqft ? ` (${r.minSqft} sq ft)` : ""}`).join(", ")}; about ${area.toLocaleString()} sq ft of rooms${size}` : "nothing drawn yet";
 };
 
 // A bigger team must not leave a 2,500 sq ft range and a 300 sq ft open area behind, whether or not the model resized them.

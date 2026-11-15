@@ -20,6 +20,7 @@ describe("interview flow", () => {
   it("asks rooms and bathrooms right after use and city, with no suggestion chips", async () => {
     let t = await run({ spec: blank, asked: [], history: [] }, null);
     expect(t.state.field).toBe("city");
+    expect(t.reply).toMatch(/^Hi, I'm Hermit/);
     t = await run(t.state, "Houston");
     expect(t.state.field).toBe("use");
     t = await run(t.state, "a salon");
@@ -57,6 +58,7 @@ describe("rooms enforcement", () => {
   const toRooms = async () => {
     let t = await run({ spec: blank, asked: [], history: [] }, "dental clinic");
     expect(t.state.field).toBe("city");
+    expect(t.reply).not.toMatch(/I'm Hermit/);
     t = await run(t.state, "Houston");
     expect(t.state.field).toBe("rooms");
     return t;
@@ -70,13 +72,15 @@ describe("rooms enforcement", () => {
     expect(t.ready).toBe(false);
     expect(t.state.spec.rooms.some((r) => r.label === "exam room")).toBe(true);
     expect(t.state.field).toBe("size");
+    expect(t.reply).toMatch(/^No problem\. I'll plan on a typical .*2 exam rooms.*change it on the right/);
   });
   it("a vague reply re-asks, then offers the typical layout, then proceeds", async () => {
     let t = await run((await toRooms()).state, "hmm");
     expect(t.state.field).toBe("rooms");
+    expect(t.reply).toMatch(/^I didn't catch/);
     t = await run(t.state, "hmm");
     expect(t.state.field).toBe("rooms");
-    expect(t.reply).toMatch(/typical/);
+    expect(t.reply).toMatch(/^No problem\. I'll plan on a typical/);
     t = await run(t.state, "yes");
     expect(t.state.field).toBe("size");
     expect(t.state.spec.rooms.length).toBeGreaterThan(1);
