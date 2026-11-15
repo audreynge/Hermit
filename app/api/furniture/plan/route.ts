@@ -19,6 +19,7 @@ const In = z.object({
   })).min(1).max(12),
   placed: z.array(z.object({ name: Plain, pos: z.object({ x: N, z: N, y: N.optional() }), size: Size, rotY: N })).max(60),
   access: z.object({ chairWidthIn: N.min(16).max(40) }).optional(), // same plausible range as Needs.chairWidthIn
+  fresh: z.boolean().optional(), // refurnish: skip the cached plan
 });
 
 export async function POST(req: Request) {

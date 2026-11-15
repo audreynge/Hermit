@@ -4,7 +4,15 @@ import { COLORS, MATERIAL_NAMES, normName } from "./catalog";
 import type { Anchor, FurnishOp, Placed } from "./ops";
 
 /** Wording that means every room, not the one the user stands in ("furnish this place", "the whole unit"). */
-export const WHOLE_PLACE = /\b(place|whole|entire|everything|every room|all the rooms|all rooms|apartment|house|unit|suite|condo|property)\b/i;
+const WHOLE_PLACE = /\b(place|whole|entire|everything|every room|all the rooms|all rooms|apartment|house|unit|suite|condo|property)\b/i;
+const ROOMS = "bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility";
+/** The room a request names ("the living room" → "living"), if any. */
+const roomName = (t: string) => t.match(new RegExp(`\\b(${ROOMS})\\b`))?.[1].replace(/ room$/, "");
+/** Whole-place wording not narrowed to one room: "everything in this room", "the whole room", "everything in the bedroom" stay one room. */
+export function wholeScope(text: string): boolean {
+  const t = text.toLowerCase();
+  return WHOLE_PLACE.test(t) && !/\b(this|the|whole|entire) room\b/.test(t) && !new RegExp(`\\b(?:in|from|of) (?:the|this|my) (?:${ROOMS})\\b`).test(t);
+}
 
 export type Parsed = { ops: FurnishOp[] } | { ask: string };
 
@@ -49,8 +57,7 @@ function itemName(rest: string): string {
 
 /** The furnish op for a request: every room for "this place", a named room when given, else the room the user is in. */
 function furnishOp(t: string): FurnishOp {
-  const room = t.match(/\b(bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility)\b/)?.[1].replace(/ room$/, "");
-  const all = WHOLE_PLACE.test(t);
+  const room = roomName(t), all = wholeScope(t);
   return room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" };
 }
 
@@ -64,12 +71,18 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     return { ops: [fn(id)] };
   };
 
-  if (/\b(undo|take (?:that|it) back|go back)\b/.test(t)) return { ops: [{ op: "undo" }] };
+  // "go back" only on its own: "go back to the kitchen" isn't an undo.
+  if (/\b(undo|take (?:that|it) back)\b/.test(t) || /^ go back[.!]? $/.test(t)) return { ops: [{ op: "undo" }] };
   // Before furnish and remove: "remove everything" clears, "refurnish" clears then furnishes. "everything in this room" stays one room.
-  const scope = WHOLE_PLACE.test(t) && !/\b(this|the) room\b/.test(t) ? "all" : "room";
+  const scope = wholeScope(t) ? "all" : "room";
   if (/\b(refurnish|re-furnish|start over|redo (?:the |this )?layout)\b/.test(t)) return { ops: [{ op: "clear", scope }, furnishOp(t)] };
-  if (/\b(?:clear|empty)\s+(?:out\s+)?(?:(?:the|this|my)\s+(?:\w+\s+)?(?:room|place|space|unit|apartment|house|kitchen|bedroom|office)|everything|it all|it out)\b/.test(t)
-    || /\b(?:remove|delete|get rid of|take out|clear)\s+(?:everything|all (?:(?:of )?(?:the )?(?:furniture|items|pieces|stuff)|of it))\b/.test(t)) return { ops: [{ op: "clear", scope }] };
+  // The room noun must end the phrase: "clear the kitchen table" is about the table.
+  if (/\b(?:clear|empty)\s+(?:out\s+)?(?:(?:the|this|my)\s+(?:\w+\s+)?(?:room|place|space|unit|apartment|house|kitchen|bedroom|office)(?=\s*(?:$|and\b|,|\.|!|please))|everything|it all|it out)\b/.test(t)
+    || /\b(?:remove|delete|get rid of|take out|clear)\s+(?:everything|all (?:(?:of )?(?:the )?(?:furniture|items|pieces|stuff)|of it))\b/.test(t)) {
+    if (/\b(except|but|apart from|other than)\b/.test(t)) return { ask: "Which pieces should go? I can clear a whole room, or remove items one by one." };
+    const room = scope === "room" ? roomName(t) : undefined;
+    return { ops: [{ op: "clear", scope, ...(room && { room }) }] };
+  }
   // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
   if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) return { ops: [furnishOp(t)] };
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));

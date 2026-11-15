@@ -276,6 +276,13 @@ describe("applyFurnishOps: clear and undo", () => {
     expect(r.value).toBe(items);
     expect(r.rejected.map((x) => x.reason)).toEqual([expect.stringMatching(/which room/), expect.stringMatching(/history/)]);
   });
+
+  it("accepts a named room (the tour passes its outline as view.room) and keeps the same list when nothing was cleared", () => {
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "room", room: "kitchen" }], view()).value.map((p) => p.id)).toEqual(["f2"]);
+    const outside = [items[1]], empty: typeof items = [];
+    expect(applyFurnishOps(outside, [{ op: "clear", scope: "room" }], view()).value).toBe(outside);
+    expect(applyFurnishOps(empty, [{ op: "clear", scope: "all" }], view()).value).toBe(empty);
+  });
 });
 
 describe("elevated items", () => {

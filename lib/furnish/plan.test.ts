@@ -38,6 +38,16 @@ describe("planFurnish", () => {
     expect(f.seen).toHaveLength(2);
   });
 
+  it("a fresh request (refurnish) skips the cached plan but still caches the new one", async () => {
+    const f = fake({ rooms: [{ roomId: "b", items: [it2({ key: "bed", name: "bed", w: 1.6, d: 2.1, h: 0.6, place: "wall" })] }] });
+    const ask = (fresh?: boolean) => planFurnish({ text: "refurnish", use: "Home", rooms: [room("b", "bedroom", 4, 4)], placed: [], fresh }, f.g);
+    await ask();
+    await ask(true);
+    expect(f.seen).toHaveLength(2);
+    await ask();
+    expect(f.seen).toHaveLength(2);
+  });
+
   it("offline: a once item that doesn't fit its room goes to the next public room", async () => {
     const rooms = [room("a", "reception", 1.2, 1.2), room("b", "living", 6, 4, { polygon: rect(6, 4, 2, 0) })];
     const out = await planFurnish({ text: "furnish everything", use: "dental practice", rooms, placed: [] }, null);

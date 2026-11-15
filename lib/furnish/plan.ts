@@ -51,7 +51,7 @@ Rules:
 - Use only the listed room ids. A room that needs nothing gets an empty list.`;
 
 export type PlacedIn = { name: string; pos: { x: number; z: number; y?: number }; size: Size; rotY: number }; // world coords; y: meters above the floor
-export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[]; access?: { chairWidthIn: number } };
+export type PlanIn = { text: string; use: string; rooms: PlanRoom[]; placed: PlacedIn[]; access?: { chairWidthIn: number }; fresh?: boolean };
 export type PlanOut = { ops: object[]; reply: string; dropped: { name: string; count: number }[]; source: "gemini" | "offline" };
 
 /** Room size along its longest wall and across it (meters), and whether it's a plain rectangle. */
@@ -130,7 +130,8 @@ async function geminiPlans(g: GeminiClient, input: PlanIn, rooms: PlanRoom[], pl
   const use = input.use.slice(0, 80) || "home", asked = input.text.slice(0, 500), lines = rooms.map((r) => describeRoom(r, placedIn(r.id)));
   // Same use, request and rooms (ids, sizes, doors, contents, what's placed) -> same plan.
   const key = `furnish-plan:${createHash("sha256").update([normName(use), normName(asked), ...lines].join("\n")).digest("hex")}`;
-  const hit = await getCached<Record<string, PlanItem[]>>(key);
+  // A refurnish (fresh) wants a new plan, so it skips the read; the new plan still replaces the cached one.
+  const hit = input.fresh ? null : await getCached<Record<string, PlanItem[]>>(key).catch(() => null);
   if (hit) return new Map(Object.entries(hit));
   const text = [`Intended use: ${use}`, `User asked: ${asked}`, "Rooms:", ...lines].join("\n");
   const out = Loose.safeParse(await geminiJson(g, PROMPT, [{ text }], SCHEMA));

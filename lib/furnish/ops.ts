@@ -41,8 +41,8 @@ export const FurnishOp = z.discriminatedUnion("op", [
     pos: z.object({ x: z.number().finite(), z: z.number().finite(), y: z.number().min(0).max(5).optional() }).optional(), rotY: z.number().finite().optional() }),
   // Whole-room furnishing: the browser sends this to the layout planner (/api/furniture/plan) instead of applying it.
   z.object({ op: z.literal("furnish"), scope: z.enum(["room", "all"]), room: Name.optional() }),
-  // "room" = items whose center is in the camera's room; "all" = every placed item.
-  z.object({ op: z.literal("clear"), scope: z.enum(["room", "all"]) }),
+  // "room" = items whose center is in view.room (the tour sets it to the named room, else the camera's); "all" = every placed item.
+  z.object({ op: z.literal("clear"), scope: z.enum(["room", "all"]), room: Name.optional() }),
   // The browser restores its last snapshot instead of applying this.
   z.object({ op: z.literal("undo") }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
@@ -183,7 +183,8 @@ export function applyFurnishOps(items: Placed[], raw: unknown[], view: View, max
     if (op.op === "clear") {
       const poly = view.room?.polygon ?? [];
       if (op.scope === "room" && poly.length < 3) { reject(op, "I can't tell which room you're in; walk into a room on the floor plan, or say \"clear everything\""); continue; }
-      value = op.scope === "all" ? [] : value.filter((p) => !pointInPolygon(toPlan(p.pos), poly));
+      const kept = op.scope === "all" ? [] : value.filter((p) => !pointInPolygon(toPlan(p.pos), poly));
+      if (kept.length < value.length) value = kept; // nothing cleared keeps the same list, so the tour adds no undo step
       if (!value.some((p) => p.id === selected)) selected = undefined;
       applied.push(op);
       continue;
