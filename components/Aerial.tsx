@@ -26,10 +26,57 @@ function siteFacts(r: ShellReport, lotSqft?: number) {
 }
 
 const counted = (a: AerialCount) => a.stalls.n != null && a.stalls.confidence >= 0.5;
+const today = () => new Date().toISOString().slice(0, 10);
+
+// ---- Live count: when a report has no aerial count (or an old "couldn't count"), the Neighborhood tab asks
+// app/api/aerial to count it now. One shared store per space so the sentence and the photo show the same result.
+type Live = { status: "counting" | "done" | "failed" | "nolocation"; count?: AerialCount; message?: string; live?: boolean };
+const liveStore = new Map<string, Live>();
+const listeners = new Set<() => void>();
+const setLive = (key: string, v: Live) => { liveStore.set(key, v); listeners.forEach((l) => l()); };
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+
+async function askCount(key: string, quiet: boolean) {
+  if (!quiet) setLive(key, { status: "counting" });
+  try {
+    const res = await fetch(`/api/aerial/${encodeURIComponent(key)}`, { method: "POST" });
+    const j = (await res.json().catch(() => ({}))) as { count?: AerialCount | null; live?: boolean; error?: string; message?: string };
+    if (res.ok && j.count) return setLive(key, { status: "done", count: j.count, live: j.live });
+    if (quiet) return liveStore.delete(key); // background check found nothing better: keep what's on screen
+    if (j.error === "no_location") return setLive(key, { status: "nolocation", message: j.message });
+    setLive(key, { status: "failed", count: j.count ?? undefined });
+  } catch {
+    if (quiet) liveStore.delete(key);
+    else setLive(key, { status: "failed" });
+  }
+}
+
+const aerialKey = (r: ShellReport) => r.inside?.sid ?? r.shellId;
+
+/**
+ * The report's aerial count, or a live one. No count, or a "couldn't count" from before today: count now (spinner).
+ * A "couldn't count" from today: check quietly in case a newer saved count exists, without a spinner.
+ * `drive` is false for components that only read (so one component starts the request).
+ */
+export function useAerial(r: ShellReport, drive = true): { count?: AerialCount; state?: Live; retry: () => void } {
+  const key = aerialKey(r);
+  const [, bump] = useState(0);
+  useEffect(() => subscribe(() => bump((n) => n + 1)), []);
+  const base = r.aerial;
+  const stale = !base || (!counted(base) && (base.retrieved ?? "") < today());
+  useEffect(() => {
+    if (!drive || liveStore.has(key) || !r.above) return;
+    if (stale) void askCount(key, false);
+    else if (base && !counted(base)) void askCount(key, true);
+  }, [drive, key, stale, base, r.above]);
+  const state = liveStore.get(key);
+  const live = state?.status === "done" ? state.count : undefined;
+  return { count: live ?? (state?.status === "counting" || state?.status === "failed" ? undefined : base), state: stale || live ? state : undefined, retry: () => void askCount(key, false) };
+}
 
 // One plain sentence on parking from the aerial count (with the CoStar record's number beside it when there is one),
 // and a short "inside and out" version. null when the space was never counted: nothing shown, never a made-up zero.
-export function parkingFinding(r: ShellReport): { text: string; short: string; roof: string | null; lines: string[] } | null {
+export function parkingFinding(r: ShellReport, justNow = false): { text: string; short: string; roof: string | null; lines: string[] } | null {
   const a = r.aerial;
   if (!a) return null;
   const rec = costarStalls(r);
@@ -56,26 +103,51 @@ export function parkingFinding(r: ShellReport): { text: string; short: string; r
   }
   const ru = a.rooftopUnits;
   const roof = ru.n && ru.confidence >= 0.5 ? `The photo shows ${ru.n === 1 ? "one rooftop unit" : `${ru.n} rooftop units`}, likely heating and cooling equipment.` : null;
-  const how = /runs agreed/.test(a.source) ? "Counted twice by Gemini and the counts agreed."
+  const three = (a.runs?.length ?? 0) >= 3 || /2 of 3|3 counts/.test(a.source);
+  const how = counted(a) && (a.stalls.confidence < 0.8 || /2 of 3 counts agreed on/.test(a.source)) ? "Counted three times by Gemini; two of the counts agreed."
+    : /runs agreed/.test(a.source) ? "Counted twice by Gemini and the counts agreed."
     : counted(a) ? "Counted by Gemini."
     : /wasn't clear/.test(a.source) ? "Gemini looked at it, but the photo wasn't clear enough to count."
+    : three ? "Gemini counted three times and no two counts agreed, so Hermit gives no number."
     : "Gemini counted twice and the counts didn't agree, so Hermit gives no number.";
+  const when = justNow ? " Counted just now." : a.retrieved ? ` Counted ${plainDate(a.retrieved)}.` : "";
   return {
     text, short, roof,
     lines: [
       `${a.provider === "vexcel" ? "Vexcel" : "Esri"} top-down aerial photo${a.captured ? `, taken ${plainDate(a.captured)}` : ""}.`,
-      `${how}${a.retrieved ? ` Checked ${plainDate(a.retrieved)}.` : ""}`,
+      `${how}${when}`,
       rec != null ? "The number of spaces on record comes from the CoStar property record." : "",
     ].filter(Boolean),
   };
 }
 
+// A small ring that turns; with reduced motion it holds still.
+const SPIN_CSS = ".aerial-spin{display:inline-block;width:1em;height:1em;margin-right:.45em;vertical-align:-.15em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:aerial-spin .9s linear infinite}@keyframes aerial-spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion: reduce){.aerial-spin{animation:none;border-right-color:currentColor;opacity:.5}}";
+
 // The parking finding as it sits above the aerial photo. Rooftop units only matter when you run a business there.
 export function AerialFinding({ report, mode }: { report: ShellReport; mode: Mode }) {
-  const f = parkingFinding(report);
+  const { count, state, retry } = useAerial(report);
+  if (state?.status === "counting") {
+    return (
+      <div className="aerial-finding" role="status" aria-live="polite">
+        <style>{SPIN_CSS}</style>
+        <p><span className="aerial-spin" aria-hidden="true" />Counting the parking from the aerial photo…</p>
+      </div>
+    );
+  }
+  if (state?.status === "failed") {
+    return (
+      <div className="aerial-finding" role="status" aria-live="polite">
+        <p>Couldn&apos;t count the parking from the photo right now.</p>
+        <button type="button" className="btn small" onClick={retry}>Try again</button>
+      </div>
+    );
+  }
+  if (state?.status === "nolocation") return <div className="aerial-finding"><p>{state.message}</p></div>;
+  const f = parkingFinding({ ...report, aerial: count }, !!state?.live);
   if (!f) return null;
   return (
-    <div className="aerial-finding">
+    <div className="aerial-finding" aria-live="polite">
       <p>{f.text}</p>
       {f.roof && mode !== "home" && <p>{f.roof}</p>}
       <Evidence lines={f.lines} />
@@ -90,11 +162,14 @@ const BOX_LABEL: Record<AerialCount["boxes"][number]["label"], string> = { rooft
 function CountedPhoto({ count, address }: { count: AerialCount; address: string }) {
   const kinds = [...new Set(count.boxes.map((b) => b.label))];
   const tally = kinds.map((k) => { const n = count.boxes.filter((b) => b.label === k).length; return `${n} ${BOX_LABEL[k].toLowerCase()}${n === 1 ? "" : "s"}`; });
+  // A live count on a deployed server keeps its photo in /tmp, which app/api/aerial serves.
+  const [src, setSrc] = useState(`/api/asset/${encodeURIComponent(count.sid)}?kind=aerial`);
+  const fallback = `/api/aerial/${encodeURIComponent(count.sid)}`;
   return (
     <div className="aerial-counted">
       <div className="aerial-counted-box">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`/api/asset/${encodeURIComponent(count.sid)}?kind=aerial`} alt={`${count.provider === "vexcel" ? "Vexcel" : "Esri"} top-down aerial photo of ${address || "the property"}${tally.length ? `, with ${tally.join(" and ")} outlined` : ""}`} />
+        <img src={src} onError={() => { if (src !== fallback) setSrc(fallback); }} alt={`${count.provider === "vexcel" ? "Vexcel" : "Esri"} top-down aerial photo of ${address || "the property"}${tally.length ? `, with ${tally.join(" and ")} outlined` : ""}`} />
         {count.boxes.length > 0 && (
           <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
             {count.boxes.map((b, i) => {
@@ -159,10 +234,14 @@ function StreetMap({ address, lat, lon, facing, small }: { address: string; lat:
 // (with the counted boxes) leads instead. Falls back to Esri imagery only when there is no Vexcel top-down photo at all.
 // onProvider says whose photo is showing, so a caption never credits Esri for a Vexcel image.
 export function Aerial({ report, onProvider }: { report: ShellReport; onProvider?: (p: "vexcel" | "esri") => void }) {
-  const count = report.aerial?.image ? report.aerial : undefined;
+  const live = useAerial(report, false).count;
+  const count = live?.image ? live : undefined;
   const [view, setView] = useState<ViewKey>("ortho");
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [photoBig, setPhotoBig] = useState(!!count);
+  // A live count that just arrived leads with its photo, like a saved one does.
+  const [hadCount, setHadCount] = useState(!!count);
+  if (!!count !== hadCount) { setHadCount(!!count); if (count) setPhotoBig(true); }
   const [lotSqft, setLotSqft] = useState<number>();
   useEffect(() => {
     fetch(`/api/parcel/${encodeURIComponent(report.shellId)}`).then((r) => (r.ok ? r.json() : null)).then((d) => setLotSqft(d?.shell?.parcel?.lotSqft)).catch(() => {});
