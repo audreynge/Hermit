@@ -32,4 +32,16 @@ describe("toMeters", () => {
     expect(toMeters("75", "cm")).toBe(0.75);
     expect(toMeters("2", "m")).toBe(2);
   });
+
+  it("whole-room furnishing: scope from the wording, a named room when given", () => {
+    const op = (t: string) => (parseFurnish(t, room) as { ops: object[] }).ops?.[0];
+    expect(op("furnish this place")).toEqual({ op: "furnish", scope: "all" });
+    expect(op("furnish the whole apartment")).toEqual({ op: "furnish", scope: "all" });
+    expect(op("furnish this room")).toEqual({ op: "furnish", scope: "room" });
+    expect(op("set this up for me")).toEqual({ op: "furnish", scope: "room" });
+    expect(op("fill the bedroom")).toEqual({ op: "furnish", scope: "room", room: "bedroom" });
+    expect(op("set up the living room")).toEqual({ op: "furnish", scope: "room", room: "living" });
+    expect(op("set up a desk here")).toEqual({ op: "add", name: "desk", at: "point" }); // still an add
+    expect(op("remove the sofa")).toEqual({ op: "remove", id: "f2" });
+  });
 });

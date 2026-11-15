@@ -79,7 +79,7 @@ export async function createScene(sdk: MpSdk, onLoad: (id: string, state: LoadSt
       const box = new T.Box3().setFromObject(root).applyMatrix4(root.matrixWorld.clone().invert());
       if (!box.isEmpty()) { bounds = { min: { x: box.min.x, y: box.min.y, z: box.min.z }, max: { x: box.max.x, y: box.max.y, z: box.max.z } }; measuredHere = true; }
     }
-    const f = bounds && fitModel(bounds, p.size);
+    const f = bounds && fitModel(bounds, p.size, p.planned);
     if (!f) { settle(id, e, "failed"); return; }
     // Set the transform on the loaded object itself (standard position·rotation·scale), not through the loader's
     // local* inputs: the loader applies localPosition inside the scaled frame, which shifted off-center models away.

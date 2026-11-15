@@ -9,6 +9,7 @@ import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
 import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { planRooms } from "@/lib/furnish/layout";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
 import type { ShellReport } from "@/lib/types";
@@ -35,6 +36,7 @@ const lookup = (terms: string[], name?: string): Promise<Found> =>
   json<Found>(`/api/furniture/search?terms=${encodeURIComponent(terms.slice(0, 3).join(","))}${name ? `&name=${encodeURIComponent(name)}` : ""}`).catch(() => ({ models: [] }));
 const findModels = (terms: string[], limit = 5, name?: string) => lookup(terms, name).then((r) => r.models.slice(0, limit));
 const M_PER_FT = 0.3048;
+type FurnishRequest = { op: "furnish"; scope: "room" | "all"; room?: string };
 const rejectedText = (r: Rejected[]) => r.map((x) => x.reason).join("; ");
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
@@ -81,7 +83,7 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
   // Gives an item a model (and optionally a real size): the rendered size comes from the model's measured proportions,
   // and the item is re-seated so its new footprint stays inside its room.
   const withModel = useCallback((p: Placed, model: Model | null, size: Size = p.size, approxSize = p.approxSize): Placed => {
-    const fitted = model?.bounds ? fitModel(model.bounds, size)?.fitted : undefined;
+    const fitted = model?.bounds ? fitModel(model.bounds, size, p.planned)?.fitted : undefined;
     return { ...p, model, size, approxSize, fitted, pos: settle(p.pos, fitted ?? size, p.rotY, makeView()) };
   }, [makeView]);
 
@@ -199,8 +201,8 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     return undefined;
   }, []);
 
-  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec) => {
-    const r = applyFurnishOps(state.current.items, ops, makeView(point, ahead));
+  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec, max?: number) => {
+    const r = applyFurnishOps(state.current.items, ops, makeView(point, ahead), max);
     setItems(r.value);
     setSelected(r.selected);
     return r;
@@ -391,6 +393,25 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
     };
   }, [ready, measuring, apply, makeView]);
 
+  /** "Furnish this place": the layout planner picks items for the user's use and places them in the target rooms. Only
+   *  rooms on the current floor: the floor height is only known where the user stands. Returns the reply to show. */
+  async function furnish(req: FurnishRequest, message: string): Promise<string> {
+    const g = report.floorplan, here = g?.rooms.find((r) => r.id === room?.id);
+    if (!g || !here) return "Walk into a room that's on the floor plan first, then ask again.";
+    const floor = g.rooms.filter((r) => r.floorId === here.floorId && r.polygon.length >= 3);
+    const want = req.room?.toLowerCase().replace(/\s+room$/, "");
+    const named = (r: { label: string }) => !!want && (r.label === want || r.label.startsWith(want));
+    const targets = req.scope === "all" ? floor : want ? floor.filter(named) : [here];
+    if (!targets.length) return g.rooms.some(named) ? `The ${want} is on another floor. Go there and ask again.` : `I couldn't find a ${want} on the floor plan.`;
+    const ordered = [...targets].sort((a, b) => Number(b.id === here.id) - Number(a.id === here.id)); // this room gets first pick of the item budget
+    const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
+      text: message, use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
+      placed: state.current.items.slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
+    });
+    const r = out.ops.length ? apply(out.ops, undefined, undefined, out.ops.length) : null;
+    return r?.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply;
+  }
+
   async function send(t = text) {
     const message = t.trim();
     if (!message || busy || !ready) return;
@@ -399,6 +420,8 @@ export function FurnishTour({ report, use, stop, stops, onFail }: { report: Shel
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
         text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: room?.label, suggestions,
       });
+      const plan = out.ops.find((o): o is FurnishRequest => (o as { op?: string }).op === "furnish");
+      if (plan) { setToast(await furnish(plan, message)); return; }
       const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
       setToast(!r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`);
     } catch {

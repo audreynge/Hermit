@@ -39,4 +39,9 @@ describe("furnishEdit", () => {
     const out = await furnishEdit({ text: "move the lamp", items }, fake({ reply: "There's no lamp yet. Want me to add one?", ops: [] }));
     expect(out).toEqual({ ops: [], reply: "There's no lamp yet. Want me to add one?", source: "gemini" });
   });
+
+  it("passes a furnish request through for the layout planner", async () => {
+    const out = await furnishEdit({ text: "furnish this place", items }, fake({ reply: "On it.", ops: [{ op: "furnish", scope: "all", room: null, terms: [] }] }));
+    expect(out.ops).toEqual([{ op: "furnish", scope: "all" }]);
+  });
 });

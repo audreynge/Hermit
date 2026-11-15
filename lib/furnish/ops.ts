@@ -14,6 +14,7 @@ export type Placed = {
   pos: Vec; rotY: number; // degrees about the vertical axis
   color?: string; material?: MaterialName;
   fitted?: Size; // size as rendered (the model's real proportions at the target height); used for picking and walls
+  planned?: true; // laid out by the room planner: its model never outgrows the planned footprint
 };
 type RoomRef = { id: string; label: string; polygon: Pt[]; ceiling?: number }; // ceiling height in meters
 /** What the user sees: the rendered size once the model is fitted, else the target size. */
@@ -34,7 +35,11 @@ const Name = z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9 '&/-
 const Id = z.string().regex(/^f\d{1,4}$/, "bad item id");
 const Paint = z.string().trim().max(30);
 export const FurnishOp = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("add"), name: Name, terms: z.array(Name).max(4).optional(), size: z.object({ w: z.number(), d: z.number(), h: z.number() }).optional(), count: z.number().int().min(1).max(6).optional(), at: z.enum(ANCHORS).optional(), color: Paint.optional(), material: Paint.optional() }),
+  // pos/rotY: an exact spot from the layout planner (world x/z); it skips the anchor and the free-spot search.
+  z.object({ op: z.literal("add"), name: Name, terms: z.array(Name).max(4).optional(), size: z.object({ w: z.number(), d: z.number(), h: z.number() }).optional(), count: z.number().int().min(1).max(6).optional(), at: z.enum(ANCHORS).optional(), color: Paint.optional(), material: Paint.optional(),
+    pos: z.object({ x: z.number().finite(), z: z.number().finite() }).optional(), rotY: z.number().finite().optional() }),
+  // Whole-room furnishing: the browser sends this to the layout planner (/api/furniture/plan) instead of applying it.
+  z.object({ op: z.literal("furnish"), scope: z.enum(["room", "all"]), room: Name.optional() }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
   z.object({ op: z.literal("rotate"), id: Id, degrees: z.number().min(-360).max(360) }),
   z.object({ op: z.literal("remove"), id: Id }),
@@ -159,12 +164,21 @@ export function freeSpot(pos: Vec, size: Size, rotY: number, items: Placed[], vi
 const nextId = (items: Placed[]) => `f${items.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0) + 1}`;
 
 /** Applies validated ops in order. Unknown ids, bad colors and too many ops are rejected with a reason, never guessed. */
-export function applyFurnishOps(items: Placed[], raw: unknown[], view: View): FurnishResult {
-  const { ops, rejected } = parseOps(raw, FurnishOp);
+export function applyFurnishOps(items: Placed[], raw: unknown[], view: View, max?: number): FurnishResult {
+  const { ops, rejected } = parseOps(raw, FurnishOp, max);
   let value = items, selected = view.selected;
   const applied: FurnishOp[] = [];
   const reject = (op: FurnishOp, reason: string) => rejected.push({ op, reason });
   for (const op of ops) {
+    if (op.op === "furnish") { reject(op, "furnishing a whole room goes through the layout planner"); continue; }
+    if (op.op === "add" && op.pos) {
+      const pos = { x: op.pos.x, y: view.floorY, z: op.pos.z }, typical = typicalSize(op.name);
+      const size = underCeiling(clampSize(op.size ?? typical.size), roomAt(pos, view)?.ceiling), id = nextId(value);
+      value = [...value, { id, name: normName(op.name), terms: op.terms?.length ? op.terms : [op.name], size, approxSize: !op.size && !typical.known, pos, rotY: op.rotY ?? 0, planned: true }];
+      selected = id;
+      applied.push(op);
+      continue;
+    }
     if (op.op === "add") {
       const typical = typicalSize(op.name);
       const base0 = place(clampSize(op.size ?? typical.size), op.at ?? "front", view);

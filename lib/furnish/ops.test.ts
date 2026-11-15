@@ -241,4 +241,17 @@ describe("Matterport measurements", () => {
     expect(fromMeasurement(stove(), { x: 5, y: 0, z: 1 }, { x: 5, y: 0.8, z: 1.05 }, view())!.ops).toEqual([{ op: "resize", id: "f1", h: expect.closeTo(0.8, 5) }]);
     expect(fromMeasurement(stove(), { x: 5, y: 0, z: 1 }, { x: 5.01, y: 0, z: 1 }, view())).toBeNull();
   });
+
+  it("add with an exact spot from the planner: placed as given, flagged planned, no free-spot shuffle", () => {
+    const first = add([], { name: "stove", size: { w: 0.76, d: 0.66, h: 0.91 }, pos: { x: 6, z: -1 }, rotY: 90 });
+    const r = applyFurnishOps(first.value, [{ op: "add", name: "stove", size: { w: 0.76, d: 0.66, h: 0.91 }, pos: { x: 6, z: -1 }, rotY: 90 }], view());
+    expect(r.value.map((p) => [p.pos, p.rotY, p.planned])).toEqual([[{ x: 6, y: 0, z: -1 }, 90, true], [{ x: 6, y: 0, z: -1 }, 90, true]]);
+  });
+
+  it("rejects a furnish request (the planner handles it) and accepts more than 10 planned adds when allowed", () => {
+    expect(applyFurnishOps([], [{ op: "furnish", scope: "room" }], view()).rejected[0].reason).toMatch(/planner/);
+    const ops = Array.from({ length: 14 }, (_, i) => ({ op: "add", name: "chair", pos: { x: 6 + i * 0.01, z: -1 }, rotY: 0 }));
+    expect(applyFurnishOps([], ops, view()).value).toHaveLength(10);
+    expect(applyFurnishOps([], ops, view(), ops.length).value).toHaveLength(14);
+  });
 });

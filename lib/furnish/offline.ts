@@ -54,6 +54,12 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     return { ops: [fn(id)] };
   };
 
+  // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
+  if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) {
+    const room = t.match(/\b(bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility)\b/)?.[1].replace(/ room$/, "");
+    const all = /\b(place|whole|entire|everything|every room|all|apartment|house|home|unit|suite|condo|property)\b/.test(t);
+    return { ops: [room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" }] };
+  }
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));
 
   const swap = t.match(/\b(?:swap|replace|switch|exchange)\b.*?\b(?:with|for|to)\s+(?:a|an|the)?\s*([a-z0-9 '-]+)/);

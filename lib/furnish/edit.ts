@@ -7,7 +7,8 @@ import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
 import { parseFurnish } from "./offline";
 
 const FlatOp = z.object({
-  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize"]),
+  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish"]),
+  scope: z.enum(["room", "all"]).nullish(), room: z.string().nullish(),
   id: z.string().nullish(), name: z.string().nullish(), terms: z.array(z.string()).nullish(), count: z.number().nullish(),
   at: z.enum(["point", "front", "center", "wall"]).nullish(), color: z.string().nullish(), material: z.string().nullish(), degrees: z.number().nullish(),
   w: z.number().nullish(), d: z.number().nullish(), h: z.number().nullish(),
@@ -21,6 +22,7 @@ Ops:
 - add {name, terms, count?, at, color?, material?, w?, d?, h?}: name = 1-3 plain words; terms = 2-3 search words from specific to generic that would match a low-poly 3D model title; w/d/h = typical size in meters when it is unusual.
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
 - move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
+- furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"). Code plans and places the items; don't also add them.
 at: "point" = the spot the user clicked or is pointing at ("here", "there", "this spot"); "front" = in front of them (default for add); "center" = middle of the room; "wall" = against the nearest wall.
 color: a plain color name or #rrggbb. material: one of ${MATERIAL_NAMES.join(", ")}.
 Use only listed item ids. "it"/"this" means the selected item. If the message is unclear, or names an item that isn't placed, return no ops and ask one short question in reply.
