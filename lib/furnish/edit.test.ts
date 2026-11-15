@@ -51,4 +51,13 @@ describe("furnishEdit", () => {
     const one = await furnishEdit({ text: "furnish this room", items, room: "living" }, fake({ reply: "On it.", ops: [{ op: "furnish", scope: "room", room: "living" }] }));
     expect(one.ops).toEqual([{ op: "furnish", scope: "room", room: "living" }]);
   });
+
+  it("passes clear and undo through, and widens a refurnish's clear with its furnish", async () => {
+    const out = await furnishEdit({ text: "clear this room", items }, fake({ reply: "Cleared.", ops: [{ op: "clear", scope: "room", room: null, id: null }] }));
+    expect(out.ops).toEqual([{ op: "clear", scope: "room" }]);
+    const undo = await furnishEdit({ text: "undo that", items }, fake({ reply: "Undone.", ops: [{ op: "undo", scope: null, terms: [] }] }));
+    expect(undo.ops).toEqual([{ op: "undo" }]);
+    const re = await furnishEdit({ text: "refurnish this place", items, room: "living" }, fake({ reply: "On it.", ops: [{ op: "clear", scope: "room" }, { op: "furnish", scope: "room", room: "living" }] }));
+    expect(re.ops).toEqual([{ op: "clear", scope: "all" }, { op: "furnish", scope: "all" }]);
+  });
 });

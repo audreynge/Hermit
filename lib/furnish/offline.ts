@@ -1,5 +1,5 @@
 // Deterministic furnishing parser, used when Gemini is unavailable or out of quota.
-// shortcut: regex intents only (add, remove, move, rotate, recolor, swap); anything else asks the user to rephrase.
+// shortcut: regex intents only (add, remove, move, rotate, recolor, swap, furnish, clear, undo); anything else asks the user to rephrase.
 import { COLORS, MATERIAL_NAMES, normName } from "./catalog";
 import type { Anchor, FurnishOp, Placed } from "./ops";
 
@@ -47,6 +47,13 @@ function itemName(rest: string): string {
   return normName(cut.replace(COLOR_RE, " ").replace(MATERIAL_RE, " ").replace(/\b(the|some|new|big|small|large|little)\b/g, " ")).slice(0, 40);
 }
 
+/** The furnish op for a request: every room for "this place", a named room when given, else the room the user is in. */
+function furnishOp(t: string): FurnishOp {
+  const room = t.match(/\b(bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility)\b/)?.[1].replace(/ room$/, "");
+  const all = WHOLE_PLACE.test(t);
+  return room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" };
+}
+
 export function parseFurnish(text: string, items: Placed[], selected?: string): Parsed {
   const t = ` ${text.toLowerCase().replace(/\s+/g, " ").trim()} `;
   const target = () => refer(t, items, selected);
@@ -57,12 +64,14 @@ export function parseFurnish(text: string, items: Placed[], selected?: string): 
     return { ops: [fn(id)] };
   };
 
+  if (/\b(undo|take (?:that|it) back|go back)\b/.test(t)) return { ops: [{ op: "undo" }] };
+  // Before furnish and remove: "remove everything" clears, "refurnish" clears then furnishes. "everything in this room" stays one room.
+  const scope = WHOLE_PLACE.test(t) && !/\b(this|the) room\b/.test(t) ? "all" : "room";
+  if (/\b(refurnish|re-furnish|start over|redo (?:the |this )?layout)\b/.test(t)) return { ops: [{ op: "clear", scope }, furnishOp(t)] };
+  if (/\b(?:clear|empty)\s+(?:out\s+)?(?:(?:the|this|my)\s+(?:\w+\s+)?(?:room|place|space|unit|apartment|house|kitchen|bedroom|office)|everything|it all|it out)\b/.test(t)
+    || /\b(?:remove|delete|get rid of|take out|clear)\s+(?:everything|all (?:(?:of )?(?:the )?(?:furniture|items|pieces|stuff)|of it))\b/.test(t)) return { ops: [{ op: "clear", scope }] };
   // Whole-room furnishing: "furnish this place", "set up the bedroom", "fill this room".
-  if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) {
-    const room = t.match(/\b(bedroom|kitchen|living room|living|office|dining room|dining|bathroom|reception|storage|garage|utility)\b/)?.[1].replace(/ room$/, "");
-    const all = WHOLE_PLACE.test(t);
-    return { ops: [room && !all ? { op: "furnish", scope: "room", room } : { op: "furnish", scope: all ? "all" : "room" }] };
-  }
+  if (/\b(furnish|furnished|decorate|stage|fill (?:it|this|that|the|my)|set (?:it|this|that|the \w+|this \w+|my \w+) up|set up (?:the|this|my) (?:\w+ )?(?:room|place|space|unit|apartment|house|home|bedroom|office|kitchen|shop|store|restaurant|salon|clinic|suite))\b/.test(t)) return { ops: [furnishOp(t)] };
   if (/\b(remove|delete|get rid of|take away|take out)\b/.test(t)) return needTarget((id) => ({ op: "remove", id }));
 
   const swap = t.match(/\b(?:swap|replace|switch|exchange)\b.*?\b(?:with|for|to)\s+(?:a|an|the)?\s*([a-z0-9 '-]+)/);

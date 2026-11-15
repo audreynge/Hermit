@@ -45,3 +45,24 @@ describe("toMeters", () => {
     expect(op("remove the sofa")).toEqual({ op: "remove", id: "f2" });
   });
 });
+
+describe("parseFurnish: clear, undo, refurnish", () => {
+  const ops = (t: string) => (parseFurnish(t, room, "f1") as { ops: object[] }).ops;
+  it.each([
+    ["clear the room", "room"], ["empty this room", "room"], ["delete all the furniture", "room"], ["remove all of it", "room"],
+    ["remove everything", "all"], ["clear everything", "all"], ["clear the whole place", "all"], ["remove everything in this room", "room"],
+  ])("%s → clear %s", (t, scope) => expect(ops(t)).toEqual([{ op: "clear", scope }]));
+
+  it.each(["undo", "undo that", "take that back", "go back"])("%s → undo", (t) => expect(ops(t)).toEqual([{ op: "undo" }]));
+
+  it("refurnish clears the target rooms, then furnishes them", () => {
+    expect(ops("refurnish")).toEqual([{ op: "clear", scope: "room" }, { op: "furnish", scope: "room" }]);
+    expect(ops("start over and furnish this place")).toEqual([{ op: "clear", scope: "all" }, { op: "furnish", scope: "all" }]);
+    expect(ops("redo the layout")).toEqual([{ op: "clear", scope: "room" }, { op: "furnish", scope: "room" }]);
+  });
+
+  it("single-item edits are unchanged", () => {
+    expect(ops("remove the sofa")).toEqual([{ op: "remove", id: "f2" }]);
+    expect(ops("make it clear glass")).not.toEqual([{ op: "clear", scope: "room" }]);
+  });
+});

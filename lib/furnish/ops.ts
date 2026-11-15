@@ -40,6 +40,10 @@ export const FurnishOp = z.discriminatedUnion("op", [
     pos: z.object({ x: z.number().finite(), z: z.number().finite() }).optional(), rotY: z.number().finite().optional() }),
   // Whole-room furnishing: the browser sends this to the layout planner (/api/furniture/plan) instead of applying it.
   z.object({ op: z.literal("furnish"), scope: z.enum(["room", "all"]), room: Name.optional() }),
+  // "room" = items whose center is in the camera's room; "all" = every placed item.
+  z.object({ op: z.literal("clear"), scope: z.enum(["room", "all"]) }),
+  // The browser restores its last snapshot instead of applying this.
+  z.object({ op: z.literal("undo") }),
   z.object({ op: z.literal("move"), id: Id, at: z.enum(ANCHORS) }),
   z.object({ op: z.literal("rotate"), id: Id, degrees: z.number().min(-360).max(360) }),
   z.object({ op: z.literal("remove"), id: Id }),
@@ -171,6 +175,15 @@ export function applyFurnishOps(items: Placed[], raw: unknown[], view: View, max
   const reject = (op: FurnishOp, reason: string) => rejected.push({ op, reason });
   for (const op of ops) {
     if (op.op === "furnish") { reject(op, "furnishing a whole room goes through the layout planner"); continue; }
+    if (op.op === "undo") { reject(op, "undo goes through the tour's history"); continue; }
+    if (op.op === "clear") {
+      const poly = view.room?.polygon ?? [];
+      if (op.scope === "room" && poly.length < 3) { reject(op, "I can't tell which room you're in; walk into a room on the floor plan, or say \"clear everything\""); continue; }
+      value = op.scope === "all" ? [] : value.filter((p) => !pointInPolygon(toPlan(p.pos), poly));
+      if (!value.some((p) => p.id === selected)) selected = undefined;
+      applied.push(op);
+      continue;
+    }
     if (op.op === "add" && op.pos) {
       const pos = { x: op.pos.x, y: view.floorY, z: op.pos.z }, typical = typicalSize(op.name);
       const size = underCeiling(clampSize(op.size ?? typical.size), roomAt(pos, view)?.ceiling), id = nextId(value);

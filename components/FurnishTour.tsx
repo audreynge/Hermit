@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { load, save } from "@/lib/client/store";
 import { COLORS, ftIn, MATERIAL_NAMES, type FurnishItem, type Size } from "@/lib/furnish/catalog";
 import { fitModel } from "@/lib/furnish/fit";
-import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
+import { applyFurnishOps, dimensionLines, dims, fromMeasurement, hitItem, roomAt, settle, underCeiling, type FurnishResult, type Model, type Placed, type View, type Vec } from "@/lib/furnish/ops";
 import { planRooms } from "@/lib/furnish/layout";
 import { createScene, type FurnishScene, type LoadState } from "@/lib/furnish/scene";
 import type { Rejected } from "@/lib/design/layout-ops";
@@ -24,6 +24,7 @@ const SWATCHES = ["white", "black", "gray", "beige", "walnut", "oak", "navy", "s
 const STARTUP_MS = 25_000;
 const MAX_TRIES = 3;
 const NUDGE_M = 0.1;
+const MAX_UNDO = 20;
 const STATUS_TEXT: Record<Status, string> = { searching: "Finding a model…", loading: "Loading…", ready: "", none: "Box: no 3D model found", failed: "Box: model didn't load" };
 const json = async <T,>(url: string, body?: unknown): Promise<T> => {
   const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -207,12 +208,25 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
     return undefined;
   }, []);
 
-  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec, max?: number) => {
-    const r = applyFurnishOps(state.current.items, ops, makeView(point, ahead), max);
+  // The item list before each change made through apply or furnish, newest last; undo restores the last one.
+  const history = useRef<Placed[][]>([]);
+  const commit = useCallback((before: Placed[], r: FurnishResult) => {
+    if (r.value !== before) history.current = [...history.current.slice(-(MAX_UNDO - 1)), before];
     setItems(r.value);
     setSelected(r.selected);
     return r;
-  }, [makeView]);
+  }, []);
+  const undo = useCallback(() => {
+    const prev = history.current.pop();
+    if (!prev) return "Nothing to undo.";
+    setItems(prev);
+    setSelected((s) => (prev.some((p) => p.id === s) ? s : undefined));
+    return "Undid the last change.";
+  }, []);
+  const apply = useCallback((ops: object[], point?: Vec, ahead?: Vec, max?: number) => {
+    const before = state.current.items;
+    return commit(before, applyFurnishOps(before, ops, makeView(point, ahead), max));
+  }, [makeView, commit]);
 
   const placeCard = useCallback(async (c: Card, point?: Vec) => {
     const r = apply([{ op: "add", name: c.name, terms: c.terms, ...(c.size && { size: c.size }), at: point ? "point" : "front" }], point, point ? undefined : await visibleAhead());
@@ -297,11 +311,12 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
     };
   }, [ready, apply, placeCard, makeView]);
 
-  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray.
+  // Keyboard: Esc closes a popover, then deselects; arrows nudge; R rotates; Delete removes; T toggles the tray; Ctrl/Cmd+Z undoes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (popover || state.current.selected)) { e.stopPropagation(); if (popover) setPopover(null); else setSelected(undefined); return; }
       if (typing(e) || !ready) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); setToast(undo()); return; }
       if (e.key === "t" || e.key === "T") { setTrayOpen((o) => !o); return; }
       const p = state.current.items.find((x) => x.id === state.current.selected);
       if (!p) return;
@@ -316,7 +331,7 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [popover, ready, apply]);
+  }, [popover, ready, apply, undo]);
 
   // Dimension overlay: the selected item's width/depth/height and gap to the wall, plus the measurement being drawn,
   // projected every frame so the lines follow the camera. Labels in feet and inches.
@@ -400,8 +415,9 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
   }, [ready, measuring, apply, makeView]);
 
   /** "Furnish this place": the layout planner picks items for the user's use and places them in the target rooms. Only
-   *  rooms on the current floor: the floor height is only known where the user stands. Returns the reply to show. */
-  async function furnish(req: FurnishRequest, message: string): Promise<string> {
+   *  rooms on the current floor: the floor height is only known where the user stands. With `clear` (refurnish) the
+   *  target rooms, or everything, are emptied first so pieces don't stack; one undo restores the old layout. Returns the reply to show. */
+  async function furnish(req: FurnishRequest, message: string, clear?: "room" | "all"): Promise<string> {
     const g = report.floorplan, here = g?.rooms.find((r) => r.id === room?.id);
     if (!g || !here) return "Walk into a room that's on the floor plan first, then ask again.";
     const floor = g.rooms.filter((r) => r.floorId === here.floorId && r.polygon.length >= 3);
@@ -410,13 +426,18 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
     const targets = req.scope === "all" ? floor : want ? floor.filter(named) : [here];
     if (!targets.length) return g.rooms.some(named) ? `The ${want} is on another floor. Go there and ask again.` : `I couldn't find a ${want} on the floor plan.`;
     const ordered = [...targets].sort((a, b) => Number(b.id === here.id) - Number(a.id === here.id)); // this room gets first pick of the item budget
+    // Clears the furnish targets (a named room isn't necessarily the one the camera is in).
+    const keep = (list: Placed[]) => clear === "all" ? [] : clear === "room"
+      ? targets.reduce((cur, t) => applyFurnishOps(cur, [{ op: "clear", scope: "room" }], { ...makeView(), room: t }).value, list) : list;
     const out = await json<{ ops: object[]; reply: string }>("/api/furniture/plan", {
       text: message, use: use.slice(0, 80), rooms: planRooms(g, ordered.slice(0, 12).map((r) => r.id)),
-      placed: state.current.items.slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
+      placed: keep(state.current.items).slice(0, 60).map((p) => ({ name: p.name, pos: { x: p.pos.x, z: p.pos.z }, size: dims(p), rotY: p.rotY })),
       ...(chairIn && { access: { chairWidthIn: chairIn } }),
     });
-    const r = out.ops.length ? apply(out.ops, undefined, undefined, out.ops.length) : null;
-    return r?.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply;
+    // Re-read the items: models may have loaded while the planner ran.
+    const before = state.current.items;
+    const r = commit(before, applyFurnishOps(keep(before), out.ops, makeView(), out.ops.length));
+    return r.rejected.length ? `${out.reply} I couldn't place part of it: ${rejectedText(r.rejected)}.` : out.reply;
   }
 
   async function send(t = text) {
@@ -427,8 +448,13 @@ export function FurnishTour({ report, use, chairIn, stop, stops, onFail }: { rep
       const out = await json<{ ops: object[]; reply: string }>("/api/furniture/edit", {
         text: message, items: items.map(({ id, name }) => ({ id, name })), selected, room: room?.label, suggestions,
       });
-      const plan = out.ops.find((o): o is FurnishRequest => (o as { op?: string }).op === "furnish");
-      if (plan) { setToast(await furnish(plan, message)); return; }
+      const kind = (o: object) => (o as { op?: string }).op;
+      if (out.ops.some((o) => kind(o) === "undo")) { setToast(undo()); return; }
+      const i = out.ops.findIndex((o) => kind(o) === "furnish");
+      if (i >= 0) {
+        const clear = out.ops.slice(0, i).find((o) => kind(o) === "clear") as { scope: "room" | "all" } | undefined; // refurnish
+        setToast(await furnish(out.ops[i] as FurnishRequest, message, clear?.scope)); return;
+      }
       const r = out.ops.length ? apply(out.ops, pointer.current, await visibleAhead()) : null;
       setToast(!r?.rejected.length ? out.reply : !r.applied.length ? `I couldn't do that: ${rejectedText(r.rejected)}.` : `${out.reply} I couldn't do part of that: ${rejectedText(r.rejected)}.`);
     } catch {

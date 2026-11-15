@@ -7,7 +7,7 @@ import { MATERIAL_NAMES, normName, type FurnishItem } from "./catalog";
 import { parseFurnish, WHOLE_PLACE } from "./offline";
 
 const FlatOp = z.object({
-  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish"]),
+  op: z.enum(["add", "move", "rotate", "remove", "recolor", "swap", "resize", "furnish", "clear", "undo"]),
   scope: z.enum(["room", "all"]).nullish(), room: z.string().nullish(),
   id: z.string().nullish(), name: z.string().nullish(), terms: z.array(z.string()).nullish(), count: z.number().nullish(),
   at: z.enum(["point", "front", "center", "wall"]).nullish(), color: z.string().nullish(), material: z.string().nullish(), degrees: z.number().nullish(),
@@ -23,6 +23,9 @@ Ops:
 - resize {id, dim, value, unit} or resize {id, scale}: always proportional; dim = w (width), d (depth) or h (height), value and unit exactly as the user said them (in, ft, cm, m; "3 ft 6 in" = value 42, unit in); scale for "20% bigger" (1.2), "half the size" (0.5).
 - move {id, at}, rotate {id, degrees} (positive = clockwise from above, "around" = 180), remove {id}, recolor {id, color?, material?}, swap {id, name, terms} (a different kind or model of item in the same spot).
 - furnish {scope, room?}: the user wants a room or the whole place furnished, set up or filled for their use ("furnish this place", "set this up as a dental office", "fill the bedroom"). scope "room" = one room (room = the room's name if they named one, else null for the room they're in); "all" = every room ("this place", "the whole unit", "everything", "the apartment"; "place" always means all rooms). Code plans and places the items; don't also add them.
+- clear {scope}: remove placed furniture in bulk. scope "room" = the room they're in ("clear this room", "empty the room", "delete all the furniture"); "all" = every placed item ("remove everything", "clear the whole place").
+- undo {}: put things back as they were before the last change ("undo", "undo that", "take that back", "go back"). Return it alone.
+- Redoing a layout ("refurnish", "start over and furnish", "redo the layout") = clear then furnish with the same scope: [clear {scope}, furnish {scope, room?}].
 at: "point" = the spot the user clicked or is pointing at ("here", "there", "this spot"); "front" = in front of them (default for add); "center" = middle of the room; "wall" = against the nearest wall.
 color: a plain color name or #rrggbb. material: one of ${MATERIAL_NAMES.join(", ")}.
 Use only listed item ids. "it"/"this" means the selected item. If the message is unclear, or names an item that isn't placed, return no ops and ask one short question in reply.
@@ -56,9 +59,13 @@ function offline(input: EditIn, why?: string): EditOut {
   return { ops: enrich(p.ops, input.suggestions), reply: `Done${note}.`, source: "offline" };
 }
 
-/** Gemini tends to echo the current room into a furnish request; "this place" / "the whole unit" means every room. */
-const wholePlace = (ops: object[], text: string) =>
-  WHOLE_PLACE.test(text) ? ops.map((o) => ((o as { op: string }).op === "furnish" ? { op: "furnish", scope: "all" } : o)) : ops;
+/** Gemini tends to echo the current room into a furnish request; "this place" / "the whole unit" means every room.
+ *  A clear that comes with the furnish (refurnish) follows it, so the rooms it empties are the ones it fills. */
+const wholePlace = (ops: object[], text: string) => {
+  if (!WHOLE_PLACE.test(text)) return ops;
+  const furnishing = ops.some((o) => (o as { op: string }).op === "furnish");
+  return ops.map((o) => { const op = (o as { op: string }).op; return op === "furnish" || (op === "clear" && furnishing) ? { op, scope: "all" } : o; });
+};
 
 export async function furnishEdit(input: EditIn, gemini?: GeminiClient | null): Promise<EditOut> {
   const g = gemini !== undefined ? gemini : await geminiClient().catch(() => null);

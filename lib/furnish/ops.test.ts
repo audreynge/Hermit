@@ -255,3 +255,25 @@ describe("Matterport measurements", () => {
     expect(applyFurnishOps([], ops, view(), ops.length).value).toHaveLength(14);
   });
 });
+
+describe("applyFurnishOps: clear and undo", () => {
+  // f1 in the kitchen, f2 outside it (plan x 1, y -1).
+  const items = [add([], { name: "stove", pos: { x: 6, z: 1 } }).value[0], { ...add([], { name: "sofa", pos: { x: 6, z: 1 } }).value[0], id: "f2", pos: { x: 1, y: 0, z: 1 } }];
+
+  it("clears only the items in the camera's room, and the selection with them", () => {
+    const r = applyFurnishOps(items, [{ op: "clear", scope: "room" }], view({ selected: "f1" }));
+    expect(r.value.map((p) => p.id)).toEqual(["f2"]);
+    expect(r.selected).toBeUndefined();
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "room" }], view({ selected: "f2" })).selected).toBe("f2");
+  });
+
+  it("clears everything", () => {
+    expect(applyFurnishOps(items, [{ op: "clear", scope: "all" }], view({ room: undefined })).value).toEqual([]);
+  });
+
+  it("rejects clearing the room when there's no room outline, and leaves undo to the tour", () => {
+    const r = applyFurnishOps(items, [{ op: "clear", scope: "room" }, { op: "undo" }], view({ room: undefined }));
+    expect(r.value).toBe(items);
+    expect(r.rejected.map((x) => x.reason)).toEqual([expect.stringMatching(/which room/), expect.stringMatching(/history/)]);
+  });
+});
